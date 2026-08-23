@@ -21,14 +21,10 @@ export const HeroCarousel: React.FC = () => {
         className="
           relative
           w-full
-          h-[50vh]
-          min-h-[320px]
-          sm:h-[60vh]
-          md:h-[70vh]
-          lg:h-[80vh]
-          xl:h-screen
+          aspect-[1376/768]
           overflow-hidden
         "
+        style={{ aspectRatio: '1376 / 768' }}
       >
         {HERO_SLIDES.map((slide, index) => {
           const imageSrc =
@@ -61,7 +57,7 @@ export const HeroCarousel: React.FC = () => {
                   block
                   w-full
                   h-full
-                  object-fill
+                  object-cover
                 "
               />
             </div>
