@@ -13,6 +13,7 @@ import catUnstitchedLawn from '@/src/assets/images/cat_unstitched_lawn_178466890
 import prodPretKurti from '@/src/assets/images/prod_pret_kurti_1784669264016.jpg';
 import catLuxuryFormals from '@/src/assets/images/cat_luxury_pret_1784668945182.jpg';
 import calloutRtw from '@/src/assets/images/callout_rtw_1784669029753.jpg';
+import BagAccess from '@/src/assets/images/back.png';
 
 import campaignMastaniPortrait from '@/src/assets/images/campaign_mastani_portrait_1784669111434.jpg';
 import coutureMerjan from '@/src/assets/images/couture_merjan_1784669229241.jpg';
@@ -370,11 +371,11 @@ export const NEW_ARRIVALS_CATEGORIES: CategoryCard[] = [
     title: 'FORMALS',
     image: calloutRtw,
   },
-  // {
-  //   id: 'cat-4',
-  //   title: 'SILK JACQUARD',
-  //   image: calloutRtw,
-  // },
+  {
+    id: 'cat-4',
+    title: 'ACCESSORIES',
+    image: BagAccess,
+  },
 ];
 
 export const TRENDING_TAB_CATEGORIES = [
