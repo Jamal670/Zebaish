@@ -108,7 +108,7 @@ export function ResponsiveTable<T>({
       <div className="hidden sm:block border border-stone-200 rounded-xl overflow-hidden bg-white shadow-2xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs sm:text-sm">
-            <thead className="bg-stone-100 text-stone-700 font-bold uppercase tracking-wider text-[10px] sm:text-xs border-b border-stone-200">
+            <thead className="bg-stone-100 text-stone-700 font-bold uppercase tracking-wider text-2xs sm:text-xs border-b border-stone-200">
               <tr>
                 {columns.map((col, idx) => (
                   <th
@@ -165,7 +165,7 @@ export function ResponsiveTable<T>({
 
                 return (
                   <div key={colIdx} className="flex justify-between items-start gap-2">
-                    <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider shrink-0">
+                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider shrink-0">
                       {col.header}:
                     </span>
                     <div className="text-right font-medium text-stone-900 overflow-hidden">

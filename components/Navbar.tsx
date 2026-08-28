@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Menu, Search, Heart, User, ShoppingBag } from 'lucide-react';

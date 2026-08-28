@@ -101,7 +101,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
         {/* Modal Header */}
         <div className="px-4 py-3 sm:px-6 sm:py-4 bg-stone-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2 sm:space-x-3 truncate">
-            <span className="font-mono text-[10px] sm:text-xs text-amber-400 bg-stone-800 border border-stone-700 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-sm uppercase tracking-wider font-bold shrink-0">
+            <span className="font-mono text-2xs sm:text-xs text-amber-400 bg-stone-800 border border-stone-700 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-sm uppercase tracking-wider font-bold shrink-0">
               ORDER DETAIL
             </span>
             <h2 className="text-sm sm:text-base lg:text-lg font-bold tracking-tight text-stone-100 truncate">
@@ -151,17 +151,17 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
               <div className="bg-stone-50 border border-stone-200 rounded-lg p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-[10px] sm:text-xs text-stone-500 uppercase tracking-wide font-bold">Order Number</span>
+                    <span className="text-2xs sm:text-xs text-stone-500 uppercase tracking-wide font-bold">Order Number</span>
                     <span className="font-mono text-xs sm:text-sm font-bold text-stone-900">#{detail.order_number}</span>
                   </div>
-                  <div className="mt-1 text-[10px] sm:text-xs text-stone-500 space-x-2 sm:space-x-3">
+                  <div className="mt-1 text-2xs sm:text-xs text-stone-500 space-x-2 sm:space-x-3">
                     <span>Placed: <strong className="text-stone-700">{formatDate(detail.created_at)}</strong></span>
                     <span>Updated: <strong className="text-stone-700">{formatDate(detail.updated_at)}</strong></span>
                   </div>
                 </div>
 
                 <div className="flex items-center space-x-2 sm:space-x-3">
-                  <span className="text-[10px] sm:text-xs font-semibold text-stone-500 uppercase tracking-wider">Status:</span>
+                  <span className="text-2xs sm:text-xs font-semibold text-stone-500 uppercase tracking-wider">Status:</span>
                   <StatusDropdown
                     sellerOrderId={detail.seller_order_id}
                     sellerId={detail.seller_id}
@@ -185,7 +185,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                       Customer Details
                     </h3>
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${detail.customer.is_registered
+                      className={`text-2xs font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${detail.customer.is_registered
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-stone-100 text-stone-600'
                         }`}
@@ -210,21 +210,21 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                       </svg>
                       Shipping Address
                     </h3>
-                    <span className="text-[10px] font-bold text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full uppercase shrink-0">
+                    <span className="text-2xs font-bold text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full uppercase shrink-0">
                       {detail.shipping.city}
                     </span>
                   </div>
                   <div className="text-xs sm:text-sm space-y-1 pt-1 text-stone-800">
                     <p className="font-medium leading-relaxed">{detail.shipping.address}</p>
-                    <p className="text-stone-500 text-[10px] sm:text-xs">
+                    <p className="text-stone-500 text-2xs sm:text-xs">
                       City: <strong className="text-stone-900">{detail.shipping.city}</strong> &bull; Postal Code: <strong className="text-stone-900">{detail.shipping.postal_code || 'N/A'}</strong>
                     </p>
                     {(detail.courier_name || detail.tracking_number) && (
                       <div className="pt-2 border-t border-stone-100 mt-1">
-                        <p className="text-[11px] text-stone-600 font-semibold flex items-center space-x-1">
+                        <p className="text-xs text-stone-600 font-semibold flex items-center space-x-1">
                           <span>Courier: <strong className="text-amber-800 font-bold">{detail.courier_name || 'N/A'}</strong></span>
                           {detail.tracking_number && (
-                            <span className="ml-2 font-mono text-stone-800 text-[10px] bg-stone-100 px-1.5 py-0.5 rounded border border-stone-200">
+                            <span className="ml-2 font-mono text-stone-800 text-2xs bg-stone-100 px-1.5 py-0.5 rounded border border-stone-200">
                               Trk: {detail.tracking_number}
                             </span>
                           )}
@@ -244,14 +244,14 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                     </svg>
                     Items Purchased
                   </h3>
-                  <span className="text-[10px] sm:text-xs text-stone-500 font-semibold">
+                  <span className="text-2xs sm:text-xs text-stone-500 font-semibold">
                     {detail.items.length} {detail.items.length === 1 ? 'Item' : 'Items'}
                   </span>
                 </div>
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs sm:text-sm min-w-[500px] sm:min-w-0">
-                    <thead className="bg-stone-100/70 border-b border-stone-200 text-stone-600 font-bold uppercase tracking-wider text-[10px] sm:text-xs whitespace-nowrap">
+                    <thead className="bg-stone-100/70 border-b border-stone-200 text-stone-600 font-bold uppercase tracking-wider text-2xs sm:text-xs whitespace-nowrap">
                       <tr>
                         <th className="py-2.5 px-3 sm:py-3 sm:px-4">Product Title</th>
                         <th className="py-2.5 px-3 sm:py-3 sm:px-4">Brand</th>
@@ -295,7 +295,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                     <span className="text-stone-500">
                       Status:{' '}
                       <span
-                        className={`font-bold px-2 py-0.5 rounded-full text-[10px] sm:text-xs uppercase ${detail.payment.status === 'Paid'
+                        className={`font-bold px-2 py-0.5 rounded-full text-2xs sm:text-xs uppercase ${detail.payment.status === 'Paid'
                             ? 'bg-emerald-100 text-emerald-800'
                             : detail.payment.status === 'Pending'
                               ? 'bg-amber-100 text-amber-800'
@@ -309,7 +309,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </div>
 
                 <div className="text-left sm:text-right">
-                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block">YOUR SELLER SHARE</span>
+                  <span className="text-2xs font-bold text-stone-400 uppercase tracking-widest block">YOUR SELLER SHARE</span>
                   <span className="text-base sm:text-lg lg:text-xl font-bold text-stone-900 font-mono">
                     Rs. {detail.seller_total.toLocaleString()}
                   </span>

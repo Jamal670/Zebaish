@@ -19,8 +19,8 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateReseller, onNavigateSe
             <div className="font-script text-3xl font-normal text-stone-900 mb-2">Zebaish</div>
             <p className="text-stone-700">5.5 KM, Raiwind Road (Near Fatehbad Village)</p>
             <p className="text-stone-700">Lahore, Pakistan.</p>
-            <p className="pt-2">Call: +92 316-7156734</p>
-            <p>WhatsApp: +92 316-7156734</p>
+            <p className="pt-2">Call: +1 (424) 433-3993, +923111162742</p>
+            <p>WhatsApp: +923154001914</p>
             <p>Email: help@zebaish.com</p>
           </div>
 

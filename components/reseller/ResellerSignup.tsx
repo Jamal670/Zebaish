@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+'use client';
+
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Store, ArrowRight, CheckCircle2, User, Mail, Lock, AlertCircle, Loader2, Camera, Upload, FileText, X, Trash2 } from 'lucide-react';
+import { Store, ArrowRight, CheckCircle2, User, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import supabase from '@/src/api/client';
-import useAuth from '@/src/hooks/useAuth';
+import { useAuth } from '@/src/hooks/useAuth';
 import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/context/AppContext';
 
@@ -91,34 +93,6 @@ function parseSupabaseError(err: any): string {
   return err.message || 'Registration failed. Please check your information and try again.';
 }
 
-/**
- * Uploads seller CNIC document (front/back) to Supabase Storage
- */
-async function uploadCnicDocument(sellerId: string, file: File, side: 'front' | 'back'): Promise<string> {
-  const fileExt = file.name.split('.').pop() || 'png';
-  const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-  const filePath = `cnic/${sellerId}_${side}_${Date.now()}_${cleanName}`;
-
-  const targetBuckets = ['cnic-documents', 'products', 'seller-avatars'];
-
-  for (const bucket of targetBuckets) {
-    try {
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-      if (!uploadError) {
-        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
-        if (urlData?.publicUrl) return urlData.publicUrl;
-      }
-    } catch (err) {
-      console.warn(`Upload attempt failed for bucket ${bucket}:`, err);
-    }
-  }
-
-  return URL.createObjectURL(file);
-}
-
 export const ResellerSignup: React.FC<ResellerSignupProps> = ({
   onSignupSuccess,
   onNavigateLogin,
@@ -148,53 +122,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
     agreedToTerms: false,
   });
 
-  const [cnicFrontFile, setCnicFrontFile] = useState<File | null>(null);
-  const [cnicBackFile, setCnicBackFile] = useState<File | null>(null);
-
-  const frontInputRef = useRef<HTMLInputElement>(null);
-  const backInputRef = useRef<HTMLInputElement>(null);
-
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const handleFileChange = (side: 'front' | 'back', file?: File | null) => {
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setErrors((prev) => ({
-        ...prev,
-        [side === 'front' ? 'cnicFront' : 'cnicBack']: 'Please select a valid image file (PNG, JPG, WEBP).',
-      }));
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setErrors((prev) => ({
-        ...prev,
-        [side === 'front' ? 'cnicFront' : 'cnicBack']: 'Image size must be under 10MB.',
-      }));
-      return;
-    }
-
-    if (side === 'front') {
-      setCnicFrontFile(file);
-      setErrors((prev) => ({ ...prev, cnicFront: '' }));
-    } else {
-      setCnicBackFile(file);
-      setErrors((prev) => ({ ...prev, cnicBack: '' }));
-    }
-  };
-
-  const removeCnicImage = (side: 'front' | 'back') => {
-    if (side === 'front') {
-      setCnicFrontFile(null);
-      if (frontInputRef.current) frontInputRef.current.value = '';
-      setErrors((prev) => ({ ...prev, cnicFront: 'CNIC front image is required.' }));
-    } else {
-      setCnicBackFile(null);
-      if (backInputRef.current) backInputRef.current.value = '';
-      setErrors((prev) => ({ ...prev, cnicBack: 'CNIC back image is required.' }));
-    }
-  };
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -231,12 +159,6 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         if (digits.length !== 13) return 'CNIC must be exactly 13 digits (e.g. 35202-1234567-1).';
         return '';
       }
-      case 'cnicFront':
-        if (!cnicFrontFile) return 'CNIC front image is required.';
-        return '';
-      case 'cnicBack':
-        if (!cnicBackFile) return 'CNIC back image is required.';
-        return '';
       case 'phone': {
         const digits = getCleanPhoneDigits(value);
         if (!digits) return 'Phone number is required.';
@@ -265,8 +187,6 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
       fullName: validateField('fullName', formData.fullName),
       shopName: validateField('shopName', formData.shopName),
       cnic: validateField('cnic', formData.cnic),
-      cnicFront: validateField('cnicFront', cnicFrontFile),
-      cnicBack: validateField('cnicBack', cnicBackFile),
       phone: validateField('phone', formData.phone),
       city: validateField('city', formData.city),
       address: validateField('address', formData.address),
@@ -332,27 +252,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         return;
       }
 
-      // 3. Upload CNIC Front and Back images to storage
-      let frontUrl = '';
-      let backUrl = '';
-
-      if (cnicFrontFile && cnicBackFile) {
-        try {
-          const [uFront, uBack] = await Promise.all([
-            uploadCnicDocument(authUser.id, cnicFrontFile, 'front'),
-            uploadCnicDocument(authUser.id, cnicBackFile, 'back'),
-          ]);
-          frontUrl = uFront;
-          backUrl = uBack;
-        } catch (imgErr) {
-          console.error('CNIC document upload error:', imgErr);
-          setErrorMessage('Failed to upload CNIC identity documents. Please try again.');
-          setLoading(false);
-          return;
-        }
-      }
-
-      // 4. Insert seller profile into database
+      // 3. Insert seller profile into database
       const formattedCnic = formData.cnic.trim();
       const formattedPhone = formData.phone.trim();
 
@@ -364,8 +264,6 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
           full_name: formData.fullName.trim(),
           shop_name: formData.shopName.trim(),
           cnic: formattedCnic,
-          cnic_img_front: frontUrl,
-          cnic_img_back: backUrl,
           phone: formattedPhone,
           city: formData.city.trim(),
           address: formData.address.trim(),
@@ -420,17 +318,19 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
             Join 350+ verified Pakistani boutique sellers liquidating authentic Khaadi, Sapphire, Maria B, and Gul Ahmed leftover stock to nationwide.
           </p>
 
-          <div className="mt-6 flex flex-wrap justify-center gap-6 text-xs text-stone-300">
-            <div className="flex items-center space-x-1.5">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
+          <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6 text-xs text-stone-300">
+            <div className="flex items-center justify-center space-x-1.5">
+              <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
               <span>Zero Listing Monthly Fee</span>
             </div>
-            <div className="flex items-center space-x-1.5">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
-              <span>Direct Bank / EasyPaisa Payouts</span>
+
+            <div className="flex items-center justify-center space-x-1.5">
+              <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Bank / EasyPaisa Payouts</span>
             </div>
-            <div className="flex items-center space-x-1.5">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
+
+            <div className="col-span-2 sm:col-span-1 flex items-center justify-center space-x-1.5">
+              <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
               <span>Automated TCS / Leopards Pickup</span>
             </div>
           </div>
@@ -494,7 +394,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     />
                     <Mail className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {errors.email && <p className="text-2xs text-red-600 font-medium mt-1">{errors.email}</p>}
+                  {errors.email && <p className="text-xs text-red-600 font-medium mt-1">{errors.email}</p>}
                 </div>
 
                 <div>
@@ -520,7 +420,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     />
                     <Lock className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {errors.password && <p className="text-2xs text-red-600 font-medium mt-1">{errors.password}</p>}
+                  {errors.password && <p className="text-xs text-red-600 font-medium mt-1">{errors.password}</p>}
                 </div>
               </div>
             </div>
@@ -535,7 +435,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="font-semibold text-stone-700 block mb-1">
-                    Full Name (as per CNIC) <span className="text-red-600">*</span>
+                    Full Name <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="text"
@@ -553,7 +453,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     className={`w-full p-2.5 border rounded-xs focus:outline-none ${errors.fullName ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
                       }`}
                   />
-                  {errors.fullName && <p className="text-2xs text-red-600 font-medium mt-1">{errors.fullName}</p>}
+                  {errors.fullName && <p className="text-xs text-red-600 font-medium mt-1">{errors.fullName}</p>}
                 </div>
 
                 <div>
@@ -576,7 +476,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     className={`w-full p-2.5 border rounded-xs focus:outline-none ${errors.shopName ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
                       }`}
                   />
-                  {errors.shopName && <p className="text-2xs text-red-600 font-medium mt-1">{errors.shopName}</p>}
+                  {errors.shopName && <p className="text-xs text-red-600 font-medium mt-1">{errors.shopName}</p>}
                 </div>
 
                 <div>
@@ -601,10 +501,8 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     className={`w-full p-2.5 border rounded-xs focus:outline-none ${errors.cnic ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
                       }`}
                   />
-                  {errors.cnic && <p className="text-2xs text-red-600 font-medium mt-1">{errors.cnic}</p>}
+                  {errors.cnic && <p className="text-xs text-red-600 font-medium mt-1">{errors.cnic}</p>}
                 </div>
-
-                
 
                 <div>
                   <label className="font-semibold text-stone-700 block mb-1">
@@ -627,7 +525,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     className={`w-full p-2.5 border rounded-xs focus:outline-none ${errors.phone ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
                       }`}
                   />
-                  {errors.phone && <p className="text-2xs text-red-600 font-medium mt-1">{errors.phone}</p>}
+                  {errors.phone && <p className="text-xs text-red-600 font-medium mt-1">{errors.phone}</p>}
                 </div>
 
                 <div>
@@ -650,7 +548,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     className={`w-full p-2.5 border rounded-xs focus:outline-none ${errors.city ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
                       }`}
                   />
-                  {errors.city && <p className="text-2xs text-red-600 font-medium mt-1">{errors.city}</p>}
+                  {errors.city && <p className="text-xs text-red-600 font-medium mt-1">{errors.city}</p>}
                 </div>
 
                 <div>
@@ -673,162 +571,37 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                     className={`w-full p-2.5 border rounded-xs focus:outline-none ${errors.address ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
                       }`}
                   />
-                  {errors.address && <p className="text-2xs text-red-600 font-medium mt-1">{errors.address}</p>}
-                </div>
-              </div>
-
-              {/* 3. CNIC Identity Documents */}
-              <div className="space-y-4 pt-2">
-                <h3 className="font-bold text-stone-900 uppercase tracking-wider text-xs border-b border-stone-100 pb-2 flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-stone-500" />
-                  <span>3. CNIC Identity Documents</span>
-                </h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* CNIC Front Field */}
-                  <div>
-                    <label className="font-semibold text-stone-700 block mb-1">
-                      CNIC Front Image <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      ref={frontInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleFileChange('front', e.target.files?.[0])}
-                    />
-                    {cnicFrontFile ? (
-                      <div className="flex items-center justify-between p-2.5 border border-emerald-300 bg-emerald-50/50 rounded-xs min-h-[42px]">
-                        <div className="flex items-center space-x-2 min-w-0 pr-2">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span className="text-2xs font-medium text-stone-800 truncate" title={cnicFrontFile.name}>
-                            {cnicFrontFile.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => frontInputRef.current?.click()}
-                            className="text-2xs text-stone-600 hover:text-stone-900 font-semibold underline cursor-pointer px-1"
-                          >
-                            Change
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeCnicImage('front')}
-                            className="text-stone-400 hover:text-red-600 p-0.5 rounded cursor-pointer"
-                            title="Remove File"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={() => frontInputRef.current?.click()}
-                        className={`flex items-center justify-between p-2.5 border rounded-xs cursor-pointer transition-colors min-h-[42px] bg-white hover:border-stone-400 ${
-                          errors.cnicFront ? 'border-red-500 bg-red-50/20' : 'border-stone-300'
-                        }`}
-                      >
-                        <span className="text-2xs text-stone-400 font-normal truncate">
-                          Select CNIC Front file...
-                        </span>
-                        <div className="flex items-center space-x-1.5 text-stone-600 shrink-0">
-                          <Upload className="w-4 h-4 text-stone-400" />
-                          <span className="text-2xs font-semibold">Browse</span>
-                        </div>
-                      </div>
-                    )}
-                    {errors.cnicFront && <p className="text-2xs text-red-600 font-medium mt-1">{errors.cnicFront}</p>}
-                  </div>
-
-                  {/* CNIC Back Field */}
-                  <div>
-                    <label className="font-semibold text-stone-700 block mb-1">
-                      CNIC Back Image <span className="text-red-600">*</span>
-                    </label>
-                    <input
-                      ref={backInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => handleFileChange('back', e.target.files?.[0])}
-                    />
-                    {cnicBackFile ? (
-                      <div className="flex items-center justify-between p-2.5 border border-emerald-300 bg-emerald-50/50 rounded-xs min-h-[42px]">
-                        <div className="flex items-center space-x-2 min-w-0 pr-2">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span className="text-2xs font-medium text-stone-800 truncate" title={cnicBackFile.name}>
-                            {cnicBackFile.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => backInputRef.current?.click()}
-                            className="text-2xs text-stone-600 hover:text-stone-900 font-semibold underline cursor-pointer px-1"
-                          >
-                            Change
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeCnicImage('back')}
-                            className="text-stone-400 hover:text-red-600 p-0.5 rounded cursor-pointer"
-                            title="Remove File"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={() => backInputRef.current?.click()}
-                        className={`flex items-center justify-between p-2.5 border rounded-xs cursor-pointer transition-colors min-h-[42px] bg-white hover:border-stone-400 ${
-                          errors.cnicBack ? 'border-red-500 bg-red-50/20' : 'border-stone-300'
-                        }`}
-                      >
-                        <span className="text-2xs text-stone-400 font-normal truncate">
-                          Select CNIC Back file...
-                        </span>
-                        <div className="flex items-center space-x-1.5 text-stone-600 shrink-0">
-                          <Upload className="w-4 h-4 text-stone-400" />
-                          <span className="text-2xs font-semibold">Browse</span>
-                        </div>
-                      </div>
-                    )}
-                    {errors.cnicBack && <p className="text-2xs text-red-600 font-medium mt-1">{errors.cnicBack}</p>}
-                  </div>
+                  {errors.address && <p className="text-xs text-red-600 font-medium mt-1">{errors.address}</p>}
                 </div>
               </div>
             </div>
 
             {/* Terms Checkbox */}
             <div className="pt-2">
-              <div className="flex items-start space-x-2.5 text-stone-700">
+              <label className="flex items-start space-x-2 cursor-pointer text-stone-700">
                 <input
                   type="checkbox"
-                  id="agreedToTerms"
                   required
                   checked={formData.agreedToTerms}
                   onChange={(e) => {
                     setFormData({ ...formData, agreedToTerms: e.target.checked });
                     if (errors.agreedToTerms) setErrors((prev) => ({ ...prev, agreedToTerms: '' }));
                   }}
-                  className="mt-0.5 w-4 h-4 accent-black cursor-pointer shrink-0"
+                  className="mt-0.5 w-4 h-4 accent-black cursor-pointer"
                 />
-                <label htmlFor="agreedToTerms" className="text-xs text-stone-700 cursor-pointer select-none">
+                <span>
                   I accept this{' '}
                   <Link
                     href="/privacy-policy"
                     onClick={(e) => e.stopPropagation()}
-                    className=" text-blue-600 underline hover:text-blue-800 transition-colors"
+                    className="text-blue-900 hover:text-black"
                   >
                     Privacy Policy
                   </Link>{' '}
                   and Terms & Conditions
-                </label>
-              </div>
-              {errors.agreedToTerms && <p className="text-2xs text-red-600 font-medium mt-1">{errors.agreedToTerms}</p>}
+                </span>
+              </label>
+              {errors.agreedToTerms && <p className="text-xs text-red-600 font-medium mt-1">{errors.agreedToTerms}</p>}
             </div>
 
             <div className="pt-4">
@@ -856,3 +629,5 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
     </div>
   );
 };
+
+export default ResellerSignup;

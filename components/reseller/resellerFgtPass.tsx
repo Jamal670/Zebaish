@@ -205,7 +205,7 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
                     />
                     <Mail className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {emailError && <p className="text-2xs text-red-600 font-medium mt-1">{emailError}</p>}
+                  {emailError && <p className="text-xs text-red-600 font-medium mt-1">{emailError}</p>}
                 </div>
               </div>
 

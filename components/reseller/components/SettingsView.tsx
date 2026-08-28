@@ -354,12 +354,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
           <div className="space-y-2 text-center sm:text-left flex-1">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded border border-amber-400/20">
+              <span className="text-2xs font-bold uppercase tracking-widest text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded border border-amber-400/20">
                 VERIFIED MARKETPLACE SELLER
               </span>
 
               <span
-                className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase border ${formData.status === 'Active'
+                className={`text-2xs font-extrabold px-2.5 py-0.5 rounded-full uppercase border ${formData.status === 'Active'
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                     : 'bg-red-500/20 text-red-300 border-red-500/40'
                   }`}

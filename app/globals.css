@@ -1,67 +1,41 @@
 @import "tailwindcss";
 
 @theme {
-  --text-3xs: clamp(0.55rem, 0.5rem + 0.2vw, 0.625rem);
-  --text-2xs: clamp(0.625rem, 0.575rem + 0.25vw, 0.75rem);
-  --text-xs: clamp(0.7rem, 0.65rem + 0.3vw, 0.8125rem);
-  --text-sm: clamp(0.8rem, 0.73rem + 0.35vw, 0.9375rem);
-  --text-base: clamp(0.875rem, 0.8rem + 0.4vw, 1.0625rem);
-  --text-lg: clamp(1rem, 0.9rem + 0.5vw, 1.2rem);
-  --text-xl: clamp(1.125rem, 1rem + 0.6vw, 1.35rem);
-  --text-2xl: clamp(1.25rem, 1.1rem + 0.8vw, 1.6rem);
-  --text-3xl: clamp(1.4rem, 1.2rem + 1.2vw, 2rem);
-  --text-4xl: clamp(1.65rem, 1.35rem + 1.6vw, 2.5rem);
-  --text-5xl: clamp(2rem, 1.6rem + 2.2vw, 3.25rem);
-  --text-6xl: clamp(2.4rem, 1.85rem + 3vw, 4rem);
-  --text-7xl: clamp(2.8rem, 2.1rem + 4vw, 5rem);
-  --text-8xl: clamp(3.5rem, 2.5rem + 5.5vw, 6.25rem);
-  --text-9xl: clamp(4.2rem, 3rem + 7vw, 7.5rem);
-}
-
-:root {
-  font-size: 14px;
-  --font-cinzel: 'Cinzel', serif;
-  --font-cormorant: 'Cormorant Garamond', serif;
-  --font-sans: 'Plus Jakarta Sans', sans-serif;
-  --font-script: 'Great Vibes', 'Alex Brush', 'Allura', cursive;
-}
-
-@media (min-width: 640px) {
-  :root {
-    font-size: 15px;
-  }
-}
-
-@media (min-width: 1024px) {
-  :root {
-    font-size: 16px;
-  }
-}
-
-@media (min-width: 1536px) {
-  :root {
-    font-size: 17px;
-  }
+  --text-2xs: clamp(0.625rem, 0.58rem + 0.2vw, 0.75rem);
+  --text-xs: clamp(0.6875rem, 0.63rem + 0.25vw, 0.8125rem);
+  --text-sm: clamp(0.8125rem, 0.74rem + 0.3vw, 0.9375rem);
+  --text-base: clamp(0.90625rem, 0.82rem + 0.38vw, 1.0625rem);
+  --text-lg: clamp(1.03125rem, 0.92rem + 0.48vw, 1.25rem);
+  --text-xl: clamp(1.15625rem, 1.02rem + 0.58vw, 1.4375rem);
+  --text-2xl: clamp(1.3125rem, 1.12rem + 0.82vw, 1.75rem);
+  --text-3xl: clamp(1.5rem, 1.22rem + 1.2vw, 2.25rem);
+  --text-4xl: clamp(1.8125rem, 1.4rem + 1.8vw, 2.85rem);
+  --text-5xl: clamp(2.25rem, 1.7rem + 2.4vw, 3.5rem);
+  --text-6xl: clamp(2.625rem, 1.9rem + 3.2vw, 4.5rem);
 }
 
 @layer base {
+  :root {
+    --font-cinzel: 'Cinzel', serif;
+    --font-cormorant: 'Cormorant Garamond', serif;
+    --font-sans: 'Plus Jakarta Sans', sans-serif;
+    --font-script: 'Great Vibes', 'Alex Brush', 'Allura', cursive;
+  }
+
   body {
     font-family: var(--font-sans);
-    font-size: var(--text-base);
   }
-  
-  h1, h2, h3, h4, .font-brand-serif {
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-brand-serif {
     font-family: var(--font-cormorant);
   }
 
-  h1 { font-size: var(--text-4xl); }
-  h2 { font-size: var(--text-3xl); }
-  h3 { font-size: var(--text-2xl); }
-  h4 { font-size: var(--text-xl); }
-  h5 { font-size: var(--text-lg); }
-  h6 { font-size: var(--text-base); }
-  
-  .font-brand-logo, .font-script {
+  .font-brand-logo,
+  .font-script {
     font-family: var(--font-script);
   }
 }
@@ -70,6 +44,7 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -77,11 +52,17 @@
 
 /* Custom animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out forwards;
 }
-

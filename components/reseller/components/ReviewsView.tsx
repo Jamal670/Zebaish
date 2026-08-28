@@ -94,7 +94,7 @@ export const ReviewsView: React.FC<ReviewsViewProps> = ({
     const norm = status ? status.toLowerCase() : 'approved';
     if (norm === 'approved') {
       return (
-        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
+        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-2xs sm:text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0">
           <CheckCircle className="w-3 h-3 text-emerald-600" />
           <span>Approved</span>
         </span>
@@ -102,14 +102,14 @@ export const ReviewsView: React.FC<ReviewsViewProps> = ({
     }
     if (norm === 'pending') {
       return (
-        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
+        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-2xs sm:text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
           <Clock className="w-3 h-3 text-amber-600" />
           <span>Pending</span>
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-rose-50 text-rose-800 border border-rose-200 shrink-0">
+      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-2xs sm:text-xs font-bold bg-rose-50 text-rose-800 border border-rose-200 shrink-0">
         <XCircle className="w-3 h-3 text-rose-600" />
         <span>Rejected</span>
       </span>
@@ -254,7 +254,7 @@ export const ReviewsView: React.FC<ReviewsViewProps> = ({
                           <span className="font-semibold text-stone-900 block line-clamp-1">
                             {rev.productTitle}
                           </span>
-                          <span className="text-[10px] text-stone-400">{rev.productBrand}</span>
+                          <span className="text-2xs text-stone-400">{rev.productBrand}</span>
                         </div>
                       </div>
                     )}
@@ -273,7 +273,7 @@ export const ReviewsView: React.FC<ReviewsViewProps> = ({
                         />
                       ))}
                     </div>
-                    <span className="text-[11px] text-stone-400 font-mono">
+                    <span className="text-xs text-stone-400 font-mono">
                       {new Date(rev.createdAt).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',

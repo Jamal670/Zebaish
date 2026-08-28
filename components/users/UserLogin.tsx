@@ -148,7 +148,7 @@ export const UserLogin: React.FC<UserLoginProps> = ({
                   }`}
               />
               {errors.email && (
-                <p className="text-2xs text-red-600 font-medium mt-1 ml-1">{errors.email}</p>
+                <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.email}</p>
               )}
             </div>
 
@@ -171,7 +171,7 @@ export const UserLogin: React.FC<UserLoginProps> = ({
                   }`}
               />
               {errors.password && (
-                <p className="text-2xs text-red-600 font-medium mt-1 ml-1">{errors.password}</p>
+                <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.password}</p>
               )}
             </div>
 

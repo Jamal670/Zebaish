@@ -442,7 +442,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
 
                     {/* 8. Payment */}
                     <td className="py-3 px-3 sm:py-3.5 sm:px-4 whitespace-nowrap">
-                      <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold bg-stone-100 text-stone-800 border border-stone-200">
+                      <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-2xs sm:text-xs font-bold bg-stone-100 text-stone-800 border border-stone-200">
                         {ord.payment_method}
                       </span>
                     </td>
@@ -458,7 +458,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                         size="sm"
                       />
                       {(ord.courier_name || ord.tracking_number) && (
-                        <div className="mt-1 text-[10px] text-stone-600 font-mono flex flex-col items-center">
+                        <div className="mt-1 text-2xs text-stone-600 font-mono flex flex-col items-center">
                           <span className="font-semibold text-amber-900">{ord.courier_name}</span>
                           {ord.tracking_number && <span className="text-stone-500">#{ord.tracking_number}</span>}
                         </div>
@@ -466,12 +466,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                     </td>
 
                     {/* 10. Arrival Date */}
-                    <td className="py-3 px-3 sm:py-3.5 sm:px-4 text-stone-500 whitespace-nowrap italic text-[10px] sm:text-xs">
+                    <td className="py-3 px-3 sm:py-3.5 sm:px-4 text-stone-500 whitespace-nowrap italic text-2xs sm:text-xs">
                       {new Date(ord.order_created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
 
                     {/* 11. Updated Date */}
-                    <td className="py-3 px-3 sm:py-3.5 sm:px-4 text-stone-500 whitespace-nowrap text-[10px] sm:text-xs">
+                    <td className="py-3 px-3 sm:py-3.5 sm:px-4 text-stone-500 whitespace-nowrap text-2xs sm:text-xs">
                       {formatRelativeTime(ord.order_updated_at)}
                     </td>
 
@@ -482,7 +482,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                           setSelectedOrderId(ord.order_id);
                           setIsModalOpen(true);
                         }}
-                        className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-stone-900 hover:bg-black text-white text-[10px] sm:text-xs font-bold uppercase rounded-md transition-colors shadow-2xs min-h-[28px] sm:min-h-[32px]"
+                        className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-stone-900 hover:bg-black text-white text-2xs sm:text-xs font-bold uppercase rounded-md transition-colors shadow-2xs min-h-[28px] sm:min-h-[32px]"
                       >
                         View
                       </button>

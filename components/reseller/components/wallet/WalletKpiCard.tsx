@@ -112,7 +112,7 @@ export const WalletKpiCard: React.FC<WalletKpiCardProps> = ({
         )}
 
         {style.badgeText && (
-          <span className={`text-3xs sm:text-2xs uppercase font-bold px-2 py-0.5 rounded-md shrink-0 ml-1 ${style.badgeBg}`}>
+          <span className={`text-2xs uppercase font-bold px-2 py-0.5 rounded-md shrink-0 ml-1 ${style.badgeBg}`}>
             {style.badgeText}
           </span>
         )}

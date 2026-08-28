@@ -104,7 +104,7 @@ export const ResellerHeader: React.FC = () => {
       </div>
 
       {/* Description Paragraph Below Top Row */}
-      <p className="text-2xs md:text-xs lg:text-sm text-stone-600 leading-relaxed max-w-3xl">
+      <p className="text-xs md:text-xs lg:text-sm text-stone-600 leading-relaxed max-w-3xl">
         {meta.description}
       </p>
     </header>

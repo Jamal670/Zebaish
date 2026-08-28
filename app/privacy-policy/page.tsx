@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
-import { SellerPrivacyPolicy } from '@/components/SellerPrivacyPolicy';
+import { PrivacyPolicy } from '@/components/PrivacyPolicy';
 
 export const metadata: Metadata = {
   title: 'Zebaish Seller Privacy Policy | ZEBAISH',
-  description:
-    'Zebaish Seller Privacy Policy detailing data collection, CNIC identity verification, seller commissions, order fulfillment policies, and account status management for marketplace sellers.',
+  description: 'Complete privacy policy, identity verification rules, data protection guidelines, and terms for Zebaish seller partners.',
 };
 
 export default function PrivacyPolicyPage() {
-  return <SellerPrivacyPolicy />;
+  return <PrivacyPolicy />;
 }

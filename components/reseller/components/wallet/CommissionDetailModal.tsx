@@ -263,7 +263,7 @@ export const CommissionDetailModal: React.FC<CommissionDetailModalProps> = ({
                 <ShoppingBag className="w-4 h-4 text-stone-600 shrink-0" />
                 <span>Paid Amount Related to Orders</span>
               </h4>
-              <span className="text-2xs text-stone-500">
+              <span className="text-xs text-stone-500">
                 Total: <strong className="text-stone-900">{ordersPag.total_orders}</strong> marketplace order items
               </span>
             </div>

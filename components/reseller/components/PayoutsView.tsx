@@ -153,7 +153,7 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
 
         <div className="space-y-2 relative z-10">
           <div className="flex items-center space-x-2">
-            <span className="text-[10px] font-extrabold uppercase tracking-[0.25em] text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded border border-amber-400/20">
+            <span className="text-2xs font-extrabold uppercase tracking-[0.25em] text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded border border-amber-400/20">
               SELLER FINANCIAL CENTER
             </span>
           </div>
@@ -170,9 +170,9 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
             <Wallet className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-stone-400 block">Assigned Settlement Account</span>
+            <span className="text-2xs uppercase font-bold text-stone-400 block">Assigned Settlement Account</span>
             <span className="text-xs font-bold text-stone-100 block">{bankName}</span>
-            <span className="text-[11px] font-mono text-amber-300 block">{iban}</span>
+            <span className="text-xs font-mono text-amber-300 block">{iban}</span>
           </div>
         </div>
       </div>
@@ -183,7 +183,7 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
           <h2 className="text-xs font-extrabold uppercase tracking-wider text-stone-700">
             Financial Overview & Previous Month Cycle
           </h2>
-          <span className="text-[11px] text-stone-400 font-medium">
+          <span className="text-xs text-stone-400 font-medium">
             Swipe left/right to view all KPI metrics
           </span>
         </div>

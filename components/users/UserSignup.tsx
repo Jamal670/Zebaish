@@ -183,7 +183,7 @@ export const UserSignup: React.FC<UserSignupProps> = ({
                   }`}
               />
               {errors.firstName && (
-                <p className="text-2xs text-red-600 font-medium mt-1 ml-1">{errors.firstName}</p>
+                <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.firstName}</p>
               )}
             </div>
 
@@ -206,7 +206,7 @@ export const UserSignup: React.FC<UserSignupProps> = ({
                   }`}
               />
               {errors.lastName && (
-                <p className="text-2xs text-red-600 font-medium mt-1 ml-1">{errors.lastName}</p>
+                <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.lastName}</p>
               )}
             </div>
 
@@ -229,7 +229,7 @@ export const UserSignup: React.FC<UserSignupProps> = ({
                   }`}
               />
               {errors.phoneNo && (
-                <p className="text-2xs text-red-600 font-medium mt-1 ml-1">{errors.phoneNo}</p>
+                <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.phoneNo}</p>
               )}
             </div>
 
@@ -252,7 +252,7 @@ export const UserSignup: React.FC<UserSignupProps> = ({
                   }`}
               />
               {errors.email && (
-                <p className="text-2xs text-red-600 font-medium mt-1 ml-1">{errors.email}</p>
+                <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.email}</p>
               )}
             </div>
 
@@ -275,7 +275,7 @@ export const UserSignup: React.FC<UserSignupProps> = ({
                   }`}
               />
               {errors.password && (
-                <p className="text-2xs text-red-600 font-medium mt-1 ml-1">{errors.password}</p>
+                <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.password}</p>
               )}
             </div>
 

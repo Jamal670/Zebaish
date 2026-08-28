@@ -1,7 +1,9 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { Store, Lock, ArrowRight, Mail, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 import supabase from '@/src/api/client';
-import useAuth from '@/src/hooks/useAuth';
+import { useAuth } from '@/src/hooks/useAuth';
 import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/context/AppContext';
 
@@ -146,17 +148,19 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
             Access your verified seller dashboard, track active brand surplus listings, monitor TCS courier pickups, and check sales payouts.
           </p>
 
-          <div className="mt-6 flex flex-wrap justify-center gap-6 text-xs text-stone-300">
-            <div className="flex items-center space-x-1.5">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
+          <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6 text-xs text-stone-300">
+            <div className="flex items-center justify-center space-x-1.5">
+              <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
               <span>Zero Listing Monthly Fee</span>
             </div>
-            <div className="flex items-center space-x-1.5">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
-              <span>Direct Bank / EasyPaisa Payouts</span>
+
+            <div className="flex items-center justify-center space-x-1.5">
+              <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Bank / EasyPaisa Payouts</span>
             </div>
-            <div className="flex items-center space-x-1.5">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
+
+            <div className="col-span-2 sm:col-span-1 flex items-center justify-center space-x-1.5">
+              <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
               <span>Automated TCS / Leopards Pickup</span>
             </div>
           </div>
@@ -219,7 +223,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
                     />
                     <Mail className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {errors.email && <p className="text-2xs text-red-600 font-medium mt-1">{errors.email}</p>}
+                  {errors.email && <p className="text-xs text-red-600 font-medium mt-1">{errors.email}</p>}
                 </div>
 
                 <div>
@@ -233,7 +237,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
                         if (onNavigateForgotPass) onNavigateForgotPass();
                         else window.location.href = '/reseller/forgot-password';
                       }}
-                      className="text-2xs text-stone-500 hover:underline cursor-pointer"
+                      className="text-xs text-stone-500 hover:underline cursor-pointer"
                     >
                       Forgot Password?
                     </button>
@@ -257,7 +261,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
                     />
                     <Lock className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {errors.password && <p className="text-2xs text-red-600 font-medium mt-1">{errors.password}</p>}
+                  {errors.password && <p className="text-xs text-red-600 font-medium mt-1">{errors.password}</p>}
                 </div>
               </div>
             </div>
