@@ -162,7 +162,7 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
                 />
               </div>
               <div className="min-w-0">
-                <span className="text-[10px] font-bold text-amber-400 tracking-widest uppercase block">
+                <span className="text-2xs font-bold text-amber-400 tracking-widest uppercase block">
                   ZEBAISH SELLER
                 </span>
                 <span className="text-xs font-bold text-white tracking-wider block line-clamp-1">
@@ -182,7 +182,7 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
 
           {payableAmount !== null && payableAmount > 0 && (
             <div className="pt-2 border-t border-stone-800/80 flex items-center justify-between text-xs">
-              <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
+              <span className="text-2xs font-bold text-stone-400 uppercase tracking-wider">
                 Payable Amount
               </span>
               <span className="font-mono font-bold text-amber-400 text-xs">

@@ -80,7 +80,7 @@ export const GenericModal: React.FC<GenericModalProps> = ({
                 </h3>
               )}
               {subtitle && (
-                <p className="text-[11px] sm:text-xs text-stone-500 mt-0.5">{subtitle}</p>
+                <p className="text-2xs sm:text-xs text-stone-500 mt-0.5">{subtitle}</p>
               )}
             </div>
             <button

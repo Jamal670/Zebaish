@@ -30,21 +30,21 @@ export const CommissionHistoryTable: React.FC<CommissionHistoryTableProps> = ({
       case 'Submitted':
       case 'Pending':
         return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-2xs sm:text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
             <Clock className="w-3 h-3 text-amber-700 shrink-0" />
             <span>Submitted</span>
           </span>
         );
       case 'Verified':
         return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-100 text-emerald-950 border border-emerald-300">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-2xs sm:text-xs font-bold bg-emerald-100 text-emerald-950 border border-emerald-300">
             <CheckCircle2 className="w-3 h-3 text-emerald-700 shrink-0" />
             <span>Verified</span>
           </span>
         );
       case 'Rejected':
         return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-red-100 text-red-900 border border-red-300">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-2xs sm:text-xs font-bold bg-red-100 text-red-900 border border-red-300">
             <XCircle className="w-3 h-3 text-red-700 shrink-0" />
             <span>Rejected</span>
           </span>
@@ -119,7 +119,7 @@ export const CommissionHistoryTable: React.FC<CommissionHistoryTableProps> = ({
         <button
           type="button"
           onClick={() => onViewScreenshot(row.receipt_image)}
-          className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-stone-900 hover:bg-black text-white text-[10px] sm:text-xs font-bold uppercase rounded-md transition-colors shadow-2xs min-h-[28px] sm:min-h-[32px]"
+          className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-stone-900 hover:bg-black text-white text-2xs sm:text-xs font-bold uppercase rounded-md transition-colors shadow-2xs min-h-[28px] sm:min-h-[32px]"
           title="View screenshot"
         >
           <span>View</span>

@@ -71,7 +71,7 @@ export const WornAndLoved: React.FC<WornAndLovedProps> = ({ onShopNowClick }) =>
                   <span className="text-xs font-bold text-stone-900 truncate tracking-tight">
                     {item.handle}
                   </span>
-                  <span className="text-[11px] text-stone-400 font-normal leading-tight">
+                  <span className="text-2xs text-stone-400 font-normal leading-tight">
                     {item.tag}
                   </span>
                 </div>

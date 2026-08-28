@@ -147,7 +147,7 @@ export const CommissionDetailModal: React.FC<CommissionDetailModalProps> = ({
       className: 'text-center',
       cell: (item) => (
         <span
-          className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase ${item.status === 'Delivered'
+          className={`inline-block px-2.5 py-0.5 rounded-full text-2xs sm:text-xs font-bold uppercase ${item.status === 'Delivered'
               ? 'bg-emerald-100 text-emerald-800'
               : item.status === 'Shipped'
                 ? 'bg-blue-100 text-blue-800'
@@ -213,24 +213,24 @@ export const CommissionDetailModal: React.FC<CommissionDetailModalProps> = ({
             {/* Key Metrics Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
               <div className="bg-white p-3 rounded-lg border border-stone-200">
-                <span className="text-[10px] uppercase font-bold text-stone-500 block">Gross Sales Sum</span>
+                <span className="text-2xs uppercase font-bold text-stone-500 block">Gross Sales Sum</span>
                 <span className="text-sm sm:text-base font-extrabold font-mono text-stone-900">{format$(payment.gross_amount)}</span>
               </div>
               <div className="bg-white p-3 rounded-lg border border-stone-200">
-                <span className="text-[10px] uppercase font-bold text-stone-500 block">Commission Rate</span>
+                <span className="text-2xs uppercase font-bold text-stone-500 block">Commission Rate</span>
                 <span className="text-sm sm:text-base font-extrabold text-amber-700 flex items-center space-x-1">
                   <Percent className="w-4 h-4 inline shrink-0" />
                   <span>{payment.commission_percentage || 5.00}%</span>
                 </span>
               </div>
               <div className="bg-white p-3 rounded-lg border border-stone-200">
-                <span className="text-[10px] uppercase font-bold text-amber-700 block">Paid Amount</span>
+                <span className="text-2xs uppercase font-bold text-amber-700 block">Paid Amount</span>
                 <span className="text-sm sm:text-base font-extrabold font-mono text-amber-900">
                   {format$(payment.net_amount || payment.commission_amount)}
                 </span>
               </div>
               <div className="bg-white p-3 rounded-lg border border-stone-200 flex flex-col justify-between">
-                <span className="text-[10px] uppercase font-bold text-stone-500 block">Payment Proof</span>
+                <span className="text-2xs uppercase font-bold text-stone-500 block">Payment Proof</span>
                 {payment.receipt_image && onViewScreenshot && (
                   <button
                     type="button"
@@ -263,7 +263,7 @@ export const CommissionDetailModal: React.FC<CommissionDetailModalProps> = ({
                 <ShoppingBag className="w-4 h-4 text-stone-600 shrink-0" />
                 <span>Paid Amount Related to Orders</span>
               </h4>
-              <span className="text-[11px] text-stone-500">
+              <span className="text-2xs text-stone-500">
                 Total: <strong className="text-stone-900">{ordersPag.total_orders}</strong> marketplace order items
               </span>
             </div>

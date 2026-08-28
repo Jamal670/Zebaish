@@ -51,7 +51,7 @@ export const HowToPayModal: React.FC<HowToPayModalProps> = ({
         {/* Payable Amount Highlight Banner */}
         <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-amber-950">
           <div>
-            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-amber-800 block">
+            <span className="text-2xs sm:text-xs font-bold uppercase tracking-wider text-amber-800 block">
               Current Payable Commission
             </span>
             <span className="text-xl sm:text-2xl font-extrabold font-mono text-amber-900">
@@ -70,13 +70,13 @@ export const HowToPayModal: React.FC<HowToPayModalProps> = ({
               <Building2 className="w-5 h-5 text-amber-400 shrink-0" />
               <span className="font-bold text-xs sm:text-sm text-stone-100">{bankName}</span>
             </div>
-            <span className="text-[10px] uppercase font-semibold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
+            <span className="text-2xs uppercase font-semibold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
               Official Escrow Account
             </span>
           </div>
 
           <div>
-            <span className="text-[10px] uppercase font-medium text-stone-400 block mb-0.5">
+            <span className="text-2xs uppercase font-medium text-stone-400 block mb-0.5">
               Account Title
             </span>
             <span className="text-xs sm:text-sm font-semibold text-stone-200 block">
@@ -85,7 +85,7 @@ export const HowToPayModal: React.FC<HowToPayModalProps> = ({
           </div>
 
           <div>
-            <span className="text-[10px] uppercase font-medium text-stone-400 block mb-1">
+            <span className="text-2xs uppercase font-medium text-stone-400 block mb-1">
               International Bank Account Number (IBAN)
             </span>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between bg-stone-950 p-3 rounded-lg border border-stone-800 gap-2">

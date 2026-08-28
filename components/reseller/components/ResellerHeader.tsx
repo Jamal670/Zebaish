@@ -75,7 +75,7 @@ export const ResellerHeader: React.FC = () => {
               className="flex items-center justify-center gap-1.5
                px-2.5 py-1.5
                sm:px-4 sm:py-2.5
-               text-[10px] sm:text-xs
+               text-2xs sm:text-xs
                whitespace-nowrap
                rounded-xs
                bg-stone-900 hover:bg-black
@@ -91,7 +91,7 @@ export const ResellerHeader: React.FC = () => {
             className="flex items-center justify-center gap-1.5
                px-2.5 py-1.5
                sm:px-4 sm:py-2.5
-               text-[10px] sm:text-xs
+               text-2xs sm:text-xs
                whitespace-nowrap
                rounded-xs
                bg-stone-900 hover:bg-black
@@ -104,7 +104,7 @@ export const ResellerHeader: React.FC = () => {
       </div>
 
       {/* Description Paragraph Below Top Row */}
-      <p className="text-[11px] md:text-xs lg:text-sm text-stone-600 leading-relaxed max-w-3xl">
+      <p className="text-2xs md:text-xs lg:text-sm text-stone-600 leading-relaxed max-w-3xl">
         {meta.description}
       </p>
     </header>

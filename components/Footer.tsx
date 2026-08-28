@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { Store, UserPlus } from 'lucide-react';
 
 interface FooterProps {
@@ -18,8 +19,8 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateReseller, onNavigateSe
             <div className="font-script text-3xl font-normal text-stone-900 mb-2">Zebaish</div>
             <p className="text-stone-700">5.5 KM, Raiwind Road (Near Fatehbad Village)</p>
             <p className="text-stone-700">Lahore, Pakistan.</p>
-            <p className="pt-2">Call: +1 (424) 433-3993, +923111162742</p>
-            <p>WhatsApp: +923154001914</p>
+            <p className="pt-2">Call: +92 316-7156734</p>
+            <p>WhatsApp: +92 316-7156734</p>
             <p>Email: help@zebaish.com</p>
           </div>
 
@@ -28,7 +29,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateReseller, onNavigateSe
             <h3 className="text-stone-900 font-semibold text-lg mb-3">Information</h3>
             <ul className="space-y-1 font-normal text-stone-600">
               <li><a href="#returns" className="hover:text-stone-900 transition-colors">Returns and Exchange</a></li>
-              <li><a href="#privacy" className="hover:text-stone-900 transition-colors">Privacy Policy</a></li>
+              <li><Link href="/privacy-policy" className="hover:text-stone-900 transition-colors">Privacy Policy</Link></li>
               <li><a href="#payment" className="hover:text-stone-900 transition-colors">Payment Process</a></li>
               <li><a href="#faqs" className="hover:text-stone-900 transition-colors">FAQs</a></li>
               <li><a href="#track" className="hover:text-stone-900 transition-colors">Track Your Order</a></li>

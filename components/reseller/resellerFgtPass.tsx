@@ -101,7 +101,7 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
         {/* Black Banner Header */}
         <div className="bg-stone-900 text-white rounded-lg p-8 mb-8 text-center shadow-lg relative overflow-hidden">
           <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />
-          <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-amber-400 block mb-2">
+          <span className="text-2xs font-bold tracking-[0.3em] uppercase text-amber-400 block mb-2">
             ZEBAISH SELLER PORTAL
           </span>
           <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight font-script mb-3">
@@ -205,7 +205,7 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
                     />
                     <Mail className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {emailError && <p className="text-[11px] text-red-600 font-medium mt-1">{emailError}</p>}
+                  {emailError && <p className="text-2xs text-red-600 font-medium mt-1">{emailError}</p>}
                 </div>
               </div>
 

@@ -136,7 +136,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
         {/* Black Banner Header */}
         <div className="bg-stone-900 text-white rounded-lg p-8 mb-8 text-center shadow-lg relative overflow-hidden">
           <div className="absolute -top-10 -right-10 w-40 h-40 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />
-          <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-amber-400 block mb-2">
+          <span className="text-2xs font-bold tracking-[0.3em] uppercase text-amber-400 block mb-2">
             ZEBAISH SELLER PORTAL
           </span>
           <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight font-script mb-3">
@@ -167,7 +167,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
           <div className="flex items-center justify-between pb-6 mb-6 border-b border-stone-200">
             <h2 className="text-base font-bold uppercase tracking-wider text-stone-900 flex items-center space-x-2">
               <Store className="w-5 h-5 text-amber-600" />
-              <span>Seller Portal Login</span>
+              <span>Login</span>
             </h2>
             <span className="text-xs text-stone-500">
               Don't have a seller account?{' '}
@@ -219,7 +219,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
                     />
                     <Mail className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {errors.email && <p className="text-[11px] text-red-600 font-medium mt-1">{errors.email}</p>}
+                  {errors.email && <p className="text-2xs text-red-600 font-medium mt-1">{errors.email}</p>}
                 </div>
 
                 <div>
@@ -233,7 +233,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
                         if (onNavigateForgotPass) onNavigateForgotPass();
                         else window.location.href = '/reseller/forgot-password';
                       }}
-                      className="text-[11px] text-stone-500 hover:underline cursor-pointer"
+                      className="text-2xs text-stone-500 hover:underline cursor-pointer"
                     >
                       Forgot Password?
                     </button>
@@ -257,7 +257,7 @@ export const ResellerLogin: React.FC<ResellerLoginProps> = ({
                     />
                     <Lock className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
                   </div>
-                  {errors.password && <p className="text-[11px] text-red-600 font-medium mt-1">{errors.password}</p>}
+                  {errors.password && <p className="text-2xs text-red-600 font-medium mt-1">{errors.password}</p>}
                 </div>
               </div>
             </div>

@@ -215,7 +215,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
             {/* Meta */}
             <div className="flex-1 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="bg-amber-400 text-stone-950 text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-xs">
+                <span className="bg-amber-400 text-stone-950 text-2xs font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-xs">
                   VERIFIED RESELLER
                 </span>
                 <span className="text-stone-300 text-xs font-medium flex items-center space-x-1">
@@ -370,7 +370,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                             {rev.userName}
                           </span>
                           {rev.verifiedPurchase && (
-                            <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50/80 border border-emerald-300/80 px-2.5 py-1 rounded-sm flex items-center space-x-1">
+                            <span className="text-2xs font-semibold text-emerald-600 bg-emerald-50/80 border border-emerald-300/80 px-2.5 py-1 rounded-sm flex items-center space-x-1">
                               <span>✓</span>
                               <span>Verified Buyer</span>
                             </span>

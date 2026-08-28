@@ -1040,7 +1040,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             {/* Retail Price */}
             <div>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
-                Retail Price <span className="text-red-600">*</span>
+                Discounted Price <span className="text-red-600">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-3 text-stone-400 font-bold text-xs">Rs</span>
@@ -1064,7 +1064,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             {/* Discounted Price */}
             <div>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
-                Discounted Price <span className="text-red-600">*</span>
+                Retail Price <span className="text-red-600">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-3 text-stone-400 font-bold text-xs">Rs</span>

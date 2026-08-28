@@ -98,7 +98,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                     className="w-16 h-20 object-cover object-top rounded-md bg-stone-100 shrink-0"
                   />
                   <div className="flex flex-col justify-center">
-                    <span className="text-[10px] uppercase text-stone-400 font-medium">
+                    <span className="text-2xs uppercase text-stone-400 font-medium">
                       {product.category}
                     </span>
                     <h4 className="text-xs font-medium text-stone-800 line-clamp-1">

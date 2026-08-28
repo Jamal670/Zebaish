@@ -209,11 +209,11 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       ),
     },
     {
-      header: 'Discounted Price',
+      header: 'Retail Price',
       cell: (row) => <span className="text-stone-400 line-through text-[10px] sm:text-xs lg:text-sm whitespace-nowrap">RS. {Number(row.price).toLocaleString()}</span>,
     },
     {
-      header: 'Retail Price',
+      header: 'Discounted Price',
       cell: (row) => <span className="font-extrabold text-stone-900 text-xs sm:text-sm lg:text-base whitespace-nowrap">RS. {Number(row.originalPrice).toLocaleString()}</span>,
     },
     {

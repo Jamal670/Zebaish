@@ -34,7 +34,7 @@ export const ShopByCollection: React.FC<ShopByCollectionProps> = ({
           {/* Left Text Box */}
           <div className="lg:col-span-4 bg-[#f9f9f9] border border-stone-100 rounded-xl p-8 md:p-12 flex flex-col justify-between">
             <div>
-              <span className="text-[11px] font-semibold tracking-[0.2em] text-amber-700 uppercase block mb-3">
+              <span className="text-2xs font-semibold tracking-[0.2em] text-amber-700 uppercase block mb-3">
                 Grow your business
               </span>
               <h2 className="font-brand-serif text-3xl sm:text-4xl font-normal text-stone-900 tracking-wide mb-6 leading-tight">

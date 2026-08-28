@@ -16,13 +16,13 @@ export const TYPOGRAPHY = {
   bodyText: 'text-xs sm:text-sm lg:text-base leading-relaxed text-stone-600',
   
   // Small Labels, Metadata, Captions
-  captionText: 'text-[10px] sm:text-xs lg:text-sm text-stone-500 font-medium',
+  captionText: 'text-2xs sm:text-xs lg:text-sm text-stone-500 font-medium',
   
   // Status Badges & Pills
-  badgeText: 'text-[10px] sm:text-xs font-bold uppercase tracking-wider',
+  badgeText: 'text-2xs sm:text-xs font-bold uppercase tracking-wider',
   
   // Table Column Headers
-  tableHeader: 'text-[10px] sm:text-xs font-bold uppercase tracking-wider text-stone-700',
+  tableHeader: 'text-2xs sm:text-xs font-bold uppercase tracking-wider text-stone-700',
   
   // Table Data Cells
   tableCell: 'text-xs sm:text-sm font-medium text-stone-800',
