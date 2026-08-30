@@ -104,11 +104,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const loadUserProfilesAndRole = async (userId: string) => {
-    const [sellerRes, customerRes] = await Promise.all([
-      fetchResellerProfile(userId),
-      fetchUserProfile(userId),
-    ]);
+  const loadUserProfilesAndRole = async (userId: string, authUser?: User | null) => {
+    let sellerRes = await fetchResellerProfile(userId);
+    let customerRes = await fetchUserProfile(userId);
+
+    // Auto-create customer profile for OAuth users (e.g. Google Sign-In) if no profile exists yet
+    if (!sellerRes && !customerRes && authUser) {
+      try {
+        const meta = authUser.user_metadata || {};
+        const fullName = meta.full_name || meta.name || '';
+        const nameParts = fullName.trim().split(' ');
+        const firstName = meta.given_name || nameParts[0] || 'User';
+        const lastName = meta.family_name || nameParts.slice(1).join(' ') || '';
+        const email = authUser.email || meta.email || '';
+        const phoneNo = authUser.phone || meta.phone || '';
+
+        const { data: createdProfile, error: insertErr } = await supabase
+          .from('users')
+          .insert([
+            {
+              id: userId,
+              first_name: firstName,
+              last_name: lastName,
+              email: email,
+              phone_no: phoneNo,
+            },
+          ])
+          .select('*')
+          .maybeSingle();
+
+        if (!insertErr && createdProfile) {
+          customerRes = createdProfile;
+        } else {
+          customerRes = await fetchUserProfile(userId);
+        }
+      } catch (err) {
+        console.warn('Auto-create customer profile error for OAuth user:', err);
+      }
+    }
 
     setResellerProfile(sellerRes);
     setUserProfile(customerRes);
@@ -127,7 +160,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refetchProfile = async () => {
     if (user?.id) {
-      await loadUserProfilesAndRole(user.id);
+      await loadUserProfilesAndRole(user.id, user);
     }
   };
 
@@ -163,7 +196,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(currentUser);
 
         if (currentUser?.id) {
-          await loadUserProfilesAndRole(currentUser.id);
+          await loadUserProfilesAndRole(currentUser.id, currentUser);
         } else {
           setResellerProfile(null);
           setUserProfile(null);
@@ -189,7 +222,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(newUser);
 
       if (newUser?.id) {
-        await loadUserProfilesAndRole(newUser.id);
+        await loadUserProfilesAndRole(newUser.id, newUser);
       } else {
         setResellerProfile(null);
         setUserProfile(null);
