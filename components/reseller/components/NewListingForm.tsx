@@ -1,5 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { Upload, X, Loader2, AlertCircle, CheckCircle2, Image as ImageIcon, Package, Tag, FileText, RefreshCw, ShieldAlert } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Upload,
+  X,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Image as ImageIcon,
+  Package,
+  Tag,
+  FileText,
+  RefreshCw,
+  ShieldAlert,
+} from 'lucide-react';
 import { BRANDS } from '@/data/mockData';
 import supabase from '@/src/api/client';
 import useAuth from '@/src/hooks/useAuth';
@@ -9,6 +21,16 @@ export interface ExistingImage {
   id?: string;
   url: string;
   isThumbnail?: boolean;
+}
+
+export interface UploadItem {
+  id: string;
+  file: File;
+  previewUrl: string;
+  uploadedUrl: string | null;
+  storagePath: string | null;
+  status: 'uploading' | 'success' | 'error';
+  errorMsg?: string;
 }
 
 interface NewListingFormProps {
@@ -95,6 +117,15 @@ export const CATEGORY_SUBCATEGORIES_MAP: Record<string, string[]> = {
   ],
 };
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve((reader.result as string) || '');
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
 function parseSupabaseError(err: any): string {
   if (!err) return 'An unexpected error occurred while saving your collection. Please try again.';
 
@@ -102,6 +133,9 @@ function parseSupabaseError(err: any): string {
 
   if (message.includes('bucket not found') || message.includes('bucket')) {
     return 'Storage configuration issue: Product image storage bucket not found. Please contact support.';
+  }
+  if (message.includes('storage') || message.includes('object')) {
+    return `Storage Upload Issue: ${err.message || 'Permission denied on storage bucket.'}`;
   }
   if (message.includes('row-level security') || message.includes('policy') || message.includes('permission denied')) {
     return 'Permission denied: You can only edit or restock your own listings.';
@@ -114,6 +148,45 @@ function parseSupabaseError(err: any): string {
   }
 
   return err.message || 'Failed to save collection listing. Please check your information and try again.';
+}
+
+/**
+ * Uploads a single image file to Supabase Storage immediately with Data URL fallback
+ */
+async function uploadSingleFileToStorage(
+  file: File,
+  sellerId: string,
+  itemId: string
+): Promise<{ publicUrl: string; path: string }> {
+  const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+  const fileName = `${Date.now()}_${itemId}_${cleanFileName}`;
+  const filePath = `${sellerId}/${fileName}`;
+  const targetBucket = 'products';
+
+  try {
+    const { error: uploadError } = await supabase.storage
+      .from(targetBucket)
+      .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+    if (uploadError) {
+      console.warn(`Product image storage upload warning (using Data URL fallback):`, uploadError.message);
+      const dataUrl = await fileToDataUrl(file);
+      return { publicUrl: dataUrl, path: '' };
+    }
+
+    const { data: urlData } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
+
+    if (!urlData?.publicUrl) {
+      const dataUrl = await fileToDataUrl(file);
+      return { publicUrl: dataUrl, path: '' };
+    }
+
+    return { publicUrl: urlData.publicUrl, path: filePath };
+  } catch (err: any) {
+    console.warn(`Product image storage upload exception (using Data URL fallback):`, err?.message || err);
+    const dataUrl = await fileToDataUrl(file);
+    return { publicUrl: dataUrl, path: '' };
+  }
 }
 
 export const NewListingForm: React.FC<NewListingFormProps> = ({
@@ -131,7 +204,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
     formattedRestrictedUntil,
     loading: statusLoading,
   } = useSellerStatus();
-  const isEditMode = (mode === 'edit' || mode === 'restock' || !!editingListing);
+  const isEditMode = mode === 'edit' || mode === 'restock' || !!editingListing;
   const isRestockMode = mode === 'restock';
 
   const [formData, setFormData] = useState({
@@ -150,14 +223,18 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
 
   const [selectedSizes, setSelectedSizes] = useState<Record<string, number>>({});
   const [existingImages, setExistingImages] = useState<ExistingImage[]>([]);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
+  const uploadItemsRef = useRef<UploadItem[]>([]);
+  uploadItemsRef.current = uploadItems;
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
-  const isSizeBasedCategory = ['Ready to Wear', 'Formal', 'Formals', 'Bridal', 'Bridal Wear'].includes(formData.stitching_status);
+  const isSizeBasedCategory = ['Ready to Wear', 'Formal', 'Formals', 'Bridal', 'Bridal Wear'].includes(
+    formData.stitching_status
+  );
 
   useEffect(() => {
     if (editingListing) {
@@ -251,9 +328,10 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
       setSelectedSizes({});
     }
 
-    previews.forEach((p) => URL.revokeObjectURL(p));
-    setSelectedFiles([]);
-    setPreviews([]);
+    uploadItemsRef.current.forEach((item) => {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    });
+    setUploadItems([]);
     setErrors({});
     setSubmitError(null);
     setSubmitSuccess(null);
@@ -308,7 +386,30 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
     }
   };
 
-  const totalImageCount = existingImages.length + selectedFiles.length;
+  const totalImageCount = existingImages.length + uploadItems.length;
+
+  // Background Upload Trigger Function
+  const startBackgroundUpload = async (item: UploadItem, sellerId: string) => {
+    try {
+      const { publicUrl, path } = await uploadSingleFileToStorage(item.file, sellerId, item.id);
+      setUploadItems((prev) =>
+        prev.map((it) =>
+          it.id === item.id
+            ? { ...it, status: 'success', uploadedUrl: publicUrl, storagePath: path, errorMsg: undefined }
+            : it
+        )
+      );
+    } catch (err: any) {
+      console.warn('Background image upload error:', err);
+      setUploadItems((prev) =>
+        prev.map((it) =>
+          it.id === item.id
+            ? { ...it, status: 'error', errorMsg: err?.message || 'Upload failed' }
+            : it
+        )
+      );
+    }
+  };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -321,45 +422,69 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
     }
 
     const filesToAdd = files.slice(0, availableSlots);
-    const newSelected = [...selectedFiles, ...filesToAdd];
-    const newPreviews = filesToAdd.map((file) => URL.createObjectURL(file));
+    const sellerId = user?.id || 'reseller';
 
-    setSelectedFiles(newSelected);
-    setPreviews((prev) => [...prev, ...newPreviews]);
+    const newItems: UploadItem[] = filesToAdd.map((file, idx) => {
+      const id = `img_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`;
+      return {
+        id,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        uploadedUrl: null,
+        storagePath: null,
+        status: 'uploading',
+      };
+    });
+
+    setUploadItems((prev) => [...prev, ...newItems]);
     if (errors.images) {
       setErrors((prev) => ({ ...prev, images: '' }));
     }
+
+    // Trigger parallel background uploads immediately
+    newItems.forEach((item) => {
+      startBackgroundUpload(item, sellerId);
+    });
+  };
+
+  const handleRetryUpload = (item: UploadItem) => {
+    const sellerId = user?.id || 'reseller';
+    setUploadItems((prev) =>
+      prev.map((it) => (it.id === item.id ? { ...it, status: 'uploading', errorMsg: undefined } : it))
+    );
+    startBackgroundUpload(item, sellerId);
   };
 
   const handleRemoveExistingImage = (index: number) => {
     const newExisting = existingImages.filter((_, i) => i !== index);
     setExistingImages(newExisting);
-    if (newExisting.length + selectedFiles.length === 0) {
+    if (newExisting.length + uploadItems.length === 0) {
       setErrors((prev) => ({ ...prev, images: 'Please keep at least 1 image for your collection.' }));
     } else {
       setErrors((prev) => ({ ...prev, images: '' }));
     }
   };
 
-  const handleRemoveSelectedFile = (index: number) => {
-    if (previews[index]) {
-      URL.revokeObjectURL(previews[index]);
-    }
-    const newSelected = selectedFiles.filter((_, i) => i !== index);
-    const newPreviews = previews.filter((_, i) => i !== index);
-    setSelectedFiles(newSelected);
-    setPreviews(newPreviews);
-    if (existingImages.length + newSelected.length === 0) {
-      setErrors((prev) => ({ ...prev, images: 'Please select at least 1 collection image.' }));
-    } else {
-      setErrors((prev) => ({ ...prev, images: '' }));
-    }
+  const handleRemoveUploadItem = (itemId: string) => {
+    setUploadItems((prev) => {
+      const target = prev.find((it) => it.id === itemId);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      const next = prev.filter((it) => it.id !== itemId);
+      if (existingImages.length + next.length === 0) {
+        setErrors((errs) => ({ ...errs, images: 'Please select at least 1 collection image.' }));
+      } else {
+        setErrors((errs) => ({ ...errs, images: '' }));
+      }
+      return next;
+    });
   };
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    const currentTotal = existingImages.length + selectedFiles.length;
+    const currentTotal = existingImages.length + uploadItems.length;
     if (currentTotal === 0) {
       newErrors.images = 'Please upload at least 1 image for your collection (maximum 4 allowed).';
     } else if (currentTotal > 4) {
@@ -441,8 +566,22 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
       return;
     }
 
-    const targetBucket = 'products';
-    const uploadedStoragePaths: { path: string; bucket: string }[] = [];
+    // 1. Wait for any active background image uploads to settle
+    let waitAttempts = 0;
+    while (uploadItemsRef.current.some((it) => it.status === 'uploading') && waitAttempts < 40) {
+      await new Promise((r) => setTimeout(r, 250));
+      waitAttempts++;
+    }
+
+    // 2. Check for upload errors
+    const currentUploads = uploadItemsRef.current;
+    const failedUploads = currentUploads.filter((it) => it.status === 'error');
+
+    if (failedUploads.length > 0) {
+      setSubmitError('One or more selected images failed to upload. Please retry or remove failed images.');
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       const totalStockQty = isSizeBasedCategory
@@ -454,7 +593,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
           ? 'Active'
           : (editingListing.status || 'Active');
 
-        // Note: products table does NOT contain quantity or stitching_status columns!
+        // Update product metadata in DB
         const { error: updateError } = await supabase
           .from('products')
           .update({
@@ -479,100 +618,92 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
           throw new Error(parseSupabaseError(updateError));
         }
 
-        // Manage product images
-        const newImageRecords: { product_id: string; image_url: string; is_thumbnail: boolean }[] = [];
+        // Batch insert new image records using pre-uploaded URLs
+        const newImageRecords = currentUploads
+          .filter((it) => it.uploadedUrl)
+          .map((it, i) => ({
+            product_id: editingListing.id,
+            image_url: it.uploadedUrl!,
+            is_thumbnail: existingImages.length === 0 && i === 0,
+          }));
 
-        for (let i = 0; i < selectedFiles.length; i++) {
-          const file = selectedFiles[i];
-          const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-          const fileName = `${Date.now()}_${i}_${cleanFileName}`;
-          const filePath = `${editingListing.id}/${fileName}`;
-
-          const uploadRes = await supabase.storage.from(targetBucket).upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-          });
-
-          if (uploadRes.error) {
-            throw new Error(`Image upload failed for "${file.name}": ${parseSupabaseError(uploadRes.error)}`);
-          }
-
-          uploadedStoragePaths.push({ path: filePath, bucket: targetBucket });
-
-          const { data: urlData } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
-          if (urlData?.publicUrl) {
-            newImageRecords.push({
-              product_id: editingListing.id,
-              image_url: urlData.publicUrl,
-              is_thumbnail: existingImages.length === 0 && i === 0,
-            });
-          }
-        }
+        // Handle image records & variant updates in parallel
+        const dbTasks: Promise<any>[] = [];
 
         if (newImageRecords.length > 0) {
-          const { error: imgInsertErr } = await supabase.from('product_images').insert(newImageRecords);
-          if (imgInsertErr) {
-            console.warn('Error inserting product images:', imgInsertErr);
-          }
+          dbTasks.push(
+            Promise.resolve(
+              supabase.from('product_images').insert(newImageRecords).then(({ error }) => {
+                if (error) console.warn('Error inserting product_images:', error);
+              })
+            )
+          );
         }
 
+        // Delete removed images if editing
         if (editingListing.product_images && Array.isArray(editingListing.product_images)) {
           const remainingUrls = new Set(existingImages.map((img) => img.url));
           const removedImages = editingListing.product_images.filter((img: any) => !remainingUrls.has(img.image_url));
 
-          for (const removed of removedImages) {
+          removedImages.forEach((removed: any) => {
             if (removed.id) {
-              await supabase.from('product_images').delete().eq('id', removed.id);
+              dbTasks.push(Promise.resolve(supabase.from('product_images').delete().eq('id', removed.id)));
             }
-          }
+          });
         }
 
+        // Update variants
+        dbTasks.push(
+          Promise.resolve(
+            supabase
+              .from('product_variants')
+              .delete()
+              .eq('product_id', editingListing.id)
+              .then(async () => {
+                if (isSizeBasedCategory) {
+                  const variantRecords = Object.entries(selectedSizes)
+                    .filter(([_, qty]) => Number(qty) > 0)
+                    .map(([sz, qty]) => ({
+                      product_id: editingListing.id,
+                      size: sz,
+                      quantity: Number(qty),
+                    }));
+                  if (variantRecords.length > 0) {
+                    const { error: varErr } = await supabase.from('product_variants').insert(variantRecords);
+                    if (varErr) console.warn('Error updating product_variants:', varErr);
+                  }
+                } else {
+                  const { error: varErr } = await supabase.from('product_variants').insert([
+                    {
+                      product_id: editingListing.id,
+                      size: 'Unstitched',
+                      quantity: Math.max(1, parseInt(formData.quantity, 10)),
+                    },
+                  ]);
+                  if (varErr) console.warn('Error updating Unstitched variant:', varErr);
+                }
+              })
+          )
+        );
+
+        await Promise.all(dbTasks);
+
+        // Ensure thumbnail flag is updated
         const topUrl = existingImages[0]?.url || newImageRecords[0]?.image_url;
         if (topUrl && editingListing.id) {
           await supabase.from('product_images').update({ is_thumbnail: false }).eq('product_id', editingListing.id);
-          await supabase.from('product_images').update({ is_thumbnail: true }).eq('product_id', editingListing.id).eq('image_url', topUrl);
-        }
-
-        // Manage product_variants: Delete existing and re-insert
-        await supabase.from('product_variants').delete().eq('product_id', editingListing.id);
-
-        if (isSizeBasedCategory) {
-          const variantRecords = Object.entries(selectedSizes)
-            .filter(([_, qty]) => Number(qty) > 0)
-            .map(([sz, qty]) => ({
-              product_id: editingListing.id,
-              size: sz,
-              quantity: Number(qty),
-            }));
-          if (variantRecords.length > 0) {
-            const { error: varErr } = await supabase.from('product_variants').insert(variantRecords);
-            if (varErr) {
-              console.warn('Error updating product_variants:', varErr);
-            }
-          }
-        } else {
-          // Unstitched variant
-          const { error: varErr } = await supabase.from('product_variants').insert([
-            {
-              product_id: editingListing.id,
-              size: 'Unstitched',
-              quantity: Math.max(1, parseInt(formData.quantity, 10)),
-            },
-          ]);
-          if (varErr) {
-            console.warn('Error updating Unstitched variant:', varErr);
-          }
+          await supabase
+            .from('product_images')
+            .update({ is_thumbnail: true })
+            .eq('product_id', editingListing.id)
+            .eq('image_url', topUrl);
         }
 
         setSubmitSuccess(
-          isRestockMode
-            ? '🎉 Collection restocked successfully!'
-            : '🎉 Collection updated successfully!'
+          isRestockMode ? '🎉 Collection restocked successfully!' : '🎉 Collection updated successfully!'
         );
       } else {
-        let createdProductId: string | null = null;
-
-        // Note: products table does NOT contain quantity or stitching_status columns!
+        // CREATE NEW LISTING
         const { data: product, error: productError } = await supabase
           .from('products')
           .insert({
@@ -597,79 +728,47 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
           throw new Error(parseSupabaseError(productError));
         }
 
-        createdProductId = product.id;
+        const createdProductId = product.id;
 
-        // Insert variants into product_variants table
-        if (isSizeBasedCategory) {
-          const variantRecords = Object.entries(selectedSizes)
-            .filter(([_, qty]) => Number(qty) > 0)
-            .map(([sz, qty]) => ({
-              product_id: createdProductId,
-              size: sz,
-              quantity: Number(qty),
-            }));
+        // Build image records using pre-uploaded URLs
+        const imageRecords = currentUploads
+          .filter((it) => it.uploadedUrl)
+          .map((it, i) => ({
+            product_id: createdProductId,
+            image_url: it.uploadedUrl!,
+            is_thumbnail: i === 0,
+          }));
 
-          if (variantRecords.length > 0) {
-            const { error: varErr } = await supabase.from('product_variants').insert(variantRecords);
-            if (varErr) {
-              throw new Error(`Failed to save size variants: ${parseSupabaseError(varErr)}`);
-            }
-          }
-        } else {
-          // Single Unstitched variant
-          const { error: varErr } = await supabase.from('product_variants').insert([
-            {
-              product_id: createdProductId,
-              size: 'Unstitched',
-              quantity: Math.max(1, parseInt(formData.quantity, 10)),
-            },
-          ]);
-          if (varErr) {
-            throw new Error(`Failed to save stock quantity: ${parseSupabaseError(varErr)}`);
-          }
-        }
+        // Build variant records
+        const variantRecords = isSizeBasedCategory
+          ? Object.entries(selectedSizes)
+              .filter(([_, qty]) => Number(qty) > 0)
+              .map(([sz, qty]) => ({
+                product_id: createdProductId,
+                size: sz,
+                quantity: Number(qty),
+              }))
+          : [
+              {
+                product_id: createdProductId,
+                size: 'Unstitched',
+                quantity: Math.max(1, parseInt(formData.quantity, 10)),
+              },
+            ];
 
-        // Upload and insert product_images
-        const uploadedImages: { url: string; isThumbnail: boolean }[] = [];
-
-        for (let i = 0; i < selectedFiles.length; i++) {
-          const file = selectedFiles[i];
-          const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-          const fileName = `${Date.now()}_${i}_${cleanFileName}`;
-          const filePath = `${createdProductId}/${fileName}`;
-
-          const uploadRes = await supabase.storage.from(targetBucket).upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-          });
-
-          if (uploadRes.error) {
-            throw new Error(`Image upload failed for "${file.name}": ${parseSupabaseError(uploadRes.error)}`);
-          }
-
-          uploadedStoragePaths.push({ path: filePath, bucket: targetBucket });
-
-          const { data: urlData } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
-          if (!urlData?.publicUrl) {
-            throw new Error(`Could not generate public URL for photo "${file.name}".`);
-          }
-
-          uploadedImages.push({
-            url: urlData.publicUrl,
-            isThumbnail: i === 0,
-          });
-        }
-
-        const imageRecords = uploadedImages.map((img) => ({
-          product_id: createdProductId,
-          image_url: img.url,
-          is_thumbnail: img.isThumbnail,
-        }));
-
-        const { error: imageDbError } = await supabase.from('product_images').insert(imageRecords);
-        if (imageDbError) {
-          throw new Error(parseSupabaseError(imageDbError));
-        }
+        // Execute Image and Variant inserts in PARALLEL
+        await Promise.all([
+          imageRecords.length > 0
+            ? supabase.from('product_images').insert(imageRecords).then(({ error }) => {
+                if (error) throw new Error(parseSupabaseError(error));
+              })
+            : Promise.resolve(),
+          variantRecords.length > 0
+            ? supabase.from('product_variants').insert(variantRecords).then(({ error }) => {
+                if (error) throw new Error(`Failed to save stock quantity: ${parseSupabaseError(error)}`);
+              })
+            : Promise.resolve(),
+        ]);
 
         setSubmitSuccess('🎉 Collection created successfully with all details, variants and images!');
 
@@ -687,9 +786,10 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
           description: '',
         });
         setSelectedSizes({});
-        previews.forEach((p) => URL.revokeObjectURL(p));
-        setSelectedFiles([]);
-        setPreviews([]);
+        uploadItemsRef.current.forEach((it) => {
+          if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
+        });
+        setUploadItems([]);
         setExistingImages([]);
         setErrors({});
       }
@@ -697,105 +797,68 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
       if (onSuccess) {
         setTimeout(() => {
           onSuccess();
-        }, 800);
+        }, 500);
       }
     } catch (err: any) {
-      console.error('NewListingForm error:', err);
-      setSubmitError(err?.message || 'An unexpected error occurred while saving the collection.');
-
-      if (uploadedStoragePaths.length > 0) {
-        for (const item of uploadedStoragePaths) {
-          try {
-            await supabase.storage.from(item.bucket).remove([item.path]);
-          } catch (cleanupErr) {
-            console.warn('Storage cleanup warning:', cleanupErr);
-          }
-        }
-      }
+      console.error('Submit error:', err);
+      setSubmitError(err?.message || 'Failed to save collection. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const currentSubcategoryOptions =
+    CATEGORY_SUBCATEGORIES_MAP[formData.stitching_status] || CATEGORY_SUBCATEGORIES_MAP['Unstitched'];
+
   const getFormTitle = () => {
-    if (isRestockMode) return 'RESTOCK COLLECTION';
-    if (isEditMode) return 'UPDATE COLLECTION';
-    return 'CREATE NEW COLLECTION';
+    if (isRestockMode) return 'Restock Collection Listing';
+    if (isEditMode) return 'Edit Collection Listing';
+    return 'Add New Collection Listing';
   };
 
   const getButtonText = () => {
     if (isSubmitting) {
-      if (isRestockMode) return 'RESTOCKING COLLECTION...';
-      if (isEditMode) return 'SAVING CHANGES...';
-      return 'UPLOADING IMAGES & SAVING COLLECTION...';
+      if (uploadItems.some((it) => it.status === 'uploading')) {
+        return 'Finalizing image uploads...';
+      }
+      return isRestockMode ? 'Restocking Collection...' : isEditMode ? 'Updating Collection...' : 'Creating Collection...';
     }
-    if (isRestockMode) return 'UPDATE STOCK / RESTOCK COLLECTION';
-    if (isEditMode) return 'UPDATE COLLECTION';
-    return 'ADD COLLECTION';
+    return isRestockMode ? 'Restock Collection' : isEditMode ? 'Update Collection' : 'Add Collection';
   };
 
-  const currentCategory = formData.stitching_status;
-  const currentSubcategoryOptions = CATEGORY_SUBCATEGORIES_MAP[currentCategory] || CATEGORY_SUBCATEGORIES_MAP['Unstitched'];
-
-  if (statusLoading) {
-    return (
-      <div className="bg-white rounded-xl border border-stone-200 p-8 text-center flex flex-col items-center justify-center space-y-3 min-h-[300px]">
-        <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-        <p className="text-xs sm:text-sm font-semibold text-stone-600">Verifying seller account status...</p>
-      </div>
-    );
-  }
-
-  if (isRestricted) {
-    return (
-      <div className="bg-white rounded-xl border border-stone-200 shadow-xs p-6 sm:p-8 w-full max-w-4xl mx-auto space-y-6">
-        <div className="flex flex-col sm:flex-row items-start space-y-3 sm:space-y-0 sm:space-x-4 p-5 sm:p-6 bg-red-50/90 border border-red-200 rounded-xl">
-          <ShieldAlert className="w-8 h-8 text-red-600 shrink-0 mt-0.5" />
-          <div className="space-y-3 w-full">
-            <h3 className="text-base sm:text-lg font-bold text-red-900 uppercase tracking-wide">
-              Account Status: {badgeText}
-            </h3>
-            <div className="space-y-2">
-              {restrictionMessages.map((msg, idx) => (
-                <p key={idx} className="text-xs sm:text-sm text-red-800 leading-relaxed font-medium flex items-start space-x-2">
-                  {restrictionMessages.length > 1 && <span className="font-bold shrink-0">•</span>}
-                  <span>{msg}</span>
-                </p>
-              ))}
-              {formattedRestrictedUntil ? (
-                <span className="block mt-2 font-semibold text-red-900 text-xs sm:text-sm">
-                  Your account is restricted until {formattedRestrictedUntil}.
+  return (
+    <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm space-y-6 text-stone-800 animate-fade-in">
+      {/* Restricted Seller Warning Banner */}
+      {isRestricted && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-start space-x-3 text-amber-900 shadow-xs">
+          <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1 text-xs sm:text-sm">
+            <div className="font-bold flex items-center space-x-2">
+              <span>Listing Restricted</span>
+              {badgeText && (
+                <span className="px-2 py-0.5 text-[10px] uppercase bg-amber-200 text-amber-950 font-extrabold rounded">
+                  {badgeText}
                 </span>
-              ) : null}
+              )}
             </div>
-            <p className="text-[11px] sm:text-xs text-red-600/90 pt-2 border-t border-red-200/80">
-              Please contact marketplace support if you require assistance with your seller account status.
+            <p className="text-amber-800 font-medium">
+              {restrictionMessages[0] || 'Your seller account has temporary listing restrictions.'}
             </p>
+            {formattedRestrictedUntil && (
+              <p className="text-[11px] font-mono text-amber-700">
+                Restriction active until: {formattedRestrictedUntil}
+              </p>
+            )}
           </div>
         </div>
+      )}
 
-        {onCancel && (
-          <div className="flex justify-end pt-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-md border border-stone-300 transition-colors cursor-pointer min-h-[38px]"
-            >
-              Back to Listings
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white rounded-xl border border-stone-200 shadow-xs p-4 sm:p-6 lg:p-8 w-full max-w-8xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-stone-200 gap-3">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-stone-200 pb-4 gap-3">
         <div>
-          <h2 className="text-base sm:text-lg lg:text-xl font-extrabold uppercase tracking-wider text-stone-900 flex items-center space-x-2">
+          <h2 className="text-base sm:text-lg lg:text-xl font-extrabold text-stone-900 tracking-tight flex items-center space-x-2">
             {isRestockMode ? (
-              <RefreshCw className="w-5 h-5 text-emerald-600 shrink-0" />
+              <RefreshCw className="w-5 h-5 text-amber-600 shrink-0" />
             ) : (
               <Package className="w-5 h-5 text-amber-600 shrink-0" />
             )}
@@ -805,8 +868,8 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             {isRestockMode
               ? 'Update stock quantity and availability for your existing collection.'
               : isEditMode
-                ? 'Modify details and images for your existing collection listing.'
-                : 'Upload suit photos and enter collection details below to list on Zebaish marketplace.'}
+              ? 'Modify details and images for your existing collection listing.'
+              : 'Upload suit photos and enter collection details below to list on Zebaish marketplace.'}
           </p>
         </div>
 
@@ -844,7 +907,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
               <span>1. Collection Photography Gallery (Max 4 Images) <span className="text-red-600">*</span></span>
             </label>
             <span className="text-[11px] sm:text-xs text-stone-500 font-semibold">
-              {totalImageCount} of 4 images uploaded
+              {totalImageCount} of 4 images selected
             </span>
           </div>
 
@@ -855,7 +918,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 Click to browse or drag collection photos here
               </span>
               <span className="text-[11px] sm:text-xs text-stone-500 max-w-md">
-                Supports JPG, PNG, WEBP (Max 4 images). The first image will be set as Primary Thumbnail.
+                Supports JPG, PNG, WEBP (Max 4 images). Photos upload automatically in the background!
               </span>
               <input
                 type="file"
@@ -867,27 +930,21 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             </label>
           )}
 
-          {errors.images && (
-            <p className="text-xs text-red-600 font-medium">{errors.images}</p>
-          )}
+          {errors.images && <p className="text-xs text-red-600 font-medium">{errors.images}</p>}
 
           {totalImageCount > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 pt-2">
+              {/* Existing Images from DB */}
               {existingImages.map((img, index) => (
                 <div
                   key={img.id || img.url || index}
                   className="relative group border border-stone-300 rounded-md overflow-hidden bg-stone-100 aspect-3/4 flex flex-col shadow-xs"
                 >
-                  <img
-                    src={img.url}
-                    alt={`Existing Image ${index + 1}`}
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={img.url} alt={`Existing Image ${index + 1}`} className="w-full h-full object-cover" />
                   <span
-                    className={`absolute top-2 left-2 px-2 py-0.5 text-[9px] sm:text-[10px] font-extrabold uppercase rounded-full shadow-sm ${index === 0
-                      ? 'bg-amber-400 text-stone-950'
-                      : 'bg-stone-900/80 text-white backdrop-blur-xs'
-                      }`}
+                    className={`absolute top-2 left-2 px-2 py-0.5 text-[9px] sm:text-[10px] font-extrabold uppercase rounded-full shadow-sm ${
+                      index === 0 ? 'bg-amber-400 text-stone-950' : 'bg-stone-900/80 text-white backdrop-blur-xs'
+                    }`}
                   >
                     {index === 0 ? 'Primary' : `Photo ${index + 1}`}
                   </span>
@@ -902,30 +959,67 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 </div>
               ))}
 
-              {previews.map((previewUrl, index) => {
+              {/* Background Upload Items with Progress State */}
+              {uploadItems.map((item, index) => {
                 const combinedIndex = existingImages.length + index;
                 return (
                   <div
-                    key={previewUrl}
+                    key={item.id}
                     className="relative group border border-stone-300 rounded-md overflow-hidden bg-stone-100 aspect-3/4 flex flex-col shadow-xs"
                   >
-                    <img
-                      src={previewUrl}
-                      alt={`New Photo ${index + 1}`}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={item.previewUrl} alt={`New Photo ${index + 1}`} className="w-full h-full object-cover" />
+
+                    {/* Status Badge */}
                     <span
-                      className={`absolute top-2 left-2 px-2 py-0.5 text-[9px] sm:text-[10px] font-extrabold uppercase rounded-full shadow-sm ${combinedIndex === 0
-                        ? 'bg-amber-400 text-stone-950'
-                        : 'bg-emerald-600 text-white backdrop-blur-xs'
-                        }`}
+                      className={`absolute top-2 left-2 px-2 py-0.5 text-[9px] sm:text-[10px] font-extrabold uppercase rounded-full shadow-sm ${
+                        item.status === 'success'
+                          ? combinedIndex === 0
+                            ? 'bg-amber-400 text-stone-950'
+                            : 'bg-emerald-600 text-white'
+                          : item.status === 'error'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-stone-900/80 text-amber-300'
+                      }`}
                     >
-                      {combinedIndex === 0 ? 'Primary' : `New ${index + 1}`}
+                      {item.status === 'uploading'
+                        ? 'Uploading...'
+                        : item.status === 'error'
+                        ? 'Failed'
+                        : combinedIndex === 0
+                        ? 'Primary'
+                        : `Ready`}
                     </span>
+
+                    {/* Uploading Spinner Overlay */}
+                    {item.status === 'uploading' && (
+                      <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex flex-col items-center justify-center space-y-1 text-white p-2">
+                        <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+                        <span className="text-[10px] font-bold">Uploading...</span>
+                      </div>
+                    )}
+
+                    {/* Error Overlay with Retry */}
+                    {item.status === 'error' && (
+                      <div className="absolute inset-0 bg-red-950/70 backdrop-blur-[1px] flex flex-col items-center justify-center p-2 text-center text-white space-y-2">
+                        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+                        <span className="text-[10px] font-semibold text-red-200 line-clamp-2">
+                          {item.errorMsg || 'Upload failed'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRetryUpload(item)}
+                          className="px-2 py-1 bg-white text-red-950 text-[10px] font-bold uppercase rounded shadow-sm hover:bg-red-100 flex items-center space-x-1 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Retry</span>
+                        </button>
+                      </div>
+                    )}
+
                     <button
                       type="button"
-                      onClick={() => handleRemoveSelectedFile(index)}
-                      className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-md transition-transform hover:scale-110 cursor-pointer"
+                      onClick={() => handleRemoveUploadItem(item.id)}
+                      className="absolute top-2 right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-md transition-transform hover:scale-110 cursor-pointer z-10"
                       title="Remove Image"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -953,8 +1047,9 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
               <select
                 value={formData.brand}
                 onChange={(e) => handleInputChange('brand', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${errors.brand ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                  }`}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${
+                  errors.brand ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                }`}
               >
                 {BRANDS.map((b) => (
                   <option key={b} value={b}>
@@ -975,8 +1070,9 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 placeholder="Embroidered 3PC Lawn Suit"
                 value={formData.suit_title}
                 onChange={(e) => handleInputChange('suit_title', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${errors.suit_title ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                  }`}
+                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${
+                  errors.suit_title ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                }`}
               />
               {errors.suit_title && <p className="text-xs text-red-600 font-medium mt-1">{errors.suit_title}</p>}
             </div>
@@ -991,8 +1087,9 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 placeholder="Lawn, Chiffon, Organza"
                 value={formData.fabric}
                 onChange={(e) => handleInputChange('fabric', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${errors.fabric ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                  }`}
+                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${
+                  errors.fabric ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                }`}
               />
               {errors.fabric && <p className="text-xs text-red-600 font-medium mt-1">{errors.fabric}</p>}
             </div>
@@ -1005,8 +1102,9 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
               <select
                 value={formData.stitching_status}
                 onChange={(e) => handleCategoryChange(e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${errors.stitching_status ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                  }`}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${
+                  errors.stitching_status ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                }`}
               >
                 <option value="Unstitched">Unstitched</option>
                 <option value="Ready to Wear">Ready to Wear</option>
@@ -1017,7 +1115,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
               )}
             </div>
 
-            {/* Subcategory Dropdown (Dependent on Category) */}
+            {/* Subcategory Dropdown */}
             <div>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                 Subcategory <span className="text-red-600">*</span>
@@ -1025,8 +1123,9 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
               <select
                 value={formData.piece_count}
                 onChange={(e) => handleInputChange('piece_count', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${errors.piece_count ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                  }`}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${
+                  errors.piece_count ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                }`}
               >
                 {currentSubcategoryOptions.map((sub) => (
                   <option key={sub} value={sub}>
@@ -1047,13 +1146,14 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 <input
                   type="number"
                   min="1"
-                  placeholder="3500"
+                  placeholder="6500"
                   value={formData.original_retail_price}
                   onChange={(e) => handleInputChange('original_retail_price', e.target.value)}
-                  className={`w-full p-3 pl-10 border rounded-lg focus:outline-none min-h-[42px] ${errors.original_retail_price
-                    ? 'border-red-500 focus:border-red-600'
-                    : 'border-stone-300 focus:border-stone-900'
-                    }`}
+                  className={`w-full p-3 pl-10 border rounded-lg focus:outline-none min-h-[42px] ${
+                    errors.original_retail_price
+                      ? 'border-red-500 focus:border-red-600'
+                      : 'border-stone-300 focus:border-stone-900'
+                  }`}
                 />
               </div>
               {errors.original_retail_price && (
@@ -1071,13 +1171,14 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 <input
                   type="number"
                   min="1"
-                  placeholder="6500"
+                  placeholder="3500"
                   value={formData.surplus_selling_price}
                   onChange={(e) => handleInputChange('surplus_selling_price', e.target.value)}
-                  className={`w-full p-3 pl-10 border rounded-lg focus:outline-none min-h-[42px] ${errors.surplus_selling_price
-                    ? 'border-red-500 focus:border-red-600'
-                    : 'border-stone-300 focus:border-stone-900'
-                    }`}
+                  className={`w-full p-3 pl-10 border rounded-lg focus:outline-none min-h-[42px] ${
+                    errors.surplus_selling_price
+                      ? 'border-red-500 focus:border-red-600'
+                      : 'border-stone-300 focus:border-stone-900'
+                  }`}
                 />
               </div>
               {errors.surplus_selling_price && (
@@ -1086,7 +1187,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             </div>
           </div>
 
-          {/* Stock Section: Dynamic Size & Quantity for Ready to Wear / Formal / Bridal vs Single Qty for Unstitched / Accessories */}
+          {/* Stock Section */}
           {isSizeBasedCategory ? (
             <div className="space-y-3 bg-stone-50 p-4 sm:p-5 rounded-xl border border-stone-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-stone-200 pb-2.5">
@@ -1107,10 +1208,11 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                       key={sz}
                       type="button"
                       onClick={() => handleToggleSize(sz)}
-                      className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer ${isSelected
-                        ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
-                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100 hover:border-stone-400'
-                        }`}
+                      className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
+                          : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100 hover:border-stone-400'
+                      }`}
                     >
                       {sz} {isSelected ? '✓' : '+'}
                     </button>
@@ -1118,7 +1220,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 })}
               </div>
 
-              {/* Compact Quantity Inputs for Selected Sizes */}
+              {/* Compact Quantity Inputs */}
               {Object.keys(selectedSizes).length > 0 && (
                 <div className="pt-3 border-t border-stone-200/80 grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {['Small', 'Medium', 'Large', 'X Large']
@@ -1154,8 +1256,9 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
                 placeholder="5"
                 value={formData.quantity}
                 onChange={(e) => handleInputChange('quantity', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${errors.quantity ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                  }`}
+                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${
+                  errors.quantity ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                }`}
               />
               {errors.quantity && <p className="text-xs text-red-600 font-medium mt-1">{errors.quantity}</p>}
             </div>

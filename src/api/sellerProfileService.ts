@@ -9,6 +9,7 @@ export interface StoreOverviewStats {
   totalRevenue: number;
   averageRating: number;
   memberSince: string;
+  shippingCharges: number;
 }
 
 function isValidUUID(id: string): boolean {
@@ -29,13 +30,13 @@ function formatDate(dateStr?: string): string {
  * Fetches full seller profile from sellers table + store performance overview stats
  */
 export async function fetchSellerFullProfile(sellerId: string): Promise<{
-  profile: ResellerProfile & { avatar_url?: string; store_image_url?: string };
+  profile: ResellerProfile & { avatar_url?: string; store_image_url?: string; shipping_charges?: number };
   stats: StoreOverviewStats;
 }> {
   const isUuid = isValidUUID(sellerId);
 
   // Fallback defaults for demo/mock IDs
-  const defaultProfile: ResellerProfile & { avatar_url?: string; store_image_url?: string } = {
+  const defaultProfile: ResellerProfile & { avatar_url?: string; store_image_url?: string; shipping_charges?: number } = {
     id: sellerId,
     email: 'reseller@zebaish.pk',
     full_name: 'Ayesha Khan',
@@ -51,6 +52,7 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
     created_at: '2024-01-15T10:00:00Z',
     avatar_url: 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
     store_image_url: 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
+    shipping_charges: 150,
   };
 
   const defaultStats: StoreOverviewStats = {
@@ -61,6 +63,7 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
     totalRevenue: 1525000,
     averageRating: 4.9,
     memberSince: 'Jan 2024',
+    shippingCharges: 150,
   };
 
   if (!isUuid) {
@@ -79,7 +82,7 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
       console.warn('Error fetching seller profile:', sellerErr.message);
     }
 
-    const profile: ResellerProfile & { avatar_url?: string; store_image_url?: string } = {
+    const profile: ResellerProfile & { avatar_url?: string; store_image_url?: string; shipping_charges?: number } = {
       id: rawSeller?.id || sellerId,
       email: rawSeller?.email || defaultProfile.email,
       full_name: rawSeller?.full_name || defaultProfile.full_name,
@@ -95,23 +98,41 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
       created_at: rawSeller?.created_at || defaultProfile.created_at,
       avatar_url: rawSeller?.avatar_url || rawSeller?.store_image_url || rawSeller?.logo_url || defaultProfile.avatar_url,
       store_image_url: rawSeller?.store_image_url || rawSeller?.avatar_url || rawSeller?.logo_url || defaultProfile.store_image_url,
+      shipping_charges: Number(rawSeller?.shipping_charges ?? 150),
     };
 
     // 2. Batch fetch Products & Orders & Reviews stats for Store Information tab
     const [productsRes, ordersRes] = await Promise.all([
       supabase.from('products').select('id, status').eq('seller_id', sellerId),
-      supabase.from('seller_orders').select('id, seller_total, status').eq('seller_id', sellerId),
+      supabase.from('seller_orders').select('id, order_id, seller_total, status').eq('seller_id', sellerId),
     ]);
 
     const prods = productsRes.data || [];
     const ords = ordersRes.data || [];
 
     const totalProducts = prods.length;
-    const activeProducts = prods.filter((p: any) => p.status === 'Active').length;
-    const soldOutProducts = prods.filter((p: any) => p.status === 'Sold Out').length;
+    const activeProducts = prods.filter((p: any) => (p.status || '').toLowerCase() === 'active').length;
+
+    // Calculate unique sold-out products count
+    const soldOutProductSet = new Set<string>();
+    prods.forEach((p: any) => {
+      if ((p.status || '').toLowerCase() === 'sold out') {
+        soldOutProductSet.add(p.id);
+      }
+    });
+
+    const shippedOrDeliveredOrders = ords.filter((o: any) => {
+      const st = (o.status || '').toLowerCase();
+      return st === 'shipped' || st === 'delivered';
+    });
+
+    // Calculate total lifetime revenue exclusively from Shipped or Delivered orders
+    const totalRevenue = shippedOrDeliveredOrders.reduce(
+      (sum: number, o: any) => sum + (Number(o.seller_total) || 0),
+      0
+    );
 
     const totalOrders = ords.length;
-    const totalRevenue = ords.reduce((sum: number, o: any) => sum + (Number(o.seller_total) || 0), 0);
 
     // Fetch reviews average
     const productIds = prods.map((p: any) => p.id);
@@ -122,19 +143,23 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
         .select('rating')
         .in('product_id', productIds);
       if (revs && revs.length > 0) {
-        const sumR = revs.reduce((acc: number, r: any) => acc + (r.rating || 5), 0);
+        const sumR = revs.reduce((acc: number, r: any) => acc + (Number(r.rating) || 5), 0);
         avgRating = Math.round((sumR / revs.length) * 10) / 10;
       }
     }
 
+    const rawShippingCharges = Number(rawSeller?.shipping_charges);
+    const validShipping = isNaN(rawShippingCharges) ? 150 : Math.max(0, Math.min(500, rawShippingCharges));
+
     const stats: StoreOverviewStats = {
-      totalProducts: totalProducts || defaultStats.totalProducts,
-      activeProducts: activeProducts || defaultStats.activeProducts,
-      soldOutProducts: soldOutProducts || defaultStats.soldOutProducts,
-      totalOrders: totalOrders || defaultStats.totalOrders,
-      totalRevenue: totalRevenue || defaultStats.totalRevenue,
+      totalProducts: totalProducts,
+      activeProducts: activeProducts,
+      soldOutProducts: soldOutProductSet.size,
+      totalOrders: totalOrders,
+      totalRevenue: totalRevenue,
       averageRating: avgRating,
       memberSince: formatDate(profile.created_at),
+      shippingCharges: validShipping,
     };
 
     return { profile, stats };
@@ -266,3 +291,42 @@ export async function updateSellerPassword(
     return { success: false, error: err?.message || 'Failed to update password.' };
   }
 }
+
+/**
+ * Updates seller shipping charges in sellers table (Range 0 - 500 PKR)
+ */
+export async function updateSellerShippingCharges(
+  sellerId: string,
+  shippingCharges: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!sellerId) return { success: false, error: 'Invalid seller ID' };
+
+  if (shippingCharges < 0 || shippingCharges > 500) {
+    return { success: false, error: 'Shipping charges must be between 0 and 500 PKR.' };
+  }
+
+  if (!isValidUUID(sellerId)) {
+    return { success: true };
+  }
+
+  try {
+    const { error } = await supabase
+      .from('sellers')
+      .update({
+        shipping_charges: shippingCharges,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sellerId);
+
+    if (error) {
+      console.error('Error updating shipping charges:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Unexpected error updating shipping charges:', err);
+    return { success: false, error: err?.message || 'Failed to save shipping charges.' };
+  }
+}
+

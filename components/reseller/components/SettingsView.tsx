@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/src/hooks/useAuth';
 import {
   fetchSellerFullProfile,
   updateSellerProfile,
   uploadSellerAvatar,
   updateSellerPassword,
+  updateSellerShippingCharges,
   StoreOverviewStats,
 } from '@/src/api/sellerProfileService';
 import { format$ } from '../data/mockWalletData';
@@ -18,15 +19,12 @@ import {
   Upload,
   AlertCircle,
   Loader2,
-  RotateCcw,
   Save,
   Package,
   ShoppingBag,
   TrendingUp,
   Star,
   Calendar,
-  Building2,
-  CreditCard,
   MapPin,
   Phone,
   Mail,
@@ -34,6 +32,7 @@ import {
   KeyRound,
   Check,
   X,
+  Truck,
 } from 'lucide-react';
 
 export interface SettingsViewProps {
@@ -52,6 +51,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
   const [loading, setLoading] = useState<boolean>(true);
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
   const [updatingPassword, setUpdatingPassword] = useState<boolean>(false);
+  const [savingShipping, setSavingShipping] = useState<boolean>(false);
 
   const [stats, setStats] = useState<StoreOverviewStats | null>(null);
 
@@ -87,6 +87,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     new: false,
     confirm: false,
   });
+
+  // Shipping Charges State for Store Overview Tab
+  const [shippingChargesInput, setShippingChargesInput] = useState<string>('150');
+  const [originalShippingCharges, setOriginalShippingCharges] = useState<number>(150);
+  const [shippingError, setShippingError] = useState<string | null>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [passErrors, setPassErrors] = useState<Record<string, string>>({});
@@ -132,6 +137,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
         setOriginalData(initial);
         setAvatarPreview(initial.store_image_url || initial.avatar_url);
         setStats(stats);
+
+        const initialShipping = stats?.shippingCharges ?? (profile.shipping_charges || 150);
+        setShippingChargesInput(String(initialShipping));
+        setOriginalShippingCharges(initialShipping);
         setLoading(false);
       });
     }
@@ -158,6 +167,65 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     const url = URL.createObjectURL(file);
     setAvatarPreview(url);
   };
+
+  // Status Badge Formatter
+  const statusBadge = useMemo(() => {
+    const s = (formData.status || '').trim().toLowerCase();
+    if (s === 'active') {
+      return {
+        text: 'Active Seller',
+        style: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+      };
+    }
+    if (s === 'inactive') {
+      return {
+        text: 'Inactive Seller',
+        style: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      };
+    }
+    if (s === 'suspended') {
+      return {
+        text: 'Suspended Seller',
+        style: 'bg-red-500/20 text-red-300 border-red-500/40',
+      };
+    }
+    return {
+      text: formData.status ? `${formData.status} Seller` : 'Active Seller',
+      style: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+    };
+  }, [formData.status]);
+
+  // Is Changed Checks for 3 Tabs
+  const isProfileChanged = useMemo(() => {
+    if (avatarFile !== null) return true;
+    if (!originalData) return false;
+    return (
+      formData.full_name.trim() !== (originalData.full_name || '').trim() ||
+      formData.phone.trim() !== (originalData.phone || '').trim() ||
+      formData.city.trim() !== (originalData.city || '').trim() ||
+      formData.address.trim() !== (originalData.address || '').trim() ||
+      formData.shop_name.trim() !== (originalData.shop_name || '').trim() ||
+      formData.bank_name.trim() !== (originalData.bank_name || '').trim() ||
+      formData.account_title.trim() !== (originalData.account_title || '').trim() ||
+      formData.iban.trim() !== (originalData.iban || '').trim()
+    );
+  }, [formData, originalData, avatarFile]);
+
+  const isSecurityChanged = useMemo(() => {
+    return Boolean(
+      passData.currentPassword.trim() &&
+      passData.newPassword.trim() &&
+      passData.confirmPassword.trim()
+    );
+  }, [passData]);
+
+  const isStoreChanged = useMemo(() => {
+    if (shippingError) return false;
+    const num = Number(shippingChargesInput);
+    if (isNaN(num) || shippingChargesInput.trim() === '') return false;
+    if (num < 0 || num > 500) return false;
+    return num !== originalShippingCharges;
+  }, [shippingChargesInput, originalShippingCharges, shippingError]);
 
   const validateProfileForm = (): boolean => {
     const errs: Record<string, string> = {};
@@ -237,16 +305,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     }
   };
 
-  const handleResetForm = () => {
-    if (originalData) {
-      setFormData({ ...originalData });
-      setAvatarPreview(originalData.store_image_url || originalData.avatar_url);
-      setAvatarFile(null);
-      setErrors({});
-      showToast('Form changes reset to original values.');
-    }
-  };
-
   const validatePasswordForm = (): boolean => {
     const errs: Record<string, string> = {};
     if (!passData.currentPassword) errs.currentPassword = 'Current password is required.';
@@ -292,6 +350,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     }
   };
 
+  const handleShippingChange = (val: string) => {
+    setShippingChargesInput(val);
+    if (val.trim() === '') {
+      setShippingError('Shipping charges are required.');
+      return;
+    }
+    const num = Number(val);
+    if (isNaN(num)) {
+      setShippingError('Shipping charges must be a valid number.');
+      return;
+    }
+    if (num < 0 || num > 500) {
+      setShippingError('Shipping charges must be between 0 and 500 PKR.');
+      return;
+    }
+    setShippingError(null);
+  };
+
+  const handleSaveShipping = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const num = Number(shippingChargesInput);
+    if (isNaN(num) || num < 0 || num > 500) {
+      setShippingError('Shipping charges must be between 0 and 500 PKR.');
+      return;
+    }
+
+    setSavingShipping(true);
+    try {
+      const res = await updateSellerShippingCharges(sellerId, num);
+      if (!res.success) {
+        showToast(res.error || 'Failed to update shipping charges.', 'error');
+        setSavingShipping(false);
+        return;
+      }
+
+      setOriginalShippingCharges(num);
+      setSavingShipping(false);
+      showToast('Shipping Charges updated successfully!');
+    } catch (err: any) {
+      console.error('Error saving shipping charges:', err);
+      showToast(err?.message || 'Failed to update shipping charges.', 'error');
+      setSavingShipping(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-8xl mx-auto pb-12 animate-fade-in text-stone-800">
       {/* Toast Notification Container */}
@@ -326,7 +429,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
           <div className="relative group shrink-0">
             <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-full overflow-hidden border-4 border-amber-400/40 shadow-xl bg-stone-800">
               <img
-                src={avatarPreview || formData.avatar_url || 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/pngtree-store-icon-image_1128274.jpg'}
+                src={
+                  avatarPreview ||
+                  formData.avatar_url ||
+                  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/pngtree-store-icon-image_1128274.jpg'
+                }
                 alt={formData.shop_name}
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -358,13 +465,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                 VERIFIED MARKETPLACE SELLER
               </span>
 
+              {/* Status Display: Active Seller / Inactive Seller / Suspended Seller */}
               <span
-                className={`text-2xs font-extrabold px-2.5 py-0.5 rounded-full uppercase border ${formData.status === 'Active'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                    : 'bg-red-500/20 text-red-300 border-red-500/40'
-                  }`}
+                className={`text-2xs font-extrabold px-2.5 py-0.5 rounded-full uppercase border ${statusBadge.style}`}
               >
-                {formData.status === 'Active' ? '✓ Active Seller' : 'Suspended'}
+                ✓ {statusBadge.text}
               </span>
             </div>
 
@@ -458,13 +563,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                       <User className="w-4 h-4 text-amber-600 shrink-0" />
                       <span>Personal & Business Information</span>
                     </h3>
-                    <p className="text-[11px] text-stone-500 mt-0.5">
-                      Seller owner identity details and contact credentials
-                    </p>
                   </div>
-                  <span className="text-[10px] uppercase font-bold text-stone-400 bg-stone-100 px-2 py-0.5 rounded">
-                    Seller Account Owner
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 text-xs sm:text-sm">
@@ -510,20 +609,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                     <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                       Phone Number <span className="text-red-600">*</span>
                     </label>
+
                     <div className="relative">
                       <input
                         type="text"
                         required
+                        readOnly
                         value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        className={`w-full p-3 pl-9 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${errors.phone
-                            ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
-                            : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
-                          }`}
+                        className="w-full p-3 pl-9 border border-stone-300 rounded-lg focus:outline-none bg-stone-100 cursor-not-allowed min-h-[42px]"
                       />
+
                       <Phone className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
                     </div>
-                    {errors.phone && <p className="text-xs text-red-600 font-medium mt-1">{errors.phone}</p>}
+
+                    {errors.phone && (
+                      <p className="text-xs text-red-600 font-medium mt-1">
+                        {errors.phone}
+                      </p>
+                    )}
                   </div>
 
                   {/* CNIC */}
@@ -566,6 +669,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                     {errors.city && <p className="text-xs text-red-600 font-medium mt-1">{errors.city}</p>}
                   </div>
 
+                  {/* Shop Name */}
+                  <div>
+                    <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+                      Shop / Store Name
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.shop_name}
+                      onChange={(e) => setFormData({ ...formData, shop_name: e.target.value })}
+                      className="w-full p-3 border border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px]"
+                    />
+                  </div>
+
                   {/* Address */}
                   <div className="md:col-span-2">
                     <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
@@ -586,22 +702,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                 </div>
               </div>
 
-              {/* BOTTOM ACTIONS ROW */}
-              <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleResetForm}
-                  disabled={savingProfile}
-                  className="px-5 py-2.5 border border-stone-300 hover:bg-stone-100 text-stone-800 text-xs sm:text-sm font-semibold rounded-lg transition-colors flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 min-h-[42px]"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>Reset Changes</span>
-                </button>
-
+              {/* TAB 1 ACTIONS ROW: Save Changes only, disabled when no changes */}
+              <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-xs flex items-center justify-end">
                 <button
                   type="submit"
-                  disabled={savingProfile}
-                  className="px-6 py-2.5 bg-stone-900 hover:bg-black text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 cursor-pointer disabled:bg-stone-500 min-h-[42px]"
+                  disabled={savingProfile || !isProfileChanged}
+                  className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${savingProfile || !isProfileChanged
+                      ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
+                      : 'cursor-pointer hover:bg-black text-white'
+                    }`}
                 >
                   {savingProfile ? (
                     <>
@@ -628,13 +737,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                     <KeyRound className="w-4 h-4 text-amber-600 shrink-0" />
                     <span>Change Account Password</span>
                   </h3>
-                  <p className="text-[11px] text-stone-500 mt-0.5">
-                    Update your password regularly to protect your marketplace seller dashboard
-                  </p>
                 </div>
-                <span className="text-[10px] uppercase font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
-                  Security
-                </span>
               </div>
 
               <form onSubmit={handleUpdatePasswordSubmit} className="space-y-5 text-xs sm:text-sm max-w-xl">
@@ -725,11 +828,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   )}
                 </div>
 
+                {/* TAB 2 ACTIONS ROW: Save Changes only, disabled when no changes */}
                 <div className="pt-2">
                   <button
                     type="submit"
-                    disabled={updatingPassword}
-                    className="w-full sm:w-auto px-6 py-3 bg-stone-900 hover:bg-black text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 cursor-pointer disabled:bg-stone-500 min-h-[42px]"
+                    disabled={updatingPassword || !isSecurityChanged}
+                    className={`w-full sm:w-auto px-6 py-3 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${updatingPassword || !isSecurityChanged
+                        ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
+                        : 'cursor-pointer hover:bg-black text-white'
+                      }`}
                   >
                     {updatingPassword ? (
                       <>
@@ -738,8 +845,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                       </>
                     ) : (
                       <>
-                        <ShieldCheck className="w-4 h-4 text-amber-400" />
-                        <span>Update Password</span>
+                        <Save className="w-4 h-4 text-amber-400" />
+                        <span>Save Changes</span>
                       </>
                     )}
                   </button>
@@ -751,6 +858,81 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
           {/* TAB 3: STORE OVERVIEW */}
           {activeTab === 'store' && (
             <div className="space-y-6">
+              {/* EDITABLE SHIPPING CHARGES CARD */}
+              <form onSubmit={handleSaveShipping} className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xs space-y-5">
+                <div className="border-b border-stone-200 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-stone-900 flex items-center space-x-2">
+                      <Truck className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Store Shipping Configuration</span>
+                    </h3>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      Set flat-rate shipping charges applied to customer orders (0 to 500 PKR)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="max-w-xl space-y-4">
+                  <div>
+                    <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs sm:text-sm flex items-center justify-between">
+                      <span>Shipping Charges (PKR) <span className="text-red-600">*</span></span>
+                      <span className="text-[11px] font-normal text-stone-400">Allowed range: 0 - 500 PKR</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min={0}
+                        max={500}
+                        step={1}
+                        required
+                        value={shippingChargesInput}
+                        onChange={(e) => handleShippingChange(e.target.value)}
+                        className={`w-full p-3 pl-9 border rounded-lg focus:outline-none focus:ring-1 transition-all text-xs sm:text-sm font-mono font-bold ${shippingError
+                            ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20 text-red-900'
+                            : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white text-stone-900'
+                          }`}
+                        placeholder="150"
+                      />
+                      <span className="absolute left-3 top-3.5 text-xs font-bold text-stone-400">Rs.</span>
+                    </div>
+                    {shippingError ? (
+                      <p className="text-xs text-red-600 font-medium mt-1.5 flex items-center space-x-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{shippingError}</span>
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-stone-500 mt-1">
+                        Enter flat delivery fee in PKR. Leave 0 for free shipping.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-1 flex items-center justify-start">
+                    <button
+                      type="submit"
+                      disabled={savingShipping || !isStoreChanged || !!shippingError}
+                      className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${savingShipping || !isStoreChanged || !!shippingError
+                          ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
+                          : 'cursor-pointer hover:bg-black text-white'
+                        }`}
+                    >
+                      {savingShipping ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                          <span>Saving Shipping...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 text-amber-400" />
+                          <span>Save Changes</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {/* DYNAMIC STORE PERFORMANCE OVERVIEW */}
               <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xs space-y-6">
                 <div className="border-b border-stone-200 pb-3 flex items-center justify-between">
                   <div>
@@ -758,83 +940,84 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                       <Store className="w-4 h-4 text-amber-600 shrink-0" />
                       <span>Store Performance Overview</span>
                     </h3>
-                    <p className="text-[11px] text-stone-500 mt-0.5">
-                      Live store statistics and performance metrics summary
-                    </p>
                   </div>
-                  <span className="text-[10px] uppercase font-bold text-stone-500 bg-stone-100 px-2.5 py-0.5 rounded">
-                    Read-Only Statistics
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
+                  {/* Metric 1: Total Products */}
                   <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
                     <div className="flex justify-between items-center text-stone-500">
                       <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Total Products</span>
                       <Package className="w-4 h-4 text-stone-700 shrink-0" />
                     </div>
                     <div className="text-xl sm:text-2xl font-extrabold font-mono text-stone-900">
-                      {stats?.totalProducts || 0}
+                      {stats?.totalProducts ?? 0}
                     </div>
                     <span className="text-xs text-stone-500 block">Catalog items</span>
                   </div>
 
+                  {/* Metric 2: Active Products */}
                   <div className="bg-emerald-50/60 border border-emerald-200 p-4 sm:p-5 rounded-xl space-y-2">
                     <div className="flex justify-between items-center text-emerald-800">
                       <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Active Products</span>
                       <Check className="w-4 h-4 text-emerald-700 shrink-0" />
                     </div>
                     <div className="text-xl sm:text-2xl font-extrabold font-mono text-emerald-950">
-                      {stats?.activeProducts || 0}
+                      {stats?.activeProducts ?? 0}
                     </div>
                     <span className="text-xs text-emerald-700 block font-medium">Live on storefront</span>
                   </div>
 
+                  {/* Metric 3: Sold Out Products */}
                   <div className="bg-amber-50/60 border border-amber-200 p-4 sm:p-5 rounded-xl space-y-2">
                     <div className="flex justify-between items-center text-amber-900">
                       <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Sold Out Products</span>
                       <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
                     </div>
                     <div className="text-xl sm:text-2xl font-extrabold font-mono text-amber-950">
-                      {stats?.soldOutProducts || 0}
+                      {stats?.soldOutProducts ?? 0}
                     </div>
                     <span className="text-xs text-amber-800 block font-medium">Out of stock items</span>
                   </div>
 
+                  {/* Metric 4: Total Orders */}
                   <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
                     <div className="flex justify-between items-center text-stone-500">
                       <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Total Orders</span>
                       <ShoppingBag className="w-4 h-4 text-stone-700 shrink-0" />
                     </div>
                     <div className="text-xl sm:text-2xl font-extrabold font-mono text-stone-900">
-                      {stats?.totalOrders || 0}
+                      {stats?.totalOrders ?? 0}
                     </div>
                     <span className="text-xs text-stone-500 block">Lifetime customer orders</span>
                   </div>
 
+                  {/* Metric 5: Total Lifetime Revenue */}
                   <div className="bg-stone-900 text-white p-4 sm:p-5 rounded-xl space-y-2 col-span-1 sm:col-span-2">
                     <div className="flex justify-between items-center text-stone-300">
                       <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Total Lifetime Revenue</span>
                       <TrendingUp className="w-4 h-4 text-amber-400 shrink-0" />
                     </div>
                     <div className="text-2xl sm:text-3xl font-extrabold font-mono text-white">
-                      {format$(stats?.totalRevenue || 0)}
+                      {format$(stats?.totalRevenue ?? 0)}
                     </div>
-                    <span className="text-xs text-stone-400 block font-medium">Gross sales generated</span>
+                    <span className="text-xs text-stone-400 block font-medium">Shipped & Delivered order gross revenue</span>
                   </div>
 
+                  {/* Metric 6: Average Rating */}
                   <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
                     <div className="flex justify-between items-center text-amber-600">
                       <span className="text-[10px] sm:text-xs font-bold text-stone-500 uppercase tracking-wider">Average Rating</span>
                       <Star className="w-4 h-4 fill-amber-400 text-amber-400 shrink-0" />
                     </div>
                     <div className="text-xl sm:text-2xl font-extrabold font-mono text-stone-900 flex items-baseline space-x-1">
-                      <span>{stats?.averageRating || 5.0}</span>
+                      <span>{stats?.averageRating ? stats.averageRating.toFixed(1) : '5.0'}</span>
                       <span className="text-xs text-stone-400 font-normal">/ 5.0</span>
                     </div>
                     <span className="text-xs text-stone-500 block">Customer review score</span>
                   </div>
 
+                  {/* Metric 7: Member Since */}
                   <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
                     <div className="flex justify-between items-center text-stone-500">
                       <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Member Since</span>
@@ -843,7 +1026,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                     <div className="text-base sm:text-lg font-bold font-mono text-stone-900 truncate">
                       {stats?.memberSince || 'Jan 2024'}
                     </div>
-                    <span className="text-xs text-stone-500 block">Registration date</span>
+                    <span className="text-xs text-stone-500 block font-medium">Registration date</span>
                   </div>
                 </div>
               </div>

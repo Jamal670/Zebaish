@@ -218,10 +218,6 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                 <span className="bg-amber-400 text-stone-950 text-2xs font-extrabold uppercase tracking-widest px-2.5 py-0.5 rounded-xs">
                   VERIFIED RESELLER
                 </span>
-                <span className="text-stone-300 text-xs font-medium flex items-center space-x-1">
-                  <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{seller.city}, Pakistan</span>
-                </span>
               </div>
 
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-brand-serif font-normal tracking-wide">
@@ -233,19 +229,19 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
               </p>
 
               {/* Badges Row */}
-              <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
+              <div className="pt-2 flex flex-wrap items-center gap-4 text-xs sm:text-sm">
                 <div className="flex items-center space-x-1 text-amber-400 font-bold">
                   <Star className="w-4 h-4 fill-amber-400" />
-                  <span>{seller.rating} / 5.0 ({seller.reviewCount} Reviews)</span>
+                  <span>{seller.rating ? seller.rating.toFixed(1) : '5.0'} / 5.0 ({seller.reviewCount || 0} Reviews)</span>
                 </div>
                 
                 <div className="flex items-center space-x-1 text-stone-300">
                   <Calendar className="w-3.5 h-3.5 text-stone-400" />
                   <span>Member Since: {seller.joinedDate}</span>
                 </div>
-                <div className="flex items-center space-x-1 text-stone-300">
+                <div className="flex items-center space-x-1 text-stone-300 font-semibold">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{seller.totalSales}+ Suits Sold</span>
+                  <span>{seller.totalSales || 0}+ Suits Sold</span>
                 </div>
               </div>
             </div>
@@ -253,48 +249,52 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
         </div>
       </div>
 
-      {/* Navigation Tabs (Listings / Reviews) */}
-      <div className="bg-white border-b border-stone-200 top-16 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-          <div className="flex space-x-8">
-            <button
-              onClick={() => setActiveTab('listings')}
-              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === 'listings'
-                  ? 'border-stone-900 text-stone-900'
-                  : 'border-transparent text-stone-500 hover:text-stone-800'
-                }`}
-            >
-              Surplus Listings ({sortedProducts.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('reviews')}
-              className={`py-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'reviews'
-                  ? 'border-stone-900 text-stone-900'
-                  : 'border-transparent text-stone-500 hover:text-stone-800'
-                }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Customer Reviews ({seller.reviewCount})</span>
-            </button>
-          </div>
+      {/* Navigation Tabs (Listings / Reviews) - Responsive Sizing */}
+      <div className="bg-white border-b border-stone-200 sticky top-16 z-20 shadow-2xs">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3 py-2.5 sm:py-0">
+    
+    <div className="flex space-x-4 sm:space-x-8 overflow-x-auto no-scrollbar min-w-0">
+      <button
+        onClick={() => setActiveTab('listings')}
+        className={`py-2.5 sm:py-4 text-[11px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors shrink-0 ${
+          activeTab === 'listings'
+            ? 'border-stone-900 text-stone-900'
+            : 'border-transparent text-stone-500 hover:text-stone-800'
+        }`}
+      >
+        Listings ({sortedProducts.length})
+      </button>
 
-          {activeTab === 'listings' && (
-            <div className="flex items-center space-x-2">
-              <ArrowUpDown className="w-3.5 h-3.5 text-stone-400" />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-stone-50 border border-stone-200 text-stone-800 text-xs font-semibold rounded-xs py-1.5 px-2.5 focus:outline-none cursor-pointer"
-              >
-                <option value="featured">Sort: Featured</option>
-                <option value="newest">Sort: Newest First</option>
-                <option value="price-low">Sort: Price (Low to High)</option>
-                <option value="price-high">Sort: Price (High to Low)</option>
-              </select>
-            </div>
-          )}
-        </div>
+      <button
+        onClick={() => setActiveTab('reviews')}
+        className={`py-2.5 sm:py-4 text-[11px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors flex items-center space-x-1.5 sm:space-x-2 shrink-0 ${
+          activeTab === 'reviews'
+            ? 'border-stone-900 text-stone-900'
+            : 'border-transparent text-stone-500 hover:text-stone-800'
+        }`}
+      >
+        <span>Reviews ({seller.reviewCount || 0})</span>
+      </button>
+    </div>
+
+    {activeTab === 'listings' && (
+      <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+        <ArrowUpDown className="w-3.5 h-3.5 text-stone-400" />
+
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          className="bg-stone-50 border border-stone-200 text-stone-800 text-[10px] sm:text-xs md:text-sm font-semibold rounded-xs py-1.5 px-2 sm:px-2.5 focus:outline-none cursor-pointer"
+        >
+          <option value="featured">Sort: Featured</option>
+          <option value="newest">Sort: Newest First</option>
+          <option value="price-low">Sort: Price (Low to High)</option>
+          <option value="price-high">Sort: Price (High to Low)</option>
+        </select>
       </div>
+    )}
+  </div>
+</div>
 
       {/* Tab Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">

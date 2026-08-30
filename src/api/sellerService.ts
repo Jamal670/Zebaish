@@ -79,7 +79,13 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     .select('*')
     .eq('seller_id', sellerId);
 
-  // 3. Fetch Products listed by this Seller from `products` table
+  // 3. Fetch Seller Orders from `seller_orders` table
+  const sellerOrdersPromise = supabase
+    .from('seller_orders')
+    .select('id, seller_total, status')
+    .eq('seller_id', sellerId);
+
+  // 4. Fetch Products listed by this Seller from `products` table
   const productsPromise = supabase
     .from('products')
     .select(`
@@ -97,9 +103,10 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     `)
     .eq('seller_id', sellerId);
 
-  const [sellerRes, orderItemsRes, productsRes] = await Promise.all([
+  const [sellerRes, orderItemsRes, sellerOrdersRes, productsRes] = await Promise.all([
     sellerPromise,
     orderItemsPromise,
+    sellerOrdersPromise,
     productsPromise,
   ]);
 
@@ -109,6 +116,7 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
 
   const rawSeller = sellerRes.data;
   const rawOrderItems = orderItemsRes.data || [];
+  const rawSellerOrders = sellerOrdersRes.data || [];
   const rawProducts = productsRes.data || [];
 
   // Group order_items by product_id
@@ -127,6 +135,9 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     });
   }
 
+  // Calculate dynamic sold items count (prefer sum of order_items quantity, fallback to seller_orders count)
+  const totalSoldSuits = sellerTotalUnitsSold || rawSellerOrders.length || 0;
+
   // Extract all unique product IDs (from products table + order_items table)
   const productIdsSet = new Set<string>();
   rawProducts.forEach((p: any) => productIdsSet.add(p.id));
@@ -135,7 +146,7 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
   });
   const allProductIds = Array.from(productIdsSet);
 
-  // 4. Batch Fetch Reviews for all seller products from `reviews` table in a SINGLE query
+  // 5. Batch Fetch Reviews for all seller products from `reviews` table in a SINGLE query
   let rawReviews: any[] = [];
   if (allProductIds.length > 0) {
     const reviewsRes = await supabase
@@ -181,14 +192,21 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     };
   });
 
-  // Calculate overall seller metrics
+  // Calculate overall seller metrics dynamically
   const totalSellerReviewsCount = mappedReviews.length;
+  const rawDbRating = Number(rawSeller?.average_rating);
   const sellerAverageRating =
-    totalSellerReviewsCount > 0
+    !isNaN(rawDbRating) && rawDbRating > 0
+      ? Math.round(rawDbRating * 10) / 10
+      : totalSellerReviewsCount > 0
       ? Math.round((mappedReviews.reduce((sum, r) => sum + r.rating, 0) / totalSellerReviewsCount) * 10) / 10
       : 5.0;
 
-  const sellerImage = rawSeller?.store_image_url || 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
+  const sellerImage =
+    rawSeller?.store_image_url ||
+    rawSeller?.avatar_url ||
+    rawSeller?.logo_url ||
+    'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
   const sellerShopName = rawSeller?.shop_name || rawSeller?.full_name || 'Verified Reseller';
 
   // Build Reseller object
@@ -202,13 +220,11 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     rating: sellerAverageRating,
     reviewCount: totalSellerReviewsCount,
     responseTime: 'Replies in 15 mins',
-    description: rawSeller?.address
-      ? `Located in ${rawSeller.city || 'Pakistan'}. Authentic brand overstocks and designer surplus.`
-      : 'Authentic 100% original designer leftover suits directly sourced from factory overstocks.',
+    description: 'Authentic 100% original designer leftover suits directly sourced from factory overstocks.',
     joinedDate: formatDate(rawSeller?.created_at),
     status: rawSeller?.status === 'Active' ? 'Active Seller' : 'Approved',
-    totalSales: sellerTotalUnitsSold,
-    city: rawSeller?.city || 'Lahore',
+    totalSales: totalSoldSuits,
+    city: rawSeller?.city || 'Pakistan',
     activeListingsCount: rawProducts.length,
   };
 

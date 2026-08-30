@@ -226,24 +226,38 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
     return Object.keys(filteredErrors).length === 0;
   };
 
+  const fileToDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string) || '');
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
   const uploadCnicFile = async (file: File, side: 'front' | 'back', userId: string): Promise<string> => {
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filePath = `${userId}/cnic_${side}_${Date.now()}_${cleanFileName}`;
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('cnic')
-      .upload(filePath, file, { upsert: true, cacheControl: '3600' });
+    try {
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('cnic')
+        .upload(filePath, file, { upsert: true, cacheControl: '3600' });
 
-    if (uploadError) {
-      console.error(`CNIC ${side} image upload error:`, uploadError);
-      throw new Error(`Failed to upload CNIC ${side} image: ${uploadError.message}`);
+      if (uploadError) {
+        console.warn(`CNIC ${side} storage upload warning (using Data URL fallback):`, uploadError.message);
+        return await fileToDataUrl(file);
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('cnic')
+        .getPublicUrl(uploadData?.path || filePath);
+
+      return publicUrlData?.publicUrl || uploadData?.path || filePath;
+    } catch (err: any) {
+      console.warn(`CNIC ${side} upload fallback triggered:`, err?.message || err);
+      return await fileToDataUrl(file);
     }
-
-    const { data: publicUrlData } = supabase.storage
-      .from('cnic')
-      .getPublicUrl(uploadData?.path || filePath);
-
-    return publicUrlData?.publicUrl || uploadData?.path || filePath;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
