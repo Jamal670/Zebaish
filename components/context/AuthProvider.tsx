@@ -112,12 +112,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (!sellerRes && !customerRes && authUser) {
       try {
         const meta = authUser.user_metadata || {};
-        const fullName = meta.full_name || meta.name || '';
-        const nameParts = fullName.trim().split(' ');
-        const firstName = meta.given_name || nameParts[0] || 'User';
-        const lastName = meta.family_name || nameParts.slice(1).join(' ') || '';
+        const fullName = (meta.full_name || meta.name || '').trim();
+        const nameParts = fullName ? fullName.split(/\s+/) : [];
+
+        const firstName = meta.given_name || (nameParts.length > 0 ? nameParts[0] : '') || 'User';
+        const lastName = meta.family_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
         const email = authUser.email || meta.email || '';
-        const phoneNo = authUser.phone || meta.phone || '';
+        const phoneNo = authUser.phone || meta.phone || null;
 
         const { data: createdProfile, error: insertErr } = await supabase
           .from('users')
@@ -140,6 +141,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       } catch (err) {
         console.warn('Auto-create customer profile error for OAuth user:', err);
+        customerRes = await fetchUserProfile(userId);
       }
     }
 

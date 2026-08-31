@@ -44,7 +44,7 @@ export default function AuthCallbackPage() {
       if (role === 'seller') {
         router.replace('/dashboard/overview');
       } else {
-        router.replace('/');
+        router.replace('/account');
       }
     }
   }, [loading, user, role, router]);

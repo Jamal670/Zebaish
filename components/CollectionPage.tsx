@@ -141,6 +141,9 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
     return () => window.removeEventListener('scroll', handleScroll);
   }, [loading, loadingMore, hasMore, page, categoryTitle, brandFilter, filters]);
 
+  // Memoize wishlistSet for O(1) instant lookup inside grid renders
+  const wishlistSet = useMemo(() => new Set(wishlistIds), [wishlistIds]);
+
   // Filter and Sort logic
   const filteredProducts = useMemo(() => {
     const sourceProducts = supabaseProducts.length > 0 ? supabaseProducts : (productsList || []);
@@ -346,72 +349,282 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
       {/* Toolbar & Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {/* Toolbar */}
-        <div className="bg-white border border-stone-200 rounded-lg p-3 sm:p-4 mb-6 shadow-2xs flex flex-wrap items-center justify-between gap-4">
-          {/* Left: Filter Toggle Button */}
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setIsFiltersOpen(true)}
-              className="flex items-center space-x-2 bg-stone-900 hover:bg-black text-white px-4 py-2 rounded-xs text-xs font-bold uppercase tracking-wider shadow-sm transition-colors"
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-              <span>FILTERS</span>
-              {activeFilterCount > 0 && (
-                <span className="ml-1 bg-red-600 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-extrabold">
-                  {activeFilterCount}
-                </span>
-              )}
-            </button>
+        <div className="bg-white border border-stone-200 rounded-lg p-2.5 sm:p-3.5 lg:p-4 mb-6 shadow-2xs">
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
 
-            <span className="text-xs text-stone-500 font-medium hidden sm:inline">
-              Showing <strong className="text-stone-900">{filteredProducts.length}</strong> items
-            </span>
-          </div>
+            {/* LEFT: Filter + Item Count */}
+            <div className="flex items-center gap-1.5 sm:gap-3 lg:gap-4 min-w-0">
 
-          {/* Right: Grid Layout & Sort Dropdown */}
-          <div className="flex items-center space-x-4">
-            {/* Grid Columns Switcher (Desktop) */}
-            <div className="hidden md:flex items-center space-x-1 border-r border-stone-200 pr-4">
               <button
-                onClick={() => setGridCols(2)}
-                className={`p-1.5 rounded-xs transition-colors ${gridCols === 2 ? 'bg-stone-900 text-white' : 'text-stone-400 hover:text-stone-700'
-                  }`}
-                title="2 Columns"
+                onClick={() => setIsFiltersOpen(true)}
+                className="
+          flex items-center justify-center
+          gap-1
+          sm:gap-1.5
+          lg:gap-2
+
+          w-[78px]
+          h-[32px]
+          sm:w-[100px]
+          sm:h-[36px]
+          lg:w-[115px]
+          lg:h-[40px]
+
+          bg-stone-900
+          hover:bg-black
+          text-white
+
+          rounded-xs
+
+          text-[9px]
+          sm:text-[10px]
+          lg:text-xs
+
+          font-bold
+          uppercase
+          tracking-wide
+          sm:tracking-wider
+
+          shadow-sm
+          transition-colors
+
+          whitespace-nowrap
+          shrink-0
+        "
               >
-                <Grid2X2 className="w-4 h-4" />
+                <SlidersHorizontal
+                  className="
+            w-3
+            h-3
+            sm:w-3.5
+            sm:h-3.5
+            lg:w-4
+            lg:h-4
+            shrink-0
+          "
+                />
+
+                <span>FILTERS</span>
+
+                {activeFilterCount > 0 && (
+                  <span
+                    className="
+              ml-0.5
+
+              bg-red-600
+              text-white
+
+              text-[8px]
+              sm:text-[9px]
+              lg:text-[10px]
+
+              w-3.5
+              h-3.5
+              sm:w-4
+              sm:h-4
+              lg:w-4
+              lg:h-4
+
+              rounded-full
+              flex
+              items-center
+              justify-center
+
+              font-extrabold
+              shrink-0
+            "
+                  >
+                    {activeFilterCount}
+                  </span>
+                )}
               </button>
-              <button
-                onClick={() => setGridCols(3)}
-                className={`p-1.5 rounded-xs transition-colors ${gridCols === 3 ? 'bg-stone-900 text-white' : 'text-stone-400 hover:text-stone-700'
-                  }`}
-                title="3 Columns"
+
+              {/* Item Count */}
+              <span
+                className="
+          hidden sm:inline
+
+          text-[10px]
+          sm:text-xs
+          lg:text-sm
+
+          text-stone-500
+          font-medium
+          whitespace-nowrap
+        "
               >
-                <Grid3x2 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setGridCols(4)}
-                className={`p-1.5 rounded-xs transition-colors ${gridCols === 4 ? 'bg-stone-900 text-white' : 'text-stone-400 hover:text-stone-700'
-                  }`}
-                title="4 Columns"
-              >
-                <Grid3X3 className="w-4 h-4" />
-              </button>
+                Showing{" "}
+                <strong className="text-stone-900">
+                  {filteredProducts.length}
+                </strong>{" "}
+                items
+              </span>
             </div>
 
-            {/* Sort Dropdown */}
-            <div className="flex items-center space-x-2">
-              <ArrowUpDown className="w-3.5 h-3.5 text-stone-400" />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-stone-50 border border-stone-200 text-stone-800 text-xs font-semibold rounded-xs py-1.5 px-2.5 focus:outline-none focus:border-stone-900 cursor-pointer"
+            {/* RIGHT: Grid + Sort */}
+            <div className="flex items-center gap-1.5 sm:gap-3 lg:gap-4 shrink-0">
+
+              {/* Grid Columns Switcher */}
+              <div
+                className="
+          hidden md:flex
+          items-center
+          space-x-0.5
+          lg:space-x-1
+
+          border-r
+          border-stone-200
+
+          pr-2
+          lg:pr-4
+        "
               >
-                <option value="featured">Sort: Featured</option>
-                <option value="newest">Sort: Newest First</option>
-                <option value="price-low">Sort: Price (Low to High)</option>
-                <option value="price-high">Sort: Price (High to Low)</option>
-                <option value="best-discount">Sort: Best Discount</option>
-                <option value="most-popular">Sort: Reseller Rating</option>
-              </select>
+                <button
+                  onClick={() => setGridCols(2)}
+                  className={`
+            p-1
+            lg:p-1.5
+            rounded-xs
+            transition-colors
+            ${gridCols === 2
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-400 hover:text-stone-700"
+                    }
+          `}
+                  title="2 Columns"
+                >
+                  <Grid2X2
+                    className="
+              w-3
+              h-3
+              lg:w-4
+              lg:h-4
+            "
+                  />
+                </button>
+
+                <button
+                  onClick={() => setGridCols(3)}
+                  className={`
+            p-1
+            lg:p-1.5
+            rounded-xs
+            transition-colors
+            ${gridCols === 3
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-400 hover:text-stone-700"
+                    }
+          `}
+                  title="3 Columns"
+                >
+                  <Grid3x2
+                    className="
+              w-3
+              h-3
+              lg:w-4
+              lg:h-4
+            "
+                  />
+                </button>
+
+                <button
+                  onClick={() => setGridCols(4)}
+                  className={`
+            p-1
+            lg:p-1.5
+            rounded-xs
+            transition-colors
+            ${gridCols === 4
+                      ? "bg-stone-900 text-white"
+                      : "text-stone-400 hover:text-stone-700"
+                    }
+          `}
+                  title="4 Columns"
+                >
+                  <Grid3X3
+                    className="
+              w-3
+              h-3
+              lg:w-4
+              lg:h-4
+            "
+                  />
+                </button>
+              </div>
+
+              {/* Sort */}
+              <div className="flex items-center gap-1 sm:gap-1.5 lg:gap-2 shrink-0">
+
+                <ArrowUpDown
+                  className="
+            w-3
+            h-3
+            sm:w-3.5
+            sm:h-3.5
+            lg:w-4
+            lg:h-4
+
+            text-stone-400
+            shrink-0
+          "
+                />
+
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="
+            bg-stone-50
+            border border-stone-200
+
+            text-stone-800
+
+            text-[9px]
+            sm:text-[10px]
+            lg:text-xs
+
+            font-semibold
+
+            rounded-xs
+
+            w-[115px]
+            h-[32px]
+
+            sm:w-[150px]
+            sm:h-[36px]
+
+            lg:w-[175px]
+            lg:h-[40px]
+
+            px-1.5
+            sm:px-2
+            lg:px-2.5
+
+            focus:outline-none
+            focus:border-stone-900
+
+            cursor-pointer
+
+            whitespace-nowrap
+            shrink-0
+          "
+                >
+                  <option value="featured">Sort: Featured</option>
+                  <option value="newest">Sort: Newest First</option>
+                  <option value="price-low">
+                    Sort: Price (Low to High)
+                  </option>
+                  <option value="price-high">
+                    Sort: Price (High to Low)
+                  </option>
+                  <option value="best-discount">
+                    Sort: Best Discount
+                  </option>
+                  <option value="most-popular">
+                    Sort: Reseller Rating
+                  </option>
+                </select>
+
+              </div>
             </div>
           </div>
         </div>
@@ -559,10 +772,10 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
           <>
             <div
               className={`grid gap-4 sm:gap-6 ${gridCols === 2
-                  ? 'grid-cols-2'
-                  : gridCols === 3
-                    ? 'grid-cols-2 md:grid-cols-3'
-                    : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+                ? 'grid-cols-2'
+                : gridCols === 3
+                  ? 'grid-cols-2 md:grid-cols-3'
+                  : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
                 }`}
             >
               {filteredProducts.map((product) => (
@@ -572,7 +785,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
                   onQuickView={onQuickView}
                   onAddToCart={onAddToCart}
                   onToggleWishlist={onToggleWishlist}
-                  isWishlisted={wishlistIds.includes(product.id)}
+                  isWishlisted={wishlistSet.has(product.id)}
                   onSelectProduct={onSelectProduct}
                   onSelectReseller={onSelectReseller}
                 />

@@ -394,8 +394,7 @@ export interface FetchProductDetailResult {
  */
 export async function fetchProductById(productId: string): Promise<FetchProductDetailResult> {
   try {
-    // 1. Fetch main product details with images
-    // 1. Fetch product by ID joined with product_images, product_variants, and sellers
+    // 1. Single optimized query for product + product_images + product_variants + sellers
     const { data: p, error: pErr } = await supabase
       .from('products')
       .select(`
@@ -440,59 +439,19 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
       return { product: null, reviews: [], relatedProducts: [] };
     }
 
-    // 2. Fetch Seller details (from joined seller query or single query fallback)
-    let storeImageUrl: string | null = null;
-    let shopName = 'Verified Reseller';
-    let sellerStatus: string | undefined = undefined;
-    let sellerRating = 4.9;
-
+    // Extract seller info from joined relation
     const joinedSeller = Array.isArray((p as any).sellers) ? (p as any).sellers[0] : (p as any).sellers;
+    const storeImageUrl = joinedSeller?.store_image_url || null;
+    const shopName = joinedSeller?.shop_name || 'Verified Reseller';
+    const sellerStatus = joinedSeller?.status || undefined;
 
-    if (joinedSeller) {
-      storeImageUrl = joinedSeller.store_image_url || null;
-      if (joinedSeller.shop_name) shopName = joinedSeller.shop_name;
-      sellerStatus = joinedSeller.status || undefined;
-    } else if (p.seller_id) {
-      const { data: seller } = await supabase
-        .from('sellers')
-        .select('store_image_url, shop_name, status')
-        .eq('id', p.seller_id)
-        .maybeSingle();
-
-      if (seller) {
-        storeImageUrl = seller.store_image_url || null;
-        if (seller.shop_name) shopName = seller.shop_name;
-        sellerStatus = seller.status || undefined;
-      }
-    }
-
-    // Calculate seller rating from reviews table
-    if (p.seller_id) {
-      const { data: sellerProds } = await supabase
-        .from('products')
-        .select('id')
-        .eq('seller_id', p.seller_id);
-
-      if (sellerProds && sellerProds.length > 0) {
-        const sellerProdIds = sellerProds.map((sp) => sp.id);
-        const { data: sellerRevs } = await supabase
-          .from('reviews')
-          .select('rating')
-          .in('product_id', sellerProdIds);
-
-        if (sellerRevs && sellerRevs.length > 0) {
-          const avg = sellerRevs.reduce((sum, r) => sum + r.rating, 0) / sellerRevs.length;
-          sellerRating = Number(avg.toFixed(1));
-        }
-      }
-    }
-
-    // 3. Format product
+    // Process images
     const imagesArr = Array.isArray(p.product_images) ? p.product_images : [];
     const thumbnailObj = imagesArr.find((img: any) => img.is_thumbnail) || imagesArr[0];
     const mainImg = thumbnailObj?.image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
     const extraImgs = imagesArr.map((img: any) => img.image_url);
 
+    // Process prices & stock
     const origPrice = Number(p.original_retail_price || p.surplus_selling_price || 0);
     const surplusPrice = Number(p.surplus_selling_price || 0);
     const discount = origPrice > surplusPrice ? Math.round(((origPrice - surplusPrice) / origPrice) * 100) : 0;
@@ -525,7 +484,7 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
       listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',
       resellerId: p.seller_id,
       resellerName: shopName,
-      resellerRating: sellerRating,
+      resellerRating: 4.9,
       sellerStoreImageUrl: storeImageUrl,
       sellerStatus: sellerStatus,
       seller: {
@@ -557,18 +516,62 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
  */
 export async function fetchProductReviews(productId: string, limit = 5): Promise<Review[]> {
   try {
+    // Attempt single joined PostgREST query for reviews + user first_name & last_name
     const { data: reviewsData, error } = await supabase
+      .from('reviews')
+      .select(`
+        id,
+        rating,
+        review,
+        created_at,
+        user_id,
+        product_id,
+        users (
+          first_name,
+          last_name
+        )
+      `)
+      .eq('product_id', productId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (!error && reviewsData && reviewsData.length > 0) {
+      return reviewsData.map((rev: any) => {
+        const userObj = Array.isArray(rev.users) ? rev.users[0] : rev.users;
+        const fullName = userObj ? `${userObj.first_name || ''} ${userObj.last_name || ''}`.trim() : '';
+        const dateStr = rev.created_at
+          ? new Date(rev.created_at).toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+            })
+          : 'Recent';
+
+        return {
+          id: rev.id,
+          productId: rev.product_id || productId,
+          userName: fullName || 'Verified Customer',
+          rating: rev.rating || 5,
+          comment: rev.review || '',
+          date: dateStr,
+          verifiedPurchase: true,
+        };
+      });
+    }
+
+    // Fallback if users joined relationship fails
+    const { data: fallbackRevs } = await supabase
       .from('reviews')
       .select('id, rating, review, created_at, user_id, product_id')
       .eq('product_id', productId)
       .order('created_at', { ascending: false })
       .limit(limit);
 
-    if (error || !reviewsData || reviewsData.length === 0) {
+    if (!fallbackRevs || fallbackRevs.length === 0) {
       return [];
     }
 
-    const userIds = Array.from(new Set(reviewsData.map((r) => r.user_id).filter(Boolean)));
+    const userIds = Array.from(new Set(fallbackRevs.map((r) => r.user_id).filter(Boolean)));
     const userMap: Record<string, string> = {};
 
     if (userIds.length > 0) {
@@ -585,13 +588,13 @@ export async function fetchProductReviews(productId: string, limit = 5): Promise
       }
     }
 
-    return reviewsData.map((rev) => {
+    return fallbackRevs.map((rev) => {
       const dateStr = rev.created_at
         ? new Date(rev.created_at).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        })
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          })
         : 'Recent';
 
       return {
@@ -635,7 +638,8 @@ export async function fetchWishlistRecommendations(userId: string, currentProduc
 
     const targetProductIds = itemsData
       .map((i) => i.product_id)
-      .filter((id) => id && id !== currentProductId);
+      .filter((id) => id && id !== currentProductId)
+      .slice(0, 4);
 
     if (targetProductIds.length === 0) return [];
 
@@ -670,7 +674,8 @@ export async function fetchWishlistRecommendations(userId: string, currentProduc
         )
       `)
       .in('id', targetProductIds)
-      .eq('status', 'Active');
+      .eq('status', 'Active')
+      .limit(4);
 
     if (!rawProducts || rawProducts.length === 0) return [];
 

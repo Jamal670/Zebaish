@@ -13,7 +13,7 @@ interface ProductCardProps {
   onSelectReseller?: (resellerId: string) => void;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({
+export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   product,
   onQuickView,
   onAddToCart,
@@ -78,6 +78,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <img
           src={typeof product.image === 'string' ? product.image : (product.image as any).src}
           alt={product.title}
+          loading="lazy"
+          decoding="async"
           className="w-full h-full object-cover object-top transition-transform duration-700 group-hover/card:scale-105"
         />
 
@@ -85,6 +87,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <img
             src={typeof product.hoverImage === 'string' ? product.hoverImage : (product.hoverImage as any).src}
             alt={`${product.title} detail`}
+            loading="lazy"
+            decoding="async"
             className="absolute inset-0 w-full h-full object-cover object-top opacity-0 group-hover/card:opacity-100 transition-opacity duration-500"
           />
         )}
@@ -94,8 +98,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <div className="absolute top-2 left-2 sm:top-2.5 sm:left-2.5 z-10">
             <span
               className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-2xs ${badge.isDiscount
-                  ? 'bg-red-600 text-white'
-                  : 'bg-stone-900/90 text-white backdrop-blur-xs'
+                ? 'bg-red-600 text-white'
+                : 'bg-stone-900/90 text-white backdrop-blur-xs'
                 }`}
             >
               {badge.label}
@@ -237,5 +241,5 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       </div>
     </div>
   );
-};
+});
 

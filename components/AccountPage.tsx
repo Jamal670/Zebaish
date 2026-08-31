@@ -46,11 +46,8 @@ interface DbOrder {
 
 const mapOrderStatusLabel = (rawStatus: string): { label: string; badgeStyle: string } => {
   const s = (rawStatus || '').trim().toLowerCase();
-  if (s === 'pending' || s === 'confirmed') {
+  if (s === 'pending' || s === 'confirmed' || s === 'processing') {
     return { label: 'ORDER PLACED', badgeStyle: 'bg-amber-100 text-amber-900 border border-amber-300' };
-  }
-  if (s === 'processing') {
-    return { label: 'PROCESSING', badgeStyle: 'bg-blue-100 text-blue-900 border border-blue-300' };
   }
   if (s === 'shipped') {
     return { label: 'SHIPPED', badgeStyle: 'bg-indigo-100 text-indigo-900 border border-indigo-300' };
@@ -60,6 +57,9 @@ const mapOrderStatusLabel = (rawStatus: string): { label: string; badgeStyle: st
   }
   if (s === 'cancelled') {
     return { label: 'CANCELLED', badgeStyle: 'bg-rose-100 text-rose-800 border border-rose-300' };
+  }
+  if (s === 'refund') {
+    return { label: 'REFUND', badgeStyle: 'bg-purple-100 text-purple-900 border border-purple-300' };
   }
   return { label: (rawStatus || 'ORDER PLACED').toUpperCase(), badgeStyle: 'bg-amber-100 text-amber-900 border border-amber-300' };
 };
@@ -147,19 +147,34 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
         const orderIds = rawOrders.map((o: any) => o.id);
 
-        // Step 2: Fetch order_items matching order_id IN (orderIds)
-        const { data: rawItems, error: itemsErr } = await supabase
-          .from('order_items')
-          .select('*')
-          .in('order_id', orderIds);
+        // Step 2: Batch fetch order_items & seller_orders matching order_id IN (orderIds)
+        const [itemsRes, sellerOrdersRes] = await Promise.all([
+          supabase.from('order_items').select('*').in('order_id', orderIds),
+          supabase.from('seller_orders').select('order_id, seller_id, courier_name, tracking_number, status').in('order_id', orderIds),
+        ]);
 
-        if (itemsErr) {
-          console.error('Error fetching order items:', itemsErr);
+        if (itemsRes.error) {
+          console.error('Error fetching order items:', itemsRes.error);
           if (isMounted) setOrdersLoading(false);
           return;
         }
 
-        const orderItems = rawItems || [];
+        const orderItems = itemsRes.data || [];
+        const rawSellerOrders = sellerOrdersRes.data || [];
+
+        // Map seller_orders by order_id
+        const sellerOrdersByOrderId: Record<string, { courier_name?: string; tracking_number?: string; status?: string }[]> = {};
+        rawSellerOrders.forEach((so: any) => {
+          if (!sellerOrdersByOrderId[so.order_id]) {
+            sellerOrdersByOrderId[so.order_id] = [];
+          }
+          sellerOrdersByOrderId[so.order_id].push({
+            courier_name: so.courier_name,
+            tracking_number: so.tracking_number,
+            status: so.status,
+          });
+        });
+
         const productIds = Array.from(new Set(orderItems.map((item: any) => item.product_id).filter(Boolean)));
 
         // Step 3: Check which products exist in products table (Handling deleted products per Requirement #5)
@@ -216,18 +231,30 @@ export const AccountPage: React.FC<AccountPageProps> = ({
           itemsByOrderId[item.order_id].push(itemObj);
         });
 
-        // Construct final DbOrder array with computed subtotal
+        // Construct final DbOrder array with courier & tracking derived strictly from seller_orders
         const formattedOrders: DbOrder[] = rawOrders.map((o: any) => {
           const validItems = itemsByOrderId[o.id] || [];
           const computedSubtotal = validItems.reduce((acc, curr) => acc + curr.subtotal, 0);
+
+          const sellerOrdersList = sellerOrdersByOrderId[o.id] || [];
+
+          // Find matching seller_order entry containing non-empty courier_name & tracking_number
+          const matchingSellerOrder = sellerOrdersList.find(
+            (so) => (so.courier_name || '').trim() !== '' && (so.tracking_number || '').trim() !== ''
+          );
+
+          const activeSellerOrder = matchingSellerOrder || sellerOrdersList[0];
+          const effectiveOrderStatus = (activeSellerOrder && activeSellerOrder.status)
+            ? activeSellerOrder.status
+            : (o.order_status || o.status || 'Pending');
 
           return {
             id: o.id,
             order_number: o.order_number || o.id,
             created_at: o.created_at,
-            order_status: o.order_status || o.status || 'Pending',
-            courier_name: o.courier_name,
-            tracking_number: o.tracking_number,
+            order_status: effectiveOrderStatus,
+            courier_name: matchingSellerOrder ? (matchingSellerOrder.courier_name || '').trim() : undefined,
+            tracking_number: matchingSellerOrder ? (matchingSellerOrder.tracking_number || '').trim() : undefined,
             estimated_delivery: o.estimated_delivery,
             subtotal: computedSubtotal,
             items: validItems,
@@ -380,10 +407,10 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             resellerName: p.reseller_name || 'Verified Reseller',
             variants: Array.isArray(p.product_variants)
               ? p.product_variants.map((v: any) => ({
-                  id: v.id,
-                  size: v.size,
-                  quantity: Number(v.quantity) || 0,
-                }))
+                id: v.id,
+                size: v.size,
+                quantity: Number(v.quantity) || 0,
+              }))
               : [],
           };
         });
@@ -721,103 +748,107 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8 lg:pt-10">
         {/* Global Notifications */}
         {noticeMessage && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-semibold flex items-center justify-between shadow-sm animate-fade-in">
+          <div className="mb-6 p-3.5 sm:p-4 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-[10px] sm:text-xs lg:text-sm font-semibold flex items-center justify-between shadow-sm animate-fade-in">
             <span>{noticeMessage}</span>
-            <button onClick={() => setNoticeMessage(null)} className="text-amber-700 hover:text-amber-950 font-bold ml-4">✕</button>
+            <button onClick={() => setNoticeMessage(null)} className="text-amber-700 hover:text-amber-950 font-bold ml-4 text-[10px] sm:text-xs lg:text-sm">✕</button>
           </div>
         )}
 
         {successMessage && (
-          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-lg text-xs font-semibold flex items-center justify-between shadow-sm animate-fade-in">
+          <div className="mb-6 p-3.5 sm:p-4 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-lg text-[10px] sm:text-xs lg:text-sm font-semibold flex items-center justify-between shadow-sm animate-fade-in">
             <span>{successMessage}</span>
-            <button onClick={() => setSuccessMessage(null)} className="text-emerald-700 hover:text-emerald-950 font-bold ml-4">✕</button>
+            <button onClick={() => setSuccessMessage(null)} className="text-emerald-700 hover:text-emerald-950 font-bold ml-4 text-[10px] sm:text-xs lg:text-sm">✕</button>
           </div>
         )}
 
         {/* Header Profile Summary */}
-        <div className="bg-stone-900 text-white rounded-lg p-6 sm:p-8 mb-8 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
-            <div className="w-14 h-14 rounded-full bg-amber-400 text-stone-950 font-bold text-xl flex items-center justify-center shrink-0">
+        <div className="bg-stone-900 text-white rounded-lg p-5 sm:p-6 lg:p-7 mb-6 sm:mb-8 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          {/* User Details */}
+          <div className="flex items-center space-x-3.5 sm:space-x-4 min-w-0">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-amber-400 text-stone-950 font-bold text-base sm:text-lg flex items-center justify-center shrink-0">
               {fullName.charAt(0).toUpperCase()}
             </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight font-script">
+
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight font-script truncate">
                 Welcome back, {fullName}
               </h1>
-              <p className="text-xs text-stone-400 mt-0.5">{profileData.email} {profileData.phone ? `• ${profileData.phone}` : ''}</p>
+
+              <p className="text-xs sm:text-sm text-stone-400 mt-0.5 truncate">
+                {profileData.email}
+                {profileData.phone ? ` • ${profileData.phone}` : ''}
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-3 text-xs">
+          {/* Logout */}
+          <div className="flex items-center space-x-3 w-full sm:w-auto">
             <button
               onClick={handleLogout}
-              className="bg-stone-800 hover:bg-stone-700 text-white font-semibold px-3 py-1.5 rounded-md flex items-center space-x-1.5 border border-stone-700 transition-colors cursor-pointer"
+              className="bg-stone-800 hover:bg-stone-700 text-white font-semibold px-3.5 py-2 rounded-md flex items-center justify-center space-x-1.5 border border-stone-700 transition-colors cursor-pointer text-xs sm:text-sm w-full sm:w-auto"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-4 h-4" />
               <span>Logout</span>
             </button>
           </div>
         </div>
 
         {/* Tab Switcher Bar */}
-        <div className="bg-white border border-stone-200 rounded-lg p-1.5 mb-8 flex space-x-2 shadow-2xs">
+        <div className="bg-white border border-stone-200 rounded-lg p-1.5 mb-6 sm:mb-8 flex space-x-1.5 sm:space-x-2 shadow-2xs">
           <button
             onClick={() => setActiveTab('orders')}
-            className={`flex-1 py-3 px-4 rounded-xs text-xs font-bold uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${activeTab === 'orders'
-                ? 'bg-stone-900 text-white shadow-sm'
-                : 'text-stone-600 hover:bg-stone-100'
+            className={`flex-1 py-2.5 sm:py-3 px-3 sm:px-4 rounded-xs text-xs sm:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider flex items-center justify-center space-x-2 transition-all ${activeTab === 'orders'
+              ? 'bg-stone-900 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
               }`}
           >
-            <Package className="w-4 h-4" />
-            <span>My Orders ({dbOrders.length})</span>
+            <span>Orders</span>
           </button>
 
           <button
             onClick={() => setActiveTab('wishlist')}
-            className={`flex-1 py-3 px-4 rounded-xs text-xs font-bold uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${activeTab === 'wishlist'
-                ? 'bg-stone-900 text-white shadow-sm'
-                : 'text-stone-600 hover:bg-stone-100'
+            className={`flex-1 py-2.5 sm:py-3 px-3 sm:px-4 rounded-xs text-xs sm:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider flex items-center justify-center space-x-2 transition-all ${activeTab === 'wishlist'
+              ? 'bg-stone-900 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
               }`}
           >
-            <Heart className="w-4 h-4" />
-            <span>Wishlist ({wishlistProducts.length})</span>
+            <span>Wishlist</span>
           </button>
 
           <button
             onClick={() => setActiveTab('profile')}
-            className={`flex-1 py-3 px-4 rounded-xs text-xs font-bold uppercase tracking-wider flex items-center justify-center space-x-2 transition-all ${activeTab === 'profile'
-                ? 'bg-stone-900 text-white shadow-sm'
-                : 'text-stone-600 hover:bg-stone-100'
+            className={`flex-1 py-2.5 sm:py-3 px-3 sm:px-4 rounded-xs text-xs sm:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider flex items-center justify-center space-x-2 transition-all ${activeTab === 'profile'
+              ? 'bg-stone-900 text-white shadow-sm'
+              : 'text-stone-600 hover:bg-stone-100'
               }`}
           >
-            <User className="w-4 h-4" />
-            <span>Profile & Addresses</span>
+            <span>Profile</span>
           </button>
         </div>
 
         {/* TAB 1: ORDERS */}
         {activeTab === 'orders' && (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {ordersLoading ? (
-              <div className="bg-white border border-stone-200 rounded-lg p-12 text-center my-4 space-y-3">
+              <div className="bg-white border border-stone-200 rounded-lg p-8 sm:p-12 text-center my-4 space-y-3">
                 <Loader2 className="w-8 h-8 animate-spin text-stone-700 mx-auto" />
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-600">
+                <p className="text-xs sm:text-sm lg:text-base font-semibold uppercase tracking-wider text-stone-600">
                   Loading Your Orders...
                 </p>
               </div>
             ) : dbOrders.length === 0 ? (
-              <div className="bg-white border border-stone-200 rounded-lg p-12 text-center my-4">
-                <Package className="w-12 h-12 text-stone-300 mx-auto mb-3" />
-                <h3 className="text-base font-bold text-stone-900 uppercase tracking-wider">No Orders Placed Yet</h3>
-                <p className="text-xs text-stone-500 mt-1 max-w-sm mx-auto">
+              <div className="bg-white border border-stone-200 rounded-lg p-8 sm:p-12 text-center my-4">
+                <Package className="w-10 h-10 sm:w-12 sm:h-12 text-stone-300 mx-auto mb-3" />
+                <h3 className="text-sm sm:text-base lg:text-lg font-bold text-stone-900 uppercase tracking-wider">No Orders Placed Yet</h3>
+                <p className="text-xs sm:text-sm lg:text-base text-stone-500 mt-1 max-w-sm mx-auto">
                   Browse surplus Pakistani designer suits and place your first order.
                 </p>
                 <button
                   onClick={onNavigateHome}
-                  className="mt-6 inline-block bg-stone-900 text-white text-xs font-bold px-6 py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"
+                  className="mt-5 sm:mt-6 inline-block bg-stone-900 text-white text-xs sm:text-sm lg:text-base font-bold px-5 sm:px-6 py-2.5 sm:py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"
                 >
                   EXPLORE SURPLUS CATALOG
                 </button>
@@ -826,81 +857,97 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               dbOrders.map((order) => {
                 const statusMeta = mapOrderStatusLabel(order.order_status);
                 const formattedDate = formatOrderDate(order.created_at);
+                const courierName = (order.courier_name || '').trim();
+                const trackingNumber = (order.tracking_number || '').trim();
+                const hasCourierAndTracking = Boolean(courierName && trackingNumber);
 
                 return (
-                  <div key={order.id} className="bg-white border border-stone-200 rounded-lg p-6 shadow-2xs space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-stone-200 gap-2">
+                  <div key={order.id} className="bg-white border border-stone-200 rounded-lg p-4 sm:p-6 shadow-2xs space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 sm:pb-4 border-b border-stone-200 gap-2">
                       <div>
-                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block">
+                        <span className="text-[10px] sm:text-xs lg:text-sm font-bold text-stone-400 uppercase tracking-widest block">
                           ORDER REF
                         </span>
-                        <h3 className="text-sm font-extrabold text-stone-900 font-mono">{order.order_number}</h3>
-                        <span className="text-xs text-stone-500">Placed on {formattedDate}</span>
+                        <h3 className="text-xs sm:text-sm lg:text-base font-extrabold text-stone-900 font-mono">{order.order_number}</h3>
+                        <span className="text-[10px] sm:text-xs lg:text-sm text-stone-500">Placed on {formattedDate}</span>
                       </div>
 
                       <div className="flex items-center space-x-3">
-                        <span className="text-xs font-bold text-stone-900">
+                        <span className="text-xs sm:text-sm lg:text-base font-bold text-stone-900">
                           Subtotal: Rs. {order.subtotal.toLocaleString()}
                         </span>
                         <span
-                          className={`text-xs font-extrabold uppercase px-3 py-1 rounded-full ${statusMeta.badgeStyle}`}
+                          className={`text-[10px] sm:text-xs lg:text-sm font-extrabold uppercase px-2.5 sm:px-3 py-1 rounded-full ${statusMeta.badgeStyle}`}
                         >
                           {statusMeta.label}
                         </span>
                       </div>
                     </div>
 
-                    {/* Tracking Bar */}
-                    <div className="p-3 bg-stone-50 rounded-xs border border-stone-200 flex flex-wrap items-center justify-between text-xs text-stone-700 gap-2">
-                      <div className="flex items-center space-x-2">
-                        <Truck className="w-4 h-4 text-stone-800" />
-                        <span>Courier: <strong>{order.courier_name || 'TCS Express'}</strong></span>
-                        <span className="text-stone-400">•</span>
-                        <span>AWB Tracking #: <strong className="font-mono">{order.tracking_number || `ZB-${order.id.slice(0, 6).toUpperCase()}`}</strong></span>
+                    {/* Tracking Bar - Displayed ONLY when BOTH seller_orders.courier_name AND seller_orders.tracking_number exist and are non-empty */}
+                    {hasCourierAndTracking && (
+                      <div className="p-0.5 bg-stone-50 rounded-xs border border-stone-200 text-[10px] sm:text-xs lg:text-sm text-stone-700">
+                        <span>
+                          TrackId: <strong className="font-mono font-medium">{trackingNumber}</strong>
+                          {' - '}
+                          <strong className="font-medium">{courierName}</strong>
+                        </span>
                       </div>
-                      <span className="text-stone-500 font-medium">Est. Delivery: {order.estimated_delivery || '3-5 Business Days'}</span>
-                    </div>
+                    )}
 
                     {/* Order Items */}
                     <div className="space-y-3">
                       {order.items.map((item) => (
-                        <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between text-xs p-3 bg-stone-50/60 rounded-xs border border-stone-100 gap-3">
-                          <div className="flex items-center space-x-3">
+                        <div
+                          key={item.id}
+                          className="flex flex-row items-center justify-between text-xs sm:text-sm lg:text-base p-3 bg-stone-50/60 rounded-xs border border-stone-100 gap-3"
+                        >
+                          {/* Left Side - Product Information */}
+                          <div className="flex items-center space-x-3 min-w-0 flex-1">
                             <img
                               src={item.thumbnail_url}
                               alt={item.product_title}
-                              className="w-12 h-16 object-cover object-top rounded-xs border border-stone-200 shrink-0"
+                              className="w-12 h-16 sm:w-14 sm:h-20 object-cover object-top rounded-xs border border-stone-200 shrink-0"
                             />
-                            <div>
-                              <span className="text-[10px] font-bold text-stone-400 uppercase">{item.brand}</span>
-                              <p className="font-semibold text-stone-900">{item.product_title}</p>
-                              <span className="text-stone-500 text-[11px]">Qty: {item.quantity} • Price: Rs. {item.price.toLocaleString()}</span>
+
+                            <div className="min-w-0">
+                              <span className="text-[10px] sm:text-xs lg:text-sm font-bold text-stone-400 uppercase">
+                                {item.brand}
+                              </span>
+
+                              <p className="font-semibold text-stone-900 text-xs sm:text-sm lg:text-base truncate">
+                                {item.product_title}
+                              </p>
+
+                              <span className="text-stone-500 text-[10px] sm:text-xs lg:text-sm whitespace-nowrap">
+                                Qty: {item.quantity} • Price: Rs. {item.price.toLocaleString()}
+                              </span>
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between sm:justify-end space-x-4">
-                            <span className="font-bold text-stone-900">Rs. {item.subtotal.toLocaleString()}</span>
-
-                            <div className="flex items-center space-x-2">
+                          {/* Right Side - Buttons, Always Vertically Centered */}
+                          <div className="flex items-center justify-center shrink-0">
+                            <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar">
                               <button
                                 onClick={() => handleOrderAgain(item.product_id)}
-                                className="inline-flex items-center space-x-1 px-3 py-1.5 bg-stone-900 hover:bg-black text-white text-[11px] font-bold uppercase tracking-wider rounded-xs transition-colors shadow-2xs cursor-pointer"
+                                className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 bg-stone-900 hover:bg-black text-white text-[10px] sm:text-xs lg:text-sm font-bold uppercase tracking-wider rounded-xs transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
                               >
-                                <span>Order Again</span>
-                                <ArrowRight className="w-3 h-3" />
+                                <span className="whitespace-nowrap">Order Again</span>
+                                <ArrowRight className="w-3 h-3 shrink-0" />
                               </button>
 
                               <button
                                 onClick={() => handleOpenReviewModal(order.id, item)}
                                 disabled={checkingReviewKey === `${user?.id}-${item.product_id}`}
-                                className="inline-flex items-center space-x-1 px-3 py-1.5 bg-white border border-stone-300 hover:border-stone-900 text-stone-800 hover:text-black text-[11px] font-bold uppercase tracking-wider rounded-xs transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                                className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 bg-white border border-stone-300 hover:border-stone-900 text-stone-800 hover:text-black text-[10px] sm:text-xs lg:text-sm font-bold uppercase tracking-wider rounded-xs transition-colors shadow-2xs cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
                               >
                                 {checkingReviewKey === `${user?.id}-${item.product_id}` ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-stone-700" />
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-stone-700 shrink-0" />
                                 ) : (
-                                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />
                                 )}
-                                <span>Write a Review</span>
+
+                                <span className="whitespace-nowrap">Write a Review</span>
                               </button>
                             </div>
                           </div>
@@ -917,20 +964,20 @@ export const AccountPage: React.FC<AccountPageProps> = ({
         {/* Review Modal */}
         {reviewModalTarget && (
           <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-2xl border border-stone-200">
+            <div className="bg-white rounded-lg max-w-md w-full p-5 sm:p-6 shadow-2xl border border-stone-200">
               <div className="flex items-center justify-between pb-3 border-b border-stone-200 mb-4">
                 <div>
-                  <span className="text-[10px] font-extrabold text-amber-600 uppercase tracking-widest block">
+                  <span className="text-[10px] sm:text-xs lg:text-sm font-extrabold text-amber-600 uppercase tracking-widest block">
                     VERIFIED BUYER REVIEW
                   </span>
-                  <h3 className="text-sm font-bold text-stone-900">
+                  <h3 className="text-sm sm:text-base lg:text-lg font-bold text-stone-900">
                     Write Product Review
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setReviewModalTarget(null)}
-                  className="p-1 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-700"
+                  className="p-1 hover:bg-stone-100 rounded-full text-stone-400 hover:text-stone-700 text-xs sm:text-sm lg:text-base"
                 >
                   ✕
                 </button>
@@ -941,23 +988,23 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                 <img
                   src={reviewModalTarget.thumbnailUrl}
                   alt={reviewModalTarget.title}
-                  className="w-12 h-16 object-cover object-top rounded-xs border border-stone-200 shrink-0"
+                  className="w-12 h-16 sm:w-14 sm:h-18 object-cover object-top rounded-xs border border-stone-200 shrink-0"
                 />
                 <div>
-                  <span className="text-[10px] font-bold text-stone-400 uppercase block">{reviewModalTarget.brand}</span>
-                  <h4 className="text-xs font-semibold text-stone-900 line-clamp-2">{reviewModalTarget.title}</h4>
+                  <span className="text-[10px] sm:text-xs lg:text-sm font-bold text-stone-400 uppercase block">{reviewModalTarget.brand}</span>
+                  <h4 className="text-xs sm:text-sm lg:text-base font-semibold text-stone-900 line-clamp-2">{reviewModalTarget.title}</h4>
                 </div>
               </div>
 
-              <form onSubmit={handleReviewSubmit} className="space-y-4 text-xs">
+              <form onSubmit={handleReviewSubmit} className="space-y-4 text-xs sm:text-sm lg:text-base">
                 {reviewError && (
-                  <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xs text-[11px] font-medium">
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xs text-[10px] sm:text-xs lg:text-sm font-medium">
                     {reviewError}
                   </div>
                 )}
 
                 <div>
-                  <label className="font-bold text-stone-700 block mb-1.5 uppercase tracking-wider text-[11px]">
+                  <label className="font-bold text-stone-700 block mb-1.5 uppercase tracking-wider text-[10px] sm:text-xs lg:text-sm">
                     Rating (1 to 5 Stars) *
                   </label>
                   <div className="flex items-center space-x-1.5">
@@ -969,21 +1016,21 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                         className="p-1 transition-transform hover:scale-110 focus:outline-none cursor-pointer"
                       >
                         <Star
-                          className={`w-7 h-7 ${star <= rating
-                              ? 'text-amber-400 fill-amber-400'
-                              : 'text-stone-200'
+                          className={`w-6 h-6 sm:w-7 sm:h-7 ${star <= rating
+                            ? 'text-amber-400 fill-amber-400'
+                            : 'text-stone-200'
                             }`}
                         />
                       </button>
                     ))}
-                    <span className="text-xs font-bold text-stone-600 ml-2">
+                    <span className="text-xs sm:text-sm lg:text-base font-bold text-stone-600 ml-2">
                       {rating} / 5 Stars
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="font-bold text-stone-700 block mb-1.5 uppercase tracking-wider text-[11px]">
+                  <label className="font-bold text-stone-700 block mb-1.5 uppercase tracking-wider text-[10px] sm:text-xs lg:text-sm">
                     Your Review *
                   </label>
                   <textarea
@@ -992,7 +1039,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                     placeholder="Write your review..."
-                    className="w-full p-3 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900 text-xs"
+                    className="w-full p-3 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900 text-xs sm:text-sm lg:text-base"
                   />
                 </div>
 
@@ -1001,14 +1048,14 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                     type="button"
                     onClick={() => setReviewModalTarget(null)}
                     disabled={isSubmittingReview}
-                    className="px-4 py-2 border border-stone-300 text-stone-700 font-bold uppercase tracking-wider text-xs rounded-xs hover:bg-stone-100 disabled:opacity-50"
+                    className="px-3.5 sm:px-4 py-2 border border-stone-300 text-stone-700 font-bold uppercase tracking-wider text-xs sm:text-sm lg:text-base rounded-xs hover:bg-stone-100 disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSubmittingReview}
-                    className="px-5 py-2 bg-stone-900 hover:bg-black text-white font-bold uppercase tracking-wider text-xs rounded-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50"
+                    className="px-4 sm:px-5 py-2 bg-stone-900 hover:bg-black text-white font-bold uppercase tracking-wider text-xs sm:text-sm lg:text-base rounded-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50"
                   >
                     {isSubmittingReview ? (
                       <>
@@ -1029,22 +1076,22 @@ export const AccountPage: React.FC<AccountPageProps> = ({
         {activeTab === 'wishlist' && (
           <div>
             {wishlistLoading ? (
-              <div className="bg-white border border-stone-200 rounded-lg p-12 text-center my-4 space-y-3">
+              <div className="bg-white border border-stone-200 rounded-lg p-8 sm:p-12 text-center my-4 space-y-3">
                 <Loader2 className="w-8 h-8 animate-spin text-stone-700 mx-auto" />
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-600">
+                <p className="text-xs sm:text-sm lg:text-base font-semibold uppercase tracking-wider text-stone-600">
                   Loading Wishlist...
                 </p>
               </div>
             ) : wishlistProducts.length === 0 ? (
-              <div className="bg-white border border-stone-200 rounded-lg p-12 text-center my-4">
-                <Heart className="w-12 h-12 text-stone-300 mx-auto mb-3" />
-                <h3 className="text-base font-bold text-stone-900 uppercase">Your Wishlist is Empty</h3>
-                <p className="text-xs text-stone-500 mt-1">
+              <div className="bg-white border border-stone-200 rounded-lg p-8 sm:p-12 text-center my-4">
+                <Heart className="w-10 h-10 sm:w-12 sm:h-12 text-stone-300 mx-auto mb-3" />
+                <h3 className="text-sm sm:text-base lg:text-lg font-bold text-stone-900 uppercase">Your Wishlist is Empty</h3>
+                <p className="text-xs sm:text-sm lg:text-base text-stone-500 mt-1 max-w-sm mx-auto">
                   Save leftover suits while browsing to keep track of end-of-season designer deals.
                 </p>
                 <button
                   onClick={onNavigateHome}
-                  className="mt-6 inline-block bg-stone-900 text-white text-xs font-bold px-6 py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"
+                  className="mt-5 sm:mt-6 inline-block bg-stone-900 text-white text-xs sm:text-sm lg:text-base font-bold px-5 sm:px-6 py-2.5 sm:py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"
                 >
                   BROWSE SURPLUS CATALOG
                 </button>
@@ -1069,71 +1116,71 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
         {/* TAB 3: PROFILE & ADDRESSES */}
         {activeTab === 'profile' && (
-          <div className="bg-white border border-stone-200 rounded-lg p-6 sm:p-8 max-w-2xl mx-auto shadow-2xs">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-stone-900 mb-6 pb-2 border-b border-stone-200">
+          <div className="bg-white border border-stone-200 rounded-lg p-5 sm:p-8 max-w-2xl mx-auto shadow-2xs">
+            <h2 className="text-sm sm:text-base lg:text-lg font-bold uppercase tracking-wider text-stone-900 mb-5 sm:mb-6 pb-2 border-b border-stone-200">
               EDIT ACCOUNT PROFILE
             </h2>
 
-            <form onSubmit={handleProfileSave} className="space-y-4 text-xs">
+            <form onSubmit={handleProfileSave} className="space-y-4 text-xs sm:text-sm lg:text-base">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="font-semibold text-stone-700 block mb-1">First Name</label>
+                  <label className="font-semibold text-stone-700 block mb-1 text-xs sm:text-sm lg:text-base">First Name</label>
                   <input
                     type="text"
                     value={profileData.firstName}
                     onChange={(e) => setProfileData({ ...profileData, firstName: e.target.value })}
-                    className="w-full p-2.5 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900"
+                    className="w-full p-2.5 sm:p-3 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900 text-xs sm:text-sm lg:text-base"
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-stone-700 block mb-1">Last Name</label>
+                  <label className="font-semibold text-stone-700 block mb-1 text-xs sm:text-sm lg:text-base">Last Name</label>
                   <input
                     type="text"
                     value={profileData.lastName}
                     onChange={(e) => setProfileData({ ...profileData, lastName: e.target.value })}
-                    className="w-full p-2.5 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900"
+                    className="w-full p-2.5 sm:p-3 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900 text-xs sm:text-sm lg:text-base"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="font-semibold text-stone-700 block mb-1">Email Address</label>
+                <label className="font-semibold text-stone-700 block mb-1 text-xs sm:text-sm lg:text-base">Email Address</label>
                 <input
                   type="email"
                   readOnly
                   disabled
                   value={profileData.email}
-                  className="w-full p-2.5 border border-stone-200 bg-stone-100 text-stone-600 rounded-xs cursor-not-allowed"
+                  className="w-full p-2.5 sm:p-3 border border-stone-200 bg-stone-100 text-stone-600 rounded-xs cursor-not-allowed text-xs sm:text-sm lg:text-base"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-stone-700 block mb-1">Phone Number</label>
+                <label className="font-semibold text-stone-700 block mb-1 text-xs sm:text-sm lg:text-base">Phone Number</label>
                 <input
                   type="text"
                   value={profileData.phone}
                   onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-                  className="w-full p-2.5 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900"
+                  className="w-full p-2.5 sm:p-3 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900 text-xs sm:text-sm lg:text-base"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-stone-700 block mb-1">City</label>
+                <label className="font-semibold text-stone-700 block mb-1 text-xs sm:text-sm lg:text-base">City</label>
                 <input
                   type="text"
                   value={profileData.city}
                   onChange={(e) => setProfileData({ ...profileData, city: e.target.value })}
-                  className="w-full p-2.5 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900"
+                  className="w-full p-2.5 sm:p-3 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900 text-xs sm:text-sm lg:text-base"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-stone-700 block mb-1">Default Shipping Address</label>
+                <label className="font-semibold text-stone-700 block mb-1 text-xs sm:text-sm lg:text-base">Default Shipping Address</label>
                 <textarea
                   rows={3}
                   value={profileData.address}
                   onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
-                  className="w-full p-2.5 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900"
+                  className="w-full p-2.5 sm:p-3 border border-stone-300 rounded-xs focus:outline-none focus:border-stone-900 text-xs sm:text-sm lg:text-base"
                 />
               </div>
 
@@ -1141,7 +1188,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="px-6 py-3 bg-stone-900 hover:bg-black disabled:bg-stone-500 text-white text-xs font-bold uppercase tracking-wider rounded-xs transition-colors cursor-pointer"
+                  className="px-5 sm:px-6 py-2.5 sm:py-3 bg-stone-900 hover:bg-black disabled:bg-stone-500 text-white text-xs sm:text-sm lg:text-base font-bold uppercase tracking-wider rounded-xs transition-colors cursor-pointer"
                 >
                   {isSaving ? 'SAVING...' : isSaved ? 'PROFILE SAVED ✓' : 'SAVE CHANGES'}
                 </button>

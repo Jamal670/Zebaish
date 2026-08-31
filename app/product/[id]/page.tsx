@@ -25,46 +25,77 @@ export default function ProductPage() {
 
   const [product, setProduct] = useState<Product | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // 1. Primary Product & Reviews loader effect (runs ONCE per productId)
   useEffect(() => {
     let isMounted = true;
 
-    async function loadProgressiveData() {
+    async function loadOptimizedTwoStepData() {
       if (!productId) {
         if (isMounted) setLoading(false);
         return;
       }
 
       setLoading(true);
+      setReviewsLoading(true);
 
-      // 1. FIRST QUERY: Fetch product main data and render product UI immediately
-      const res = await fetchProductById(productId);
-      if (!isMounted) return;
+      // STAGE 1: QUERY 1 (Product + Images + Variants + Sellers)
+      try {
+        const res = await fetchProductById(productId);
+        if (!isMounted) return;
 
-      setProduct(res.product);
-      setLoading(false); // Product UI renders immediately!
+        setProduct(res.product);
+      } catch (err) {
+        console.error('Error fetching product details:', err);
+        if (isMounted) setProduct(null);
+      } finally {
+        // Render product UI immediately!
+        if (isMounted) setLoading(false);
+      }
 
-      if (!res.product) return;
-
-      // 2. SECOND QUERY: Fetch 5 reviews & reviewer names from users table
-      const reviewsData = await fetchProductReviews(productId, 5);
-      if (!isMounted) return;
-      setReviews(reviewsData);
-
-      // 3. THIRD QUERY: Fetch wishlist recommendations for logged-in user
-      if (user?.id) {
-        const recsData = await fetchWishlistRecommendations(user.id, productId);
+      // STAGE 2: QUERY 2 (Product Reviews) - Runs strictly AFTER product is displayed!
+      try {
+        const reviewsData = await fetchProductReviews(productId, 5);
         if (isMounted) {
-          setRelatedProducts(recsData);
+          setReviews(reviewsData);
         }
-      } else {
+      } catch (err) {
+        console.error('Error fetching product reviews:', err);
+        if (isMounted) setReviews([]);
+      } finally {
+        if (isMounted) setReviewsLoading(false);
+      }
+    }
+
+    loadOptimizedTwoStepData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [productId]);
+
+  // 2. Secondary Recommendations loader effect (runs in background when user.id is ready)
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadRecommendations() {
+      if (!user?.id || !productId) {
+        if (isMounted) setRelatedProducts([]);
+        return;
+      }
+
+      try {
+        const recsData = await fetchWishlistRecommendations(user.id, productId);
+        if (isMounted) setRelatedProducts(recsData);
+      } catch {
         if (isMounted) setRelatedProducts([]);
       }
     }
 
-    loadProgressiveData();
+    loadRecommendations();
 
     return () => {
       isMounted = false;
@@ -118,6 +149,7 @@ export default function ProductPage() {
     <ProductDetailPage
       product={product}
       reviews={reviews}
+      reviewsLoading={reviewsLoading}
       relatedProducts={relatedProducts}
       onAddToCart={handleAddToCart}
       onToggleWishlist={handleToggleWishlist}

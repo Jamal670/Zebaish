@@ -10,7 +10,7 @@ export interface CourierOption {
  */
 export const COURIER_OPTIONS: CourierOption[] = [
   { label: 'TCS', value: 'TCS' },
-  { label: 'Leopards Courier', value: 'Leopards Courier' },
+  { label: 'Leopards', value: 'Leopards' },
   { label: 'M&P', value: 'M&P' },
   { label: 'Trax', value: 'Trax' },
   { label: 'PostEx', value: 'PostEx' },
