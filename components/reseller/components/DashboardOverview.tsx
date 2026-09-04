@@ -107,7 +107,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
          ========================================================= */}
       <div>
         <div className="flex items-center justify-between pb-2">
-          <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-400">
+          <h2 className="text-[10px] sm:text-xs lg:text-xs font-bold uppercase tracking-wider text-stone-400">
             Seller Performance Overview
           </h2>
         </div>

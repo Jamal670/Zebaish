@@ -46,7 +46,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             placeholder="Search products, fabrics, or collections..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-transparent text-sm sm:text-base text-stone-900 focus:outline-none placeholder:text-stone-400"
+            className="w-full bg-transparent text-[11px] sm:text-xs lg:text-sm text-stone-900 focus:outline-none placeholder:text-stone-400"
           />
           <button
             onClick={onClose}
@@ -60,7 +60,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
         <div className="max-h-[60vh] overflow-y-auto p-5">
           {query.trim() === '' ? (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">
+              <p className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-stone-400 mb-3">
                 Popular Searches
               </p>
               <div className="flex flex-wrap gap-2">
@@ -69,7 +69,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                     <button
                       key={term}
                       onClick={() => setQuery(term)}
-                      className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs rounded-full transition-colors"
+                      className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-[10px] sm:text-xs rounded-full transition-colors"
                     >
                       {term}
                     </button>
@@ -78,7 +78,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
               </div>
             </div>
           ) : results.length === 0 ? (
-            <p className="text-center py-8 text-xs text-stone-500">
+            <p className="text-center py-8 text-[10px] sm:text-xs text-stone-500">
               No products found matching "{query}".
             </p>
           ) : (

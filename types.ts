@@ -39,6 +39,7 @@ export interface Product {
   seller?: {
     store_image_url?: string | null;
     shop_name?: string | null;
+    average_rating?: number | null;
     status?: string | null;
   } | null;
   discountPercentage?: number;

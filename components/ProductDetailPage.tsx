@@ -88,12 +88,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     return {
       store_image_url: product.sellerStoreImageUrl || null,
       shop_name: product.resellerName || 'Verified Reseller',
+      average_rating: product.resellerRating !== undefined && product.resellerRating !== null ? Number(product.resellerRating) : 0,
       status: product.sellerStatus || 'Active',
     };
-  }, [product.seller, product.sellerStoreImageUrl, product.resellerName, product.sellerStatus]);
+  }, [product.seller, product.sellerStoreImageUrl, product.resellerName, product.resellerRating, product.sellerStatus]);
 
   const sellerImageUrl = sellerData?.store_image_url || product.sellerStoreImageUrl || product.seller?.store_image_url || null;
-  const storeName = sellerData?.shop_name || product.resellerName || 'Ayesha Luxury Surplus';
+  const storeName = sellerData?.shop_name || product.resellerName || product.seller?.shop_name || 'Verified Reseller';
+  const sellerRating = sellerData?.average_rating !== undefined && sellerData?.average_rating !== null
+    ? Number(sellerData.average_rating)
+    : (product.resellerRating !== undefined && product.resellerRating !== null ? Number(product.resellerRating) : 0);
   const [imgError, setImgError] = useState<boolean>(false);
 
   // Close full-screen zoom modal on ESC keypress
@@ -494,10 +498,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
             {/* Reseller Info Card */}
             {(sellerData || product.resellerName || product.sellerStoreImageUrl) && (
-              <div className="mb-5 sm:mb-6 p-3 sm:p-3.5 lg:p-4 rounded-lg border border-stone-200 bg-stone-50/80 flex items-center justify-between gap-3 shadow-2xs">
-                <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
+              <div className="mb-4 sm:mb-5 p-2.5 sm:p-3 lg:p-3.5 rounded-lg border border-stone-200 bg-stone-50/80 flex items-center justify-between gap-2.5 sm:gap-3 shadow-2xs">
+                <div className="flex items-center space-x-2 sm:space-x-2.5 min-w-0">
                   {sellerImageUrl && !imgError ? (
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-full overflow-hidden shrink-0 border border-stone-200 bg-stone-100 flex items-center justify-center shadow-2xs">
+                    <div className="w-8 h-8 sm:w-9 sm:h-9 lg:w-10 lg:h-10 rounded-full overflow-hidden shrink-0 border border-stone-200 bg-stone-100 flex items-center justify-center shadow-2xs">
                       <img
                         src={sellerImageUrl}
                         alt={storeName}
@@ -508,20 +512,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       />
                     </div>
                   ) : (
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs">
-                      <Store className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
+                    <div className="w-8 h-8 sm:w-9 sm:h-9 lg:w-10 lg:h-10 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs">
+                      <Store className="w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-4.5 lg:h-4.5 text-amber-400" />
                     </div>
                   )}
                   <div className="min-w-0">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-[11px] sm:text-xs lg:text-sm font-bold text-stone-900 truncate">
+                    <div className="flex items-center space-x-1">
+                      <span className="text-[10px] sm:text-xs lg:text-sm font-bold text-stone-900 truncate">
                         {storeName}
                       </span>
                     </div>
-                    <div className="flex items-center space-x-2 text-[10px] sm:text-[11px] lg:text-xs text-stone-500 mt-0.5">
+                    <div className="flex items-center space-x-1.5 text-[9px] sm:text-[10px] lg:text-xs text-stone-500 mt-0.5">
                       <div className="flex items-center text-amber-600 font-bold">
-                        <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-500 text-amber-500 mr-0.5 shrink-0" />
-                        <span>{product.resellerRating || 4.9}</span>
+                        <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 lg:w-3.5 lg:h-3.5 fill-amber-500 text-amber-500 mr-0.5 shrink-0" />
+                        <span>{sellerRating !== undefined && sellerRating !== null ? Number(sellerRating).toFixed(1) : '0.0'}</span>
                       </div>
                     </div>
                   </div>
@@ -530,10 +534,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 {product.resellerId && onSelectReseller && (
                   <button
                     onClick={() => onSelectReseller(product.resellerId!)}
-                    className="text-[10px] sm:text-xs lg:text-sm font-bold text-stone-900 hover:text-black underline flex items-center space-x-1 px-2.5 sm:px-3 py-1 sm:py-1.5 bg-white border border-stone-200 rounded-xs hover:border-stone-400 transition-colors shadow-2xs shrink-0"
+                    className="text-[9px] sm:text-[10px] lg:text-xs font-bold text-stone-900 hover:text-black underline flex items-center space-x-1 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-white border border-stone-200 rounded-xs hover:border-stone-400 transition-colors shadow-2xs shrink-0"
                   >
                     <span>Visit Store</span>
-                    <ExternalLink className="w-2.5 h-2.5 sm:w-3 sm:h-3 lg:w-3.5 lg:h-3.5 shrink-0" />
+                    <ExternalLink className="w-2.5 h-2.5 sm:w-3 sm:h-3 lg:w-3 lg:h-3 shrink-0" />
                   </button>
                 )}
               </div>
@@ -985,128 +989,47 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 </div>
               )}
             </div>
-
             <button
               onClick={handleWriteReviewClick}
               className="
-      shrink-0
-      flex items-center justify-center
-      space-x-1
-      sm:space-x-1.5
+    shrink-0
+    flex items-center justify-center
+    space-x-1 sm:space-x-1.5
 
-      px-2.5
-      xs:px-3
-      sm:px-3.5
-      lg:px-4
+    px-2.5 sm:px-3 lg:px-3.5
+    py-1.5 sm:py-2 lg:py-2
 
-      py-1.5
-      xs:py-2
-      sm:py-2.5
+    bg-stone-900
+    hover:bg-black
+    text-white
 
-      bg-stone-900
-      hover:bg-black
-      text-white
+    text-[9px] sm:text-[10px] lg:text-xs
 
-      text-[9px]
-      xs:text-[10px]
-      sm:text-xs
-      lg:text-sm
+    font-bold
+    uppercase
+    tracking-wide
 
-      font-bold
-      uppercase
-      tracking-wide
-      sm:tracking-wider
+    rounded-xs
+    shadow-xs
+    transition-all
+    cursor-pointer
 
-      rounded-xs
-      shadow-xs
-      transition-all
-      cursor-pointer
-
-      min-w-fit
-    "
+    min-w-fit
+  "
             >
-              <Star className="w-3 h-3 xs:w-3.5 xs:h-3.5 sm:w-4 sm:h-4 text-amber-400 fill-amber-400 shrink-0" />
+              <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 lg:w-3.5 lg:h-3.5 text-amber-400 fill-amber-400 shrink-0" />
 
               <span className="whitespace-nowrap">
                 Write a Review
               </span>
             </button>
           </div>
-          ```
 
-          {reviewsLoading ? (
-            <div className="p-8 bg-stone-50 border border-stone-200 rounded-lg text-center flex items-center justify-center space-x-2.5 text-xs text-stone-600 font-medium">
-              <Loader2 className="w-4 h-4 animate-spin text-stone-800" />
-              <span>Loading Customer Reviews...</span>
-            </div>
-          ) : productReviews && productReviews.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {productReviews.map((rev) => (
-                <div key={rev.id} className="p-5 rounded-lg border border-stone-200 bg-white flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex text-amber-500">
-                        {[...Array(rev.rating)].map((_, i) => (
-                          <Star key={i} className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                        ))}
-                      </div>
-                      <span className="text-[11px] text-stone-400">{rev.date}</span>
-                    </div>
-                    <p className="text-xs text-stone-700 leading-relaxed mb-3">"{rev.comment}"</p>
 
-                    {rev.resellerReply && (
-                      <div className="mt-3 p-3 bg-amber-50/60 rounded-xs border-l-2 border-amber-500 text-xs">
-                        <span className="font-bold text-stone-900 block text-[11px] mb-0.5">
-                          Response from {product.resellerName || 'Seller'}:
-                        </span>
-                        <p className="text-stone-700 italic">"{rev.resellerReply}"</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-xs mt-3">
-                    <span className="font-bold text-stone-900">{rev.userName}</span>
-                    {rev.verifiedPurchase && (
-                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-xs border border-emerald-200">
-                        ✓ Verified Buyer
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-8 bg-stone-50 border border-stone-200 rounded-lg text-center text-xs text-stone-500 font-medium">
-              No reviews submitted yet for this collection item.
-            </div>
-          )}
+          {reviewsLoading ? (<div className="p-6 sm:p-7 bg-stone-50 border border-stone-200 rounded-lg text-center flex items-center justify-center space-x-2 text-[10px] sm:text-xs text-stone-600 font-medium"> <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin text-stone-800" /> <span>Loading Customer Reviews...</span> </div>) : productReviews && productReviews.length > 0 ? (<div className="overflow-x-auto overflow-y-hidden scrollbar-thin pb-2"> <div className="flex flex-nowrap gap-4 sm:gap-5 lg:gap-5 w-max"> {productReviews.map((rev) => (<div key={rev.id} className=" shrink-0 w-[260px] sm:w-[280px] lg:w-[300px] p-4 sm:p-4.5 lg:p-5 rounded-lg border border-stone-200 bg-white flex flex-col justify-between " > <div> <div className="flex items-center justify-between mb-1.5 sm:mb-2"> <div className="flex text-amber-500"> {[...Array(rev.rating)].map((_, i) => (<Star key={i} className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-500 text-amber-500" />))} </div> <span className="text-[9px] sm:text-[10px] text-stone-400"> {rev.date} </span> </div> <p className="text-[10px] sm:text-xs text-stone-700 leading-relaxed mb-2.5 sm:mb-3"> "{rev.comment}" </p> {rev.resellerReply && (<div className="mt-2.5 sm:mt-3 p-2.5 sm:p-3 bg-amber-50/60 rounded-xs border-l-2 border-amber-500 text-[10px] sm:text-xs"> <span className="font-bold text-stone-900 block text-[9px] sm:text-[10px] mb-0.5"> Response from {product.resellerName || 'Seller'}: </span> <p className="text-stone-700 italic"> "{rev.resellerReply}" </p> </div>)} </div> <div className="pt-2.5 sm:pt-3 border-t border-stone-100 flex items-center justify-between gap-2 text-[10px] sm:text-xs mt-2.5 sm:mt-3"> <span className="font-bold text-stone-900 truncate"> {rev.userName} </span> {rev.verifiedPurchase && (<span className="text-[9px] sm:text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 sm:px-2 py-0.5 rounded-xs border border-emerald-200 whitespace-nowrap"> ✓ Verified Buyer </span>)} </div> </div>))} </div> </div>) : (<div className="p-6 sm:p-7 bg-stone-50 border border-stone-200 rounded-lg text-center text-[10px] sm:text-xs text-stone-500 font-medium"> No reviews submitted yet for this collection item. </div>)}
         </div>
 
-        {/* WISHLIST RECOMMENDATIONS (Rendered ONLY if current user has wishlist recommendations) */}
-        {relatedProducts && relatedProducts.length > 0 && (
-          <div className="mt-20 pt-12 border-t border-stone-200">
-            <div className="text-center mb-8">
-              <span className="text-[10px] font-bold tracking-[0.3em] uppercase text-stone-400 block mb-1">
-                CROSS-BRAND SURPLUS RECOMMENDATIONS
-              </span>
-              <h2 className="font-brand-serif text-2xl sm:text-3xl font-normal text-stone-900 uppercase tracking-wider">
-                YOU MAY ALSO LIKE
-              </h2>
-            </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-              {relatedProducts.map((relProd) => (
-                <ProductCard
-                  key={relProd.id}
-                  product={relProd}
-                  onAddToCart={onAddToCart}
-                  onToggleWishlist={onToggleWishlist}
-                  onSelectProduct={onSelectProduct}
-                  onSelectReseller={onSelectReseller}
-                />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Lightbox / Fullscreen Zoom Modal */}
@@ -1161,8 +1084,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     key={idx}
                     onClick={() => setSelectedImageIndex(idx)}
                     className={`relative w-11 h-14 sm:w-14 sm:h-16 rounded-md overflow-hidden border-2 transition-all shrink-0 ${selectedImageIndex === idx
-                        ? 'border-stone-900 ring-2 ring-stone-900 ring-offset-1'
-                        : 'border-stone-200 opacity-60 hover:opacity-100'
+                      ? 'border-stone-900 ring-2 ring-stone-900 ring-offset-1'
+                      : 'border-stone-200 opacity-60 hover:opacity-100'
                       }`}
                   >
                     <img
@@ -1183,10 +1106,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 animate-fade-in max-w-md w-full px-4">
           <div
             className={`p-3.5 sm:p-4 rounded-md shadow-2xl border flex items-center justify-between space-x-3 text-xs sm:text-sm font-bold uppercase tracking-wider ${toastMessage.type === 'error'
-                ? 'bg-rose-900 text-white border-rose-700'
-                : toastMessage.type === 'success'
-                  ? 'bg-emerald-900 text-white border-emerald-700'
-                  : 'bg-stone-900 text-white border-stone-700'
+              ? 'bg-rose-900 text-white border-rose-700'
+              : toastMessage.type === 'success'
+                ? 'bg-emerald-900 text-white border-emerald-700'
+                : 'bg-stone-900 text-white border-stone-700'
               }`}
           >
             <span>{toastMessage.text}</span>
@@ -1260,8 +1183,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     >
                       <Star
                         className={`w-6 h-6 sm:w-7 sm:h-7 ${star <= rating
-                            ? 'text-amber-400 fill-amber-400'
-                            : 'text-stone-200'
+                          ? 'text-amber-400 fill-amber-400'
+                          : 'text-stone-200'
                           }`}
                       />
                     </button>

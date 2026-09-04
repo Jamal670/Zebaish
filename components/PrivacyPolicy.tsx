@@ -21,16 +21,7 @@ export const PrivacyPolicy: React.FC = () => {
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in w-full">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-10">
-        {/* Back Link */}
-        <div className="mb-6">
-          <Link
-            href="/"
-            className="inline-flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-stone-600 hover:text-stone-900 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Home</span>
-          </Link>
-        </div>
+
 
         {/* Header Hero Banner */}
         <div className="bg-stone-900 text-white rounded-lg p-8 sm:p-10 mb-8 text-center shadow-lg relative overflow-hidden">

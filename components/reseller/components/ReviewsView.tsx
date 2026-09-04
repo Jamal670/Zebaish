@@ -143,14 +143,9 @@ export const ReviewsView: React.FC<ReviewsViewProps> = ({
                 View All Product Reviews
               </button>
             )}
-            <h3 className="text-base sm:text-lg lg:text-xl font-extrabold uppercase tracking-wider text-stone-900">
-              {activeProductId ? (productTitle ? `Reviews: ${productTitle}` : 'Product Reviews') : 'Customer Reviews'}
+            <h3 className="text-base sm:text-lg lg:text-lg font-extrabold uppercase tracking-wider text-stone-900">
+              {activeProductId ? (productTitle ? `Reviews: ${productTitle}` : 'Product Reviews') : 'Reviews & Ratings'}
             </h3>
-            <p className="text-xs sm:text-sm text-stone-500 mt-0.5">
-              {activeProductId
-                ? 'Showing customer feedback specifically for this product'
-                : 'Verified customer feedback across all your listed products'}
-            </p>
           </div>
         </div>
 

@@ -69,21 +69,21 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
             <span className="text-[10px] uppercase font-bold tracking-[0.2em] text-stone-400 block mb-1">
               MARIA.B. {product.category}
             </span>
-            <h2 className="font-brand-serif text-2xl font-normal text-stone-900 mb-2">
+            <h2 className="font-brand-serif text-lg sm:text-xl lg:text-2xl font-normal text-stone-900 mb-2">
               {product.title}
             </h2>
-            <p className="text-xl font-semibold text-stone-900 mb-4">
+            <p className="text-base sm:text-lg lg:text-xl font-semibold text-stone-900 mb-4">
               {product.currency} {product.price.toLocaleString()}
             </p>
 
-            <p className="text-xs text-stone-600 leading-relaxed mb-6 font-light">
+            <p className="text-[10px] sm:text-xs lg:text-sm text-stone-600 leading-relaxed mb-6 font-light">
               {product.description ||
                 'High quality authentic MARIA.B. creation featuring intricate resham and tilla embroidery with silk organza dupatta and embroidered borders.'}
             </p>
 
             {/* Fabric Tag */}
             {product.fabric && (
-              <div className="mb-6 pb-4 border-b border-stone-100 text-xs">
+              <div className="mb-6 pb-4 border-b border-stone-100 text-[10px] sm:text-xs">
                 <span className="text-stone-400 font-medium mr-2">Fabric:</span>
                 <span className="text-stone-800 font-semibold">{product.fabric}</span>
               </div>
@@ -91,7 +91,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
 
             {/* Size Selector */}
             <div className="mb-6">
-              <label className="text-xs font-semibold text-stone-800 uppercase tracking-wider block mb-2">
+              <label className="text-[10px] sm:text-xs font-semibold text-stone-800 uppercase tracking-wider block mb-2">
                 Select Option / Size:
               </label>
               <div className="flex flex-wrap gap-2">
@@ -99,7 +99,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
                   <button
                     key={sz}
                     onClick={() => setSelectedSize(sz)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-xs border transition-all ${selectedSize === sz
+                    className={`px-3 py-1.5 text-[10px] sm:text-xs font-medium rounded-xs border transition-all ${selectedSize === sz
                         ? 'border-black bg-black text-white'
                         : 'border-stone-300 bg-white text-stone-700 hover:border-stone-500'
                       }`}
@@ -116,7 +116,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
             <div className="flex space-x-3">
               <button
                 onClick={handleAdd}
-                className={`flex-1 py-3.5 px-4 font-semibold text-xs uppercase tracking-widest rounded-sm transition-all flex items-center justify-center space-x-2 shadow-sm ${added
+                className={`flex-1 py-3.5 px-4 font-semibold text-2xs sm:text-xs lg:text-sm uppercase tracking-widest rounded-sm transition-all flex items-center justify-center space-x-2 shadow-sm ${added
                     ? 'bg-emerald-700 text-white'
                     : 'bg-black hover:bg-stone-800 text-white'
                   }`}

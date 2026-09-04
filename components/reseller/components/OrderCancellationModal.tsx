@@ -57,7 +57,7 @@ export const OrderCancellationModal: React.FC<OrderCancellationModalProps> = ({
       <div className="bg-white rounded-xl border border-stone-200 shadow-2xl max-w-md w-full overflow-hidden space-y-4 p-5 sm:p-6">
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-3 border-b border-stone-200">
-          <div className="flex items-center space-x-2 text-rose-900 font-bold text-base sm:text-lg">
+          <div className="flex items-center space-x-2 text-rose-900 font-bold text-sm sm:text-base lg:text-base">
             <Ban className="w-5 h-5 text-rose-600 shrink-0" />
             <span>Cancel Order #{orderNumber}</span>
           </div>
@@ -74,19 +74,19 @@ export const OrderCancellationModal: React.FC<OrderCancellationModalProps> = ({
 
         {/* Modal Body / Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+          <p className="text-[10px] sm:text-xs lg:text-xs text-stone-600 leading-relaxed">
             Please provide a valid cancellation reason for cancelling Order <strong>#{orderNumber}</strong>. This information will be saved for audit records.
           </p>
 
           {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 flex items-center space-x-2 font-medium">
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-[10px] sm:text-xs lg:text-xs text-rose-800 flex items-center space-x-2 font-medium">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <label htmlFor="cancellation-reason" className="block text-xs font-bold text-stone-900 uppercase tracking-wider">
+            <label htmlFor="cancellation-reason" className="block text-[10px] sm:text-xs lg:text-xs font-bold text-stone-900 uppercase tracking-wider">
               Cancellation Reason <span className="text-rose-600">*</span>
             </label>
             <textarea
@@ -99,7 +99,7 @@ export const OrderCancellationModal: React.FC<OrderCancellationModalProps> = ({
               }}
               placeholder="E.g., Out of stock, Customer requested cancellation, Invalid address..."
               disabled={isSubmitting}
-              className="w-full p-3 text-xs sm:text-sm border border-stone-300 rounded-lg bg-stone-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500 transition-all resize-none"
+              className="w-full p-3 text-[10px] sm:text-xs lg:text-xs border border-stone-300 rounded-lg bg-stone-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500 transition-all resize-none"
               required
             />
           </div>
@@ -110,14 +110,14 @@ export const OrderCancellationModal: React.FC<OrderCancellationModalProps> = ({
               type="button"
               onClick={handleClose}
               disabled={isSubmitting}
-              className="px-4 py-2 border border-stone-300 rounded-lg text-xs font-semibold text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer min-h-[38px] disabled:opacity-50"
+              className="px-4 py-2 border border-stone-300 rounded-lg text-2xs sm:text-xs lg:text-xs font-semibold text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer min-h-[38px] disabled:opacity-50"
             >
               Back
             </button>
             <button
               type="submit"
               disabled={!reason.trim() || isSubmitting}
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer min-h-[38px] flex items-center space-x-2 disabled:cursor-not-allowed shadow-xs"
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-2xs sm:text-xs lg:text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer min-h-[38px] flex items-center space-x-2 disabled:cursor-not-allowed shadow-xs"
             >
               {isSubmitting ? (
                 <>

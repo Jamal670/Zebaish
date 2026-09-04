@@ -864,13 +864,6 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             )}
             <span>{getFormTitle()}</span>
           </h2>
-          <p className="text-xs text-stone-500 mt-1">
-            {isRestockMode
-              ? 'Update stock quantity and availability for your existing collection.'
-              : isEditMode
-              ? 'Modify details and images for your existing collection listing.'
-              : 'Upload suit photos and enter collection details below to list on Zebaish marketplace.'}
-          </p>
         </div>
 
         {isEditMode && onCancel && (

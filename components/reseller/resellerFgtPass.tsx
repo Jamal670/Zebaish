@@ -104,14 +104,14 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
           <span className="text-2xs font-bold tracking-[0.3em] uppercase text-amber-400 block mb-2">
             ZEBAISH SELLER PORTAL
           </span>
-          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight font-script mb-3">
+          <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold tracking-tight font-script mb-3">
             Reset Your Seller Password
           </h1>
-          <p className="text-xs sm:text-sm text-stone-300 max-w-xl mx-auto leading-relaxed">
+          <p className="text-[9px] sm:text-xs lg:text-sm text-stone-300 max-w-xl mx-auto leading-relaxed">
             Enter your registered seller email address below to receive instant password reset instructions.
           </p>
 
-          <div className="mt-6 flex flex-wrap justify-center gap-6 text-xs text-stone-300">
+          <div className="mt-6 flex flex-wrap justify-center gap-6 text-[10px] sm:text-xs text-stone-300">
             <div className="flex items-center space-x-1.5">
               <CheckCircle2 className="w-4 h-4 text-amber-400" />
               <span>Zero Listing Monthly Fee</span>
@@ -130,7 +130,7 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
         {/* Form Container */}
         <div className="bg-white border border-stone-200 rounded-lg p-6 sm:p-10 shadow-sm">
           <div className="flex items-center justify-between pb-6 mb-6 border-b border-stone-200">
-            <h2 className="text-base font-bold uppercase tracking-wider text-stone-900 flex items-center space-x-2">
+            <h2 className="text-xs sm:text-sm lg:text-base font-bold uppercase tracking-wider text-stone-900 flex items-center space-x-2">
               <KeyRound className="w-5 h-5 text-amber-600" />
               <span>Forgot Password</span>
             </h2>

@@ -189,12 +189,12 @@ export const UserSignup: React.FC<UserSignupProps> = ({
       <div className="max-w-md mx-auto px-4 pt-10 sm:pt-14">
         {/* Form Container */}
         <div className="w-full">
-          <h1 className="text-2xl sm:text-3xl font-light text-center text-stone-900 mb-8 tracking-wide">
+          <h1 className="text-lg sm:text-2xl lg:text-2xl font-light text-center text-stone-900 mb-8 tracking-wide">
             Create account
           </h1>
 
           {errorMessage && (
-            <div className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-md flex items-center space-x-2.5 text-xs text-red-700 font-medium">
+            <div className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-md flex items-center space-x-2.5 text-[10px] sm:text-xs text-red-700 font-medium">
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
               <span>{errorMessage}</span>
             </div>
@@ -214,7 +214,7 @@ export const UserSignup: React.FC<UserSignupProps> = ({
                   const err = validateField('firstName', firstName);
                   setErrors((prev) => ({ ...prev, firstName: err }));
                 }}
-                className={`w-full px-4 py-3 border text-sm rounded-md focus:outline-none transition-colors ${errors.firstName
+                className={`w-full px-4 py-3 border text-[11px] sm:text-xs lg:text-sm rounded-md focus:outline-none transition-colors ${errors.firstName
                     ? 'border-red-500 focus:border-red-600'
                     : 'border-stone-300 focus:border-stone-900'
                   }`}

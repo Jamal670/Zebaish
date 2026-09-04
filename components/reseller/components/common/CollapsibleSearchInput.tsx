@@ -70,7 +70,7 @@ export const CollapsibleSearchInput: React.FC<CollapsibleSearchInputProps> = ({
                 onChange={(e) => onChange(e.target.value)}
                 onBlur={handleBlur}
                 placeholder={placeholder}
-                className="w-full pl-8 pr-8 py-2 border border-stone-300 rounded-lg text-xs bg-white focus:outline-none focus:border-stone-900 min-h-[36px] shadow-2xs text-stone-900"
+                className="w-full pl-8 pr-8 py-2 border border-stone-300 rounded-lg text-[10px] sm:text-xs lg:text-xs bg-white focus:outline-none focus:border-stone-900 min-h-[36px] shadow-2xs text-stone-900"
               />
               <button
                 type="button"
@@ -93,7 +93,7 @@ export const CollapsibleSearchInput: React.FC<CollapsibleSearchInputProps> = ({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
-            className="w-full pl-8 pr-8 py-2 border border-stone-300 rounded-lg text-xs sm:text-sm bg-white focus:outline-none focus:border-stone-900 min-h-[38px] shadow-2xs text-stone-900"
+            className="w-full pl-8 pr-8 py-2 border border-stone-300 rounded-lg text-[10px] sm:text-xs lg:text-xs bg-white focus:outline-none focus:border-stone-900 min-h-[38px] shadow-2xs text-stone-900"
           />
           {value && (
             <button
@@ -133,7 +133,7 @@ export const CollapsibleSearchInput: React.FC<CollapsibleSearchInputProps> = ({
             onChange={(e) => onChange(e.target.value)}
             onBlur={handleBlur}
             placeholder={placeholder}
-            className="w-full pl-8 pr-8 py-2 border border-stone-300 rounded-lg text-xs sm:text-sm bg-white focus:outline-none focus:border-stone-900 min-h-[36px] sm:min-h-[40px] shadow-2xs text-stone-900"
+            className="w-full pl-8 pr-8 py-2 border border-stone-300 rounded-lg text-[10px] sm:text-xs lg:text-xs bg-white focus:outline-none focus:border-stone-900 min-h-[36px] sm:min-h-[40px] shadow-2xs text-stone-900"
           />
           <button
             type="button"

@@ -180,12 +180,10 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
       {/* SECTION 1 — TOP KPI CARDS ROW (QUERY 1 — RENDERS IMMEDIATELY) */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-stone-700">
+          <h2 className="text-[10px] sm:text-xs lg:text-xs font-extrabold uppercase tracking-wider text-stone-700">
             Financial Overview & Previous Month Cycle
           </h2>
-          <span className="text-xs text-stone-400 font-medium">
-            Swipe left/right to view all KPI metrics
-          </span>
+
         </div>
 
         <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-3 pt-1 scroll-smooth snap-x snap-mandatory focus:outline-none scrollbar-none select-none">
@@ -241,29 +239,65 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
             <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
             <span>Platform Commission Settlement ({cycleMonthYear})</span>
           </h3>
-          <p className="text-xs text-stone-500">
-            Pay your outstanding commission balance via IBAN or submit payment verification details for {cycleMonthYear}.
-          </p>
+         
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setIsHowToPayOpen(true)}
-            className="w-full sm:w-auto px-5 py-2.5 sm:py-3 bg-white border border-stone-300 hover:bg-stone-50 text-stone-900 font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-2xs cursor-pointer min-h-[42px]"
-          >
-            <HelpCircle className="w-4 h-4 text-stone-600 shrink-0" />
-            <span>How to Pay Commission</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsVerifyModalOpen(true)}
-            className="w-full sm:w-auto px-6 py-2.5 sm:py-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-extrabold text-xs sm:text-sm uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 cursor-pointer min-h-[42px]"
-          >
-            <ShieldCheck className="w-4.5 h-4.5 shrink-0" />
-            <span>Verify Commission</span>
-          </button>
+<button
+  type="button"
+  onClick={() => setIsHowToPayOpen(true)}
+  className="
+    w-full sm:w-auto
+    px-3 py-2
+    sm:px-3 sm:py-2
+    lg:px-3 lg:py-2
+    min-h-[36px] sm:min-h-[38px] lg:min-h-[38px]
+    bg-white
+    border border-stone-300
+    hover:bg-stone-50
+    text-stone-900
+    font-semibold
+    text-[10px] sm:text-xs lg:text-xs
+    rounded-md
+    transition-colors
+    flex items-center justify-center
+    gap-1.5
+    shadow-2xs
+    cursor-pointer
+    whitespace-nowrap
+  "
+>
+  <HelpCircle className="w-3.5 h-3.5 text-stone-600 shrink-0" />
+  <span>How to Pay Commission</span>
+</button>
+<button
+  type="button"
+  onClick={() => setIsVerifyModalOpen(true)}
+  className="
+    w-full sm:w-auto
+    px-3 py-2
+    sm:px-3 sm:py-2
+    lg:px-3 lg:py-2
+    min-h-[36px] sm:min-h-[38px] lg:min-h-[38px]
+    bg-amber-500
+    hover:bg-amber-400
+    text-stone-950
+    font-extrabold
+    text-[10px] sm:text-xs lg:text-xs
+    uppercase
+    tracking-wider
+    rounded-md
+    transition-all
+    shadow-md
+    flex items-center justify-center
+    gap-1.5
+    cursor-pointer
+    whitespace-nowrap
+  "
+>
+  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+  <span>Verify Commission</span>
+</button>
         </div>
       </section>
 

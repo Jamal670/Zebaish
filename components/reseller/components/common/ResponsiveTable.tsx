@@ -54,10 +54,10 @@ export function ResponsiveTable<T>({
         <div className="w-12 h-12 rounded-full bg-stone-100 text-stone-400 flex items-center justify-center mx-auto">
           {emptyIcon || <FileQuestion className="w-6 h-6" />}
         </div>
-        <h4 className="font-bold text-stone-900 text-xs sm:text-sm uppercase tracking-wide">
+        <h4 className="font-bold text-stone-900 text-xs sm:text-sm lg:text-sm uppercase tracking-wide">
           {emptyTitle}
         </h4>
-        <p className="text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
+        <p className="text-[9px] sm:text-xs lg:text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
           {emptySubtitle}
         </p>
       </div>
@@ -68,8 +68,8 @@ export function ResponsiveTable<T>({
     return (
       <div className="border border-stone-200 rounded-xl overflow-hidden bg-white shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs sm:text-sm min-w-[550px] sm:min-w-0">
-            <thead className="bg-stone-900 text-stone-200 font-bold uppercase tracking-wider text-xs sm:text-sm border-b border-stone-800 whitespace-nowrap">
+          <table className="w-full text-left border-collapse text-[10px] sm:text-xs lg:text-xs min-w-[550px] sm:min-w-0">
+            <thead className="bg-stone-900 text-stone-200 font-bold uppercase tracking-wider text-[10px] sm:text-xs lg:text-xs border-b border-stone-800 whitespace-nowrap">
               <tr>
                 {columns.map((col, idx) => (
                   <th
@@ -107,8 +107,8 @@ export function ResponsiveTable<T>({
       {/* DESKTOP & TABLET VIEW (sm and up) */}
       <div className="hidden sm:block border border-stone-200 rounded-xl overflow-hidden bg-white shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs sm:text-sm">
-            <thead className="bg-stone-100 text-stone-700 font-bold uppercase tracking-wider text-2xs sm:text-xs border-b border-stone-200">
+          <table className="w-full text-left border-collapse text-[10px] sm:text-xs lg:text-xs">
+            <thead className="bg-stone-100 text-stone-700 font-bold uppercase tracking-wider text-[9px] sm:text-[10px] lg:text-[10px] border-b border-stone-200">
               <tr>
                 {columns.map((col, idx) => (
                   <th
@@ -165,7 +165,7 @@ export function ResponsiveTable<T>({
 
                 return (
                   <div key={colIdx} className="flex justify-between items-start gap-2">
-                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider shrink-0">
+                    <span className="text-[9px] sm:text-xs lg:text-xs font-semibold text-stone-500 uppercase tracking-wider shrink-0">
                       {col.header}:
                     </span>
                     <div className="text-right font-medium text-stone-900 overflow-hidden">

@@ -138,7 +138,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   if (isLoading) {
     return (
       <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in">
-        
+
 
         {/* Loading Spinner */}
         <div className="flex flex-col items-center justify-center py-24 space-y-4">
@@ -189,25 +189,104 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in">
       {/* Breadcrumb */}
-      
+
 
       {/* Profile Header Hero Block */}
       <div className="relative bg-stone-900 text-white overflow-hidden">
         {/* Banner Image */}
         <div className="absolute inset-0 opacity-40 mix-blend-overlay">
-          <img src={seller.banner} alt={seller.shopName} className="w-full h-full object-cover" />
+          <img
+            src={seller.banner}
+            alt={seller.shopName}
+            className="w-full h-full object-cover"
+          />
         </div>
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-16">
-          <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-16">
+          {/* ================= MOBILE LAYOUT ================= */}
+          <div className="md:hidden">
+            {/* Image + Seller Info */}
+            <div className="flex items-center gap-3">
+              {/* Logo */}
+              <div className="relative w-20 h-20 rounded-full border-2 border-white overflow-hidden bg-stone-800 shrink-0 shadow-xl">
+                <img
+                  src={
+                    seller.store_image_url ||
+                    seller.logo ||
+                    'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png'
+                  }
+                  alt={seller.shopName || seller.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src =
+                      'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
+                  }}
+                />
+              </div>
+
+              {/* Verified + Store Name */}
+              <div className="min-w-0 flex flex-col items-start gap-1.5">
+                {/* Verified Badge */}
+                <span className="bg-amber-400 text-stone-950 text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-xs">
+                  VERIFIED SELLER
+                </span>
+
+                {/* Store Name */}
+                <h1 className="text-xl sm:text-2xl font-brand-serif font-normal tracking-wide truncate max-w-full">
+                  {seller.shopName}
+                </h1>
+              </div>
+            </div>
+
+            {/* Description */}
+            <p className="mt-3 text-xs text-stone-300 leading-relaxed">
+              {seller.description ||
+                'Authentic 100% original designer leftover suits directly sourced from factory overstocks.'}
+            </p>
+
+            {/* Mobile Stats — Single Horizontal Scrollable Row */}
+            <div className="mt-4 -mx-4 px-4 overflow-x-auto scrollbar-hide">
+              <div className="flex items-center gap-5 w-max whitespace-nowrap text-[10px]">
+                {/* Rating */}
+                <div className="flex items-center gap-1 text-amber-400 font-bold shrink-0">
+                  <Star className="w-3.5 h-3.5 fill-amber-400 shrink-0" />
+                  <span>
+                    {seller.rating != null ? seller.rating.toFixed(1) : '5.0'} / 5.0 (
+                    {seller.reviewCount || 0} Reviews)
+                  </span>
+                </div>
+
+                {/* Member Since */}
+                <div className="flex items-center gap-1 text-stone-300 shrink-0">
+                  <Calendar className="w-3 h-3 text-stone-400 shrink-0" />
+                  <span>Member Since: {seller.joinedDate || 'N/A'}</span>
+                </div>
+
+                {/* Total Sales */}
+                <div className="flex items-center gap-1 text-stone-300 font-semibold shrink-0">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>{seller.totalSales || 0}+ Suits Sold</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          {/* ================= TABLET + DESKTOP LAYOUT ================= */}
+          <div className="hidden md:flex flex-row items-center gap-6">
             {/* Logo */}
             <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white overflow-hidden bg-stone-800 shrink-0 shadow-xl">
               <img
-                src={seller.store_image_url || seller.logo || 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png'}
+                src={
+                  seller.store_image_url ||
+                  seller.logo ||
+                  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png'
+                }
                 alt={seller.shopName || seller.name}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
+                  (e.target as HTMLImageElement).src =
+                    'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
                 }}
               />
             </div>
@@ -232,13 +311,17 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
               <div className="pt-2 flex flex-wrap items-center gap-4 text-xs sm:text-sm">
                 <div className="flex items-center space-x-1 text-amber-400 font-bold">
                   <Star className="w-4 h-4 fill-amber-400" />
-                  <span>{seller.rating ? seller.rating.toFixed(1) : '5.0'} / 5.0 ({seller.reviewCount || 0} Reviews)</span>
+                  <span>
+                    {seller.rating ? seller.rating.toFixed(1) : '5.0'} / 5.0 (
+                    {seller.reviewCount || 0} Reviews)
+                  </span>
                 </div>
-                
+
                 <div className="flex items-center space-x-1 text-stone-300">
                   <Calendar className="w-3.5 h-3.5 text-stone-400" />
                   <span>Member Since: {seller.joinedDate}</span>
                 </div>
+
                 <div className="flex items-center space-x-1 text-stone-300 font-semibold">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                   <span>{seller.totalSales || 0}+ Suits Sold</span>
@@ -249,52 +332,8 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
         </div>
       </div>
 
-      {/* Navigation Tabs (Listings / Reviews) - Responsive Sizing */}
-      <div className="bg-white border-b border-stone-200 sticky top-16 z-20 shadow-2xs">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3 py-2.5 sm:py-0">
-    
-    <div className="flex space-x-4 sm:space-x-8 overflow-x-auto no-scrollbar min-w-0">
-      <button
-        onClick={() => setActiveTab('listings')}
-        className={`py-2.5 sm:py-4 text-[11px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors shrink-0 ${
-          activeTab === 'listings'
-            ? 'border-stone-900 text-stone-900'
-            : 'border-transparent text-stone-500 hover:text-stone-800'
-        }`}
-      >
-        Listings ({sortedProducts.length})
-      </button>
 
-      <button
-        onClick={() => setActiveTab('reviews')}
-        className={`py-2.5 sm:py-4 text-[11px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors flex items-center space-x-1.5 sm:space-x-2 shrink-0 ${
-          activeTab === 'reviews'
-            ? 'border-stone-900 text-stone-900'
-            : 'border-transparent text-stone-500 hover:text-stone-800'
-        }`}
-      >
-        <span>Reviews ({seller.reviewCount || 0})</span>
-      </button>
-    </div>
-
-    {activeTab === 'listings' && (
-      <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
-        <ArrowUpDown className="w-3.5 h-3.5 text-stone-400" />
-
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
-          className="bg-stone-50 border border-stone-200 text-stone-800 text-[10px] sm:text-xs md:text-sm font-semibold rounded-xs py-1.5 px-2 sm:px-2.5 focus:outline-none cursor-pointer"
-        >
-          <option value="featured">Sort: Featured</option>
-          <option value="newest">Sort: Newest First</option>
-          <option value="price-low">Sort: Price (Low to High)</option>
-          <option value="price-high">Sort: Price (High to Low)</option>
-        </select>
-      </div>
-    )}
-  </div>
-</div>
+      {/* Navigation Tabs (Listings / Reviews) - Responsive Sizing */} <div className="bg-white border-b border-stone-200 sticky top-16 z-20 shadow-2xs"> <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-2 sm:gap-3 py-1.5 sm:py-0"> {/* Tabs */} <div className="flex space-x-3 sm:space-x-8 overflow-x-auto no-scrollbar min-w-0"> <button onClick={() => setActiveTab('listings')} className={`py-2 sm:py-4 text-[9px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors shrink-0 ${ activeTab === 'listings' ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-800' }`} > Listings ({sortedProducts.length}) </button> <button onClick={() => setActiveTab('reviews')} className={`py-2 sm:py-4 text-[9px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors flex items-center space-x-1 sm:space-x-2 shrink-0 ${ activeTab === 'reviews' ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-800' }`} > <span>Reviews ({seller.reviewCount || 0})</span> </button> </div> {/* Sort */} {activeTab === 'listings' && ( <div className="flex items-center space-x-1 sm:space-x-2 shrink-0"> {/* Hidden on mobile */} <ArrowUpDown className="hidden sm:block w-3.5 h-3.5 text-stone-400" /> <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="bg-stone-50 border border-stone-200 text-stone-800 text-[8px] sm:text-xs md:text-sm font-semibold rounded-xs py-1 sm:py-1.5 px-1.5 sm:px-2.5 max-w-[105px] sm:max-w-none focus:outline-none cursor-pointer" > <option value="featured">Featured</option> <option value="newest">Newest First</option> <option value="price-low">Price (Low to High)</option> <option value="price-high">Price (High to Low)</option> </select> </div> )} </div> </div>
 
       {/* Tab Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">

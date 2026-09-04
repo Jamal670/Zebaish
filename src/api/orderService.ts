@@ -491,3 +491,140 @@ export async function fetchOrderByIdOrNumber(orderIdOrNumber: string): Promise<F
   }
 }
 
+/**
+ * Customer-facing status mapping object/function
+ */
+export function mapOrderStatus(internalStatus: string | null | undefined): 'ORDER PLACED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' {
+  if (!internalStatus) return 'ORDER PLACED';
+  const norm = internalStatus.trim().toLowerCase();
+  if (norm === 'shipped') return 'SHIPPED';
+  if (norm === 'delivered') return 'DELIVERED';
+  if (norm === 'cancelled' || norm === 'canceled') return 'CANCELLED';
+  return 'ORDER PLACED';
+}
+
+export interface PublicTrackOrderItem {
+  productId: string;
+  title: string;
+  brand: string;
+  quantity: number;
+  price: number;
+  subtotal: number;
+  imageUrl: string;
+}
+
+export interface PublicTrackOrderResult {
+  orderNumber: string;
+  createdAt: string;
+  orderStatus: 'ORDER PLACED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+  totalAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  items: PublicTrackOrderItem[];
+}
+
+/**
+ * SECURITY & PRIVACY NOTICE:
+ * This function powers the public, unauthenticated Order Tracking page.
+ * 1. Sensitive PII (customer_name, customer_email, customer_phone, shipping_address, postal_code) is NOT selected.
+ * 2. Sensitive financial/seller data is NOT selected.
+ * 3. Input is queried strictly by public customer-facing `order_number`.
+ * 4. Enumeration Risk Mitigation: `order_number` values use random 4-digit suffixes and high-entropy timestamps (ORD-{timestamp}-{random}).
+ *    RECOMMENDATION FOR PRODUCTION: Infrastructure-level rate limiting (e.g. Cloudflare / Nginx / Next.js Middleware rate limiter) should be configured to prevent automated enumeration attacks.
+ */
+export async function trackOrderByNumber(orderNumberInput: string): Promise<{ data: PublicTrackOrderResult | null; error?: string }> {
+  const cleanInput = (orderNumberInput || '').trim();
+  if (!cleanInput) {
+    return { data: null, error: 'Please enter a valid Order ID.' };
+  }
+
+  try {
+    // Relational query joining orders -> order_items -> products -> product_images in a single request shape
+    const { data: orderData, error: dbError } = await supabase
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        order_status,
+        created_at,
+        total_amount,
+        payment_method,
+        payment_status,
+        order_items (
+          product_id,
+          product_title,
+          brand,
+          quantity,
+          price,
+          subtotal,
+          products (
+            id,
+            suit_title,
+            brand,
+            category,
+            product_images ( image_url, is_thumbnail )
+          )
+        )
+      `)
+      .eq('order_number', cleanInput)
+      .maybeSingle();
+
+    if (dbError) {
+      console.error('Error fetching public order tracking:', dbError);
+      return { data: null, error: 'Failed to fetch order details. Please try again later.' };
+    }
+
+    if (!orderData) {
+      return { data: null };
+    }
+
+    const rawItems: any[] = Array.isArray(orderData.order_items) ? orderData.order_items : [];
+
+    const items: PublicTrackOrderItem[] = rawItems.map((item) => {
+      const prod = item.products;
+      const images: any[] = prod && Array.isArray(prod.product_images) ? prod.product_images : [];
+
+      let imageUrl = '';
+      if (images.length > 0) {
+        const thumb = images.find((i) => i.is_thumbnail);
+        imageUrl = thumb ? thumb.image_url : images[0].image_url;
+      }
+
+      if (!imageUrl) {
+        imageUrl = 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?q=80&w=600&auto=format&fit=crop';
+      }
+
+      return {
+        productId: item.product_id || '',
+        title: item.product_title || (prod && prod.suit_title) || 'Designer Suit Item',
+        brand: item.brand || (prod && prod.brand) || 'Zebaish',
+        quantity: Number(item.quantity) || 1,
+        price: Number(item.price) || 0,
+        subtotal: Number(item.subtotal) || (Number(item.price) || 0) * (Number(item.quantity) || 1),
+        imageUrl: imageUrl,
+      };
+    });
+
+    const mappedStatus = mapOrderStatus(orderData.order_status);
+
+    const formattedPaymentMethod =
+      orderData.payment_method === 'COD' ? 'Cash on Delivery' : (orderData.payment_method || 'Cash on Delivery');
+
+    return {
+      data: {
+        orderNumber: orderData.order_number || cleanInput,
+        createdAt: orderData.created_at || new Date().toISOString(),
+        orderStatus: mappedStatus,
+        totalAmount: Number(orderData.total_amount) || 0,
+        paymentMethod: formattedPaymentMethod,
+        paymentStatus: orderData.payment_status || 'Pending',
+        items,
+      },
+    };
+  } catch (err: any) {
+    console.error('Unexpected error tracking order:', err);
+    return { data: null, error: 'Unable to connect to server. Please check your internet connection and try again.' };
+  }
+}
+
+

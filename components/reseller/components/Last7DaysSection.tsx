@@ -247,10 +247,10 @@ export const Last7DaysSection: React.FC<Last7DaysSectionProps> = ({
         {/* GRAPH 1: DAILY REVENUE TRAJECTORY ($) — FULL WIDTH PRIMARY CHART */}
         <div className="bg-white p-4 sm:p-5 rounded-xl border border-stone-200 shadow-2xs space-y-4">
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-900">
+            <h3 className="text-xs sm:text-sm lg:text-sm font-bold uppercase tracking-wider text-stone-900">
               Daily Revenue Trajectory ($)
             </h3>
-            <p className="text-[11px] text-stone-500">
+            <p className="text-[9px] sm:text-xs lg:text-xs text-stone-500">
               Daily seller revenue trajectory over trailing 7 days
             </p>
           </div>

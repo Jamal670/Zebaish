@@ -40,7 +40,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
       <div className="relative w-full max-w-xs bg-black text-white h-full shadow-2xl flex flex-col z-10 border-r border-stone-800">
         {/* Header */}
         <div className="p-5 border-b border-stone-800 flex items-center justify-between">
-          <span className="font-script text-3xl font-normal text-white">
+          <span className="font-script text-2xl sm:text-3xl font-normal text-white">
             Zebaish
           </span>
           <button
@@ -60,7 +60,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
                 onSelectCategory(cat);
                 onClose();
               }}
-              className="w-full py-3 flex items-center justify-between text-stone-200 hover:text-white font-medium text-xs uppercase tracking-widest border-b border-stone-900/60 transition-colors text-left"
+              className="w-full py-3 flex items-center justify-between text-stone-200 hover:text-white font-medium text-[10px] sm:text-xs uppercase tracking-widest border-b border-stone-900/60 transition-colors text-left"
             >
               <span>{cat}</span>
               <ChevronRight className="w-4 h-4 text-stone-600" />
@@ -69,7 +69,7 @@ export const MobileMenu: React.FC<MobileMenuProps> = ({
         </div>
 
         {/* Footer Contact Info */}
-        <div className="p-5 border-t border-stone-800 bg-stone-950 text-stone-400 text-[11px] space-y-2">
+        <div className="p-5 border-t border-stone-800 bg-stone-950 text-stone-400 text-[10px] sm:text-[11px] space-y-2">
           <div className="flex items-center space-x-2">
             <Globe className="w-3.5 h-3.5 text-stone-500" />
             <span>Region: Pakistan (Rs. PKR)</span>

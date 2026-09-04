@@ -240,7 +240,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       cell: (item) => (
         <button
           onClick={() => router.push(`/dashboard/reviews?productId=${item.id}`)}
-          className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-stone-900 hover:bg-black text-white text-[10px] sm:text-xs font-bold uppercase rounded-md transition-colors shadow-2xs min-h-[28px] sm:min-h-[32px]"
+          className="px-2.5 py-0.5 sm:px-3 sm:py-1 bg-stone-900 hover:bg-black text-white text-[9px] sm:text-xs lg:text-xs font-bold uppercase rounded-md transition-colors shadow-2xs min-h-[28px] sm:min-h-[32px]"
           title="View product customer reviews"
         >
           View
@@ -256,7 +256,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
           return (
             <div className="flex items-center justify-center">
               <span
-                className="inline-flex items-center space-x-1 px-2.5 py-1 text-[11px] font-bold rounded-full bg-red-50 text-red-700 border border-red-200"
+                className="inline-flex items-center space-x-1 px-2.5 py-1 text-[8px] sm:text-[10px] lg:text-[10px] font-bold rounded-full bg-red-50 text-red-700 border border-red-200"
                 title={restrictionMessages.join(' | ') || `Account is restricted. Product actions are disabled.`}
               >
                 <ShieldAlert className="w-3 h-3 text-red-600 shrink-0" />
@@ -271,7 +271,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
             {!item.isSoldOut && (
               <button
                 onClick={() => handleToggleDeactivate(item.id, item.isDeactivated)}
-                className={`px-2 py-1 sm:px-2.5 sm:py-1.5 text-[10px] sm:text-xs font-bold uppercase rounded-xs border transition-colors cursor-pointer shrink-0 flex items-center justify-center ${item.isDeactivated
+                className={`px-2 py-1 sm:px-2.5 sm:py-1.5 text-[9px] sm:text-xs lg:text-xs font-bold uppercase rounded-xs border transition-colors cursor-pointer shrink-0 flex items-center justify-center ${item.isDeactivated
                   ? 'bg-green-100 hover:bg-green-200 text-green-800 border-green-200'
                   : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
                   }`}
@@ -289,7 +289,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
                     handleToggleSoldOut(item.id, item.isSoldOut);
                   }
                 }}
-                className={`px-2 py-1 sm:px-2.5 sm:py-1.5 text-[10px] sm:text-xs font-bold uppercase rounded-xs border transition-colors cursor-pointer shrink-0 flex items-center justify-center ${item.isSoldOut
+                className={`px-2 py-1 sm:px-2.5 sm:py-1.5 text-[9px] sm:text-xs lg:text-xs font-bold uppercase rounded-xs border transition-colors cursor-pointer shrink-0 flex items-center justify-center ${item.isSoldOut
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
                   : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
                   }`}
@@ -327,12 +327,9 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       <div className="pb-4 border-b border-stone-200 flex flex-row items-center justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-base sm:text-xl lg:text-2xl font-bold uppercase tracking-wider text-stone-900 flex items-center space-x-2 truncate">
-            <span className="truncate">Active Collections ({filteredListings.length})</span>
+            <span className="truncate">My Inventory ({filteredListings.length})</span>
             {loading && <RefreshCw className="w-4 h-4 animate-spin text-stone-500 shrink-0" />}
           </h3>
-          <p className="text-[11px] md:text-xs lg:text-sm text-stone-600 leading-relaxed max-w-3xl">
-            Manage, edit, or restock your suit collections
-          </p>
         </div>
 
         {/* Controls Container: Search + Refresh always in one row */}

@@ -387,10 +387,10 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
           <span className="text-2xs font-bold tracking-[0.3em] uppercase text-amber-400 block mb-2">
             ZEBAISH SELLER PARTNERS
           </span>
-          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight font-script mb-3">
+          <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold tracking-tight font-script mb-3">
             Monetize Brand Surplus & Factory Leftovers
           </h1>
-          <p className="text-xs sm:text-sm text-stone-300 max-w-xl mx-auto leading-relaxed">
+          <p className="text-[9px] sm:text-xs lg:text-sm text-stone-300 max-w-xl mx-auto leading-relaxed">
             Join 350+ verified Pakistani boutique sellers liquidating authentic Khaadi, Sapphire, Maria B, and Gul Ahmed leftover stock to nationwide.
           </p>
 

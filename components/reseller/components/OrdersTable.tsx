@@ -285,7 +285,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
       <div className="bg-white border border-stone-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-3 sm:space-y-4">
         {/* TITLE + SEARCH ROW */}
         <div className="flex flex-row items-center justify-between gap-3 overflow-x-auto whitespace-nowrap pb-1">
-          <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-stone-900 uppercase tracking-wider shrink-0">
+          <h2 className="text-base sm:text-xl lg:text-xl font-bold text-stone-900 uppercase tracking-wider shrink-0">
             All Orders
           </h2>
 

@@ -165,22 +165,22 @@ export const CartPage: React.FC<CartPageProps> = ({
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight mb-8">
+        <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold text-stone-900 tracking-tight mb-8">
           YOUR SHOPPING BAG ({cartItems.reduce((a, b) => a + b.quantity, 0)})
         </h1>
 
         {cartItems.length === 0 ? (
           <div className="bg-white border border-stone-200 rounded-lg p-12 text-center my-8">
             <ShoppingBag className="w-12 h-12 text-stone-300 mx-auto mb-4" />
-            <h2 className="text-base font-bold text-stone-900 uppercase tracking-wider">
+            <h2 className="text-base sm:text-lg lg:text-xl font-bold text-stone-900 uppercase tracking-wider">
               YOUR BAG IS CURRENTLY EMPTY
             </h2>
-            <p className="text-xs text-stone-500 mt-1 max-w-sm mx-auto">
+            <p className="text-[10px] sm:text-xs lg:text-sm text-stone-500 mt-1 max-w-sm mx-auto">
               Browse leftover branded suits from top Pakistani designers at unbeatable surplus prices.
             </p>
             <button
               onClick={onNavigateHome}
-              className="mt-6 inline-block bg-stone-900 text-white text-xs font-bold px-6 py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"
+              className="mt-6 inline-block bg-stone-900 text-white text-2xs sm:text-xs lg:text-sm font-bold px-6 py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"
             >
               EXPLORE LEFTOVER CATALOG
             </button>

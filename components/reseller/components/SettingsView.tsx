@@ -473,10 +473,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
               </span>
             </div>
 
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight font-script">
+            <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold tracking-tight font-script">
               {formData.shop_name || 'Seller Shop Name'}
             </h1>
-            <p className="text-xs sm:text-sm font-medium text-stone-300 flex items-center justify-center sm:justify-start space-x-2">
+            <p className="text-[9px] sm:text-xs lg:text-xs font-medium text-stone-300 flex items-center justify-center sm:justify-start space-x-2">
               <span>{formData.full_name}</span>
               <span className="text-stone-600">•</span>
               <span className="text-xs font-mono text-stone-400">ID: {sellerId.substring(0, 13)}</span>

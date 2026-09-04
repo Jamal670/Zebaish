@@ -80,22 +80,22 @@ export const OrderSuccessPage: React.FC = () => {
             <CheckCircle2 className="w-10 h-10" />
           </div>
 
-          <span className="inline-block bg-emerald-50 text-emerald-800 text-[11px] font-extrabold uppercase tracking-widest px-3 py-1 rounded-full border border-emerald-200 mb-3">
+          <span className="inline-block bg-emerald-50 text-emerald-800 text-[10px] sm:text-[11px] lg:text-xs font-extrabold uppercase tracking-widest px-3 py-1 rounded-full border border-emerald-200 mb-3">
             Order Confirmed
           </span>
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight mb-2">
+          <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold text-stone-900 tracking-tight mb-2">
             Congratulations! Your Order Has Been Placed.
           </h1>
 
-          <p className="text-xs sm:text-sm text-stone-600 max-w-lg mx-auto mb-6 leading-relaxed">
+          <p className="text-[10px] sm:text-xs lg:text-sm text-stone-600 max-w-lg mx-auto mb-6 leading-relaxed">
             Thank you for shopping with Zebaish. We have received your order and are currently verifying item dispatch details.
           </p>
 
-          <div className="inline-flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-6 bg-stone-50 border border-stone-200 rounded-md px-6 py-3 text-xs">
+          <div className="inline-flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-6 bg-stone-50 border border-stone-200 rounded-md px-6 py-3 text-[10px] sm:text-xs">
             <div>
               <span className="text-stone-500 font-medium">Order Number:</span>{' '}
-              <strong className="text-stone-900 font-mono text-sm tracking-wider">{displayOrderNumber}</strong>
+              <strong className="text-stone-900 font-mono text-xs sm:text-sm tracking-wider">{displayOrderNumber}</strong>
             </div>
             <div className="hidden sm:block text-stone-300">|</div>
             <div>
@@ -111,7 +111,7 @@ export const OrderSuccessPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
           <button
             onClick={() => router.push('/account?tab=orders')}
-            className="w-full py-3.5 px-6 bg-stone-900 hover:bg-black text-white rounded-xs text-xs font-bold uppercase tracking-widest flex items-center justify-center space-x-2 transition-all shadow-sm group cursor-pointer"
+            className="w-full py-3.5 px-6 bg-stone-900 hover:bg-black text-white rounded-xs text-2xs sm:text-xs lg:text-sm font-bold uppercase tracking-widest flex items-center justify-center space-x-2 transition-all shadow-sm group cursor-pointer"
           >
             <Package className="w-4 h-4 text-amber-400" />
             <span>Track Your Order</span>
@@ -120,7 +120,7 @@ export const OrderSuccessPage: React.FC = () => {
 
           <button
             onClick={() => router.replace('/')}
-            className="w-full py-3.5 px-6 bg-white hover:bg-stone-100 text-stone-900 border border-stone-300 rounded-xs text-xs font-bold uppercase tracking-widest flex items-center justify-center space-x-2 transition-all shadow-2xs cursor-pointer"
+            className="w-full py-3.5 px-6 bg-white hover:bg-stone-100 text-stone-900 border border-stone-300 rounded-xs text-2xs sm:text-xs lg:text-sm font-bold uppercase tracking-widest flex items-center justify-center space-x-2 transition-all shadow-2xs cursor-pointer"
           >
             <ShoppingBag className="w-4 h-4 text-stone-600" />
             <span>Continue Shopping</span>

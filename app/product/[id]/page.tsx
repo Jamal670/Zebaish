@@ -7,7 +7,7 @@ import { ALL_PRODUCTS } from '@/data/mockData';
 import { useApp } from '@/components/context/AppContext';
 import { Product, Review } from '@/types';
 import useAuth from '@/src/hooks/useAuth';
-import { fetchProductById, fetchProductReviews, fetchWishlistRecommendations } from '@/src/api/collectionService';
+import { fetchProductById, fetchProductReviews } from '@/src/api/collectionService';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -29,11 +29,11 @@ export default function ProductPage() {
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. Primary Product & Reviews loader effect (runs ONCE per productId)
+  // Primary 2-Query sequential loader effect (runs ONCE per productId)
   useEffect(() => {
     let isMounted = true;
 
-    async function loadOptimizedTwoStepData() {
+    async function loadProductDataSequentially() {
       if (!productId) {
         if (isMounted) setLoading(false);
         return;
@@ -42,65 +42,51 @@ export default function ProductPage() {
       setLoading(true);
       setReviewsLoading(true);
 
-      // STAGE 1: QUERY 1 (Product + Images + Variants + Sellers)
+      // ==========================================
+      // QUERY 1 — Product Details (runs first, blocks initial render)
+      // ==========================================
+      let loadedProduct: Product | null = null;
       try {
         const res = await fetchProductById(productId);
         if (!isMounted) return;
-
-        setProduct(res.product);
+        loadedProduct = res.product;
+        setProduct(loadedProduct);
       } catch (err) {
-        console.error('Error fetching product details:', err);
+        console.error('Error fetching Query 1 (Product Details):', err);
         if (isMounted) setProduct(null);
       } finally {
-        // Render product UI immediately!
+        // Render product UI immediately on Query 1 completion!
         if (isMounted) setLoading(false);
       }
 
-      // STAGE 2: QUERY 2 (Product Reviews) - Runs strictly AFTER product is displayed!
+      // If Query 1 returned no product, DO NOT fire Query 2!
+      if (!loadedProduct) {
+        if (isMounted) setReviewsLoading(false);
+        return;
+      }
+
+      // ==========================================
+      // QUERY 2 — Reviews (runs strictly AFTER Query 1 succeeds)
+      // ==========================================
       try {
         const reviewsData = await fetchProductReviews(productId, 5);
         if (isMounted) {
           setReviews(reviewsData);
         }
       } catch (err) {
-        console.error('Error fetching product reviews:', err);
+        console.error('Error fetching Query 2 (Reviews):', err);
         if (isMounted) setReviews([]);
       } finally {
         if (isMounted) setReviewsLoading(false);
       }
     }
 
-    loadOptimizedTwoStepData();
+    loadProductDataSequentially();
 
     return () => {
       isMounted = false;
     };
   }, [productId]);
-
-  // 2. Secondary Recommendations loader effect (runs in background when user.id is ready)
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadRecommendations() {
-      if (!user?.id || !productId) {
-        if (isMounted) setRelatedProducts([]);
-        return;
-      }
-
-      try {
-        const recsData = await fetchWishlistRecommendations(user.id, productId);
-        if (isMounted) setRelatedProducts(recsData);
-      } catch {
-        if (isMounted) setRelatedProducts([]);
-      }
-    }
-
-    loadRecommendations();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [productId, user?.id]);
 
   if (loading) {
     return (

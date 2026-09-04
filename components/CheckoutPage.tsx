@@ -203,7 +203,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-stone-900 tracking-tight mb-8">
+        <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold text-stone-900 tracking-tight mb-8">
           CHECKOUT & DISPATCH DETAILS
         </h1>
 
@@ -212,7 +212,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           <div className="lg:col-span-7 space-y-6">
             {/* Global submit error alert banner */}
             {submitError && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-md text-red-800 text-xs flex items-center space-x-2 animate-shake">
+              <div className="p-4 bg-red-50 border border-red-200 rounded-md text-red-800 text-[10px] sm:text-xs flex items-center space-x-2 animate-shake">
                 <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
                 <span>{submitError}</span>
               </div>
@@ -220,14 +220,14 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
             {/* Address Form */}
             <div className="bg-white border border-stone-200 rounded-lg p-5 shadow-2xs space-y-4">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-stone-900 flex items-center space-x-2">
+              <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-900 flex items-center space-x-2">
                 <Truck className="w-4 h-4 text-stone-600" />
                 <span>1. Delivery Address (Pakistan & Global)</span>
               </h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div>
-                  <label className="font-semibold text-stone-700 block mb-1">Full Name <span className="text-red-500">*</span></label>
+                  <label className="font-semibold text-stone-700 text-[10px] sm:text-xs block mb-1">Full Name <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     value={formData.fullName}

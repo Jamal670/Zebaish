@@ -118,7 +118,7 @@ export const KpiCard: React.FC<KpiCardProps> = ({
     >
       <div>
         <div className="flex justify-between items-center mb-1">
-          <span className="text-[10px] sm:text-xs lg:text-sm font-extrabold uppercase tracking-wider text-stone-400">
+          <span className="text-[9px] sm:text-xs lg:text-xs font-extrabold uppercase tracking-wider text-stone-400">
             {title}
           </span>
           <div className="shrink-0">{icon}</div>
@@ -127,7 +127,7 @@ export const KpiCard: React.FC<KpiCardProps> = ({
         <div className="mt-1">
           {format === 'rating' ? (
             <div className="flex items-center space-x-2">
-              <span className="text-base sm:text-lg lg:text-xl font-bold tracking-tight">{value}</span>
+              <span className="text-sm sm:text-xl lg:text-xl font-bold tracking-tight">{value}</span>
               <div className="flex text-amber-400">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <Star
@@ -141,14 +141,14 @@ export const KpiCard: React.FC<KpiCardProps> = ({
               </div>
             </div>
           ) : (
-            <p className="text-base sm:text-lg lg:text-xl font-bold tracking-tight font-mono text-stone-900 dark:text-stone-100">
+            <p className="text-sm sm:text-xl lg:text-xl font-bold tracking-tight font-mono text-stone-900 dark:text-stone-100">
               {value}
             </p>
           )}
         </div>
       </div>
 
-      <div className="mt-2.5 pt-2 border-t border-black/5 flex items-center justify-between text-[10px] sm:text-xs lg:text-sm">
+      <div className="mt-2.5 pt-2 border-t border-black/5 flex items-center justify-between text-[9px] sm:text-xs lg:text-xs">
         {trendPercent !== undefined && trendDirection ? (
           <div className={`flex items-center space-x-1 font-bold ${trendColorClass}`}>
             {trendDirection === 'up' ? (
@@ -247,9 +247,6 @@ export const AnalyticsView: React.FC = () => {
             <Activity className="w-6 h-6 text-amber-500 shrink-0" />
             <span>Seller Analytics Dashboard</span>
           </h1>
-          <p className="text-xs sm:text-sm lg:text-base text-stone-500 mt-1">
-            Realtime performance & sales metrics scoped strictly to your seller account
-          </p>
         </div>
 
         {/* FIX #2: LEFT-SIDE ACTION BUTTONS ROW (SINGLE HORIZONTALLY SCROLLABLE ROW, NEVER WRAPS) */}

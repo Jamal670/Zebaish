@@ -51,7 +51,7 @@ export const ScrollableStatCard: React.FC<ScrollableStatCardProps> = ({
     >
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-1">
-          <span className="text-[10px] sm:text-xs font-extrabold uppercase tracking-wider text-stone-400 truncate">
+          <span className="text-[9px] sm:text-xs lg:text-xs font-extrabold uppercase tracking-wider text-stone-400 truncate">
             {title}
           </span>
           <div className={`p-1.5 sm:p-2 ${iconBgColor} ${iconTextColor} rounded-full shrink-0`}>
@@ -60,12 +60,12 @@ export const ScrollableStatCard: React.FC<ScrollableStatCardProps> = ({
         </div>
 
         <div>
-          <div className="text-base sm:text-xl lg:text-2xl font-black text-stone-900 font-mono tracking-tight">
+          <div className="text-sm sm:text-xl lg:text-xl font-black text-stone-900 font-mono tracking-tight">
             {value}
           </div>
           {trend && (
             <div
-              className={`text-[10px] sm:text-xs font-bold mt-0.5 ${trendPositive ? 'text-emerald-700' : 'text-rose-600'
+              className={`text-[9px] sm:text-xs lg:text-xs font-bold mt-0.5 ${trendPositive ? 'text-emerald-700' : 'text-rose-600'
                 }`}
             >
               {trend}
@@ -78,7 +78,7 @@ export const ScrollableStatCard: React.FC<ScrollableStatCardProps> = ({
 
       {
         subtitle && (
-          <span className="text-[10px] sm:text-xs font-semibold text-stone-500 block truncate pt-0.5">
+          <span className="text-[9px] sm:text-xs lg:text-xs font-semibold text-stone-500 block truncate pt-0.5">
             {subtitle}
           </span>
         )

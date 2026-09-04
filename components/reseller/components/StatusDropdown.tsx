@@ -77,7 +77,7 @@ export const StatusDropdown: React.FC<StatusDropdownProps> = ({
   const style = getStatusBadgeStyle(normCurrent);
   const allowedNext = ALLOWED_TRANSITIONS[normCurrent] || ALLOWED_TRANSITIONS[currentStatus] || [];
 
-  const pyClass = size === 'sm' ? 'py-1 px-2.5 text-xs' : 'py-1.5 px-3 text-xs sm:text-sm';
+  const pyClass = size === 'sm' ? 'py-1 px-2.5 text-[8px] sm:text-[10px] lg:text-[10px]' : 'py-1.5 px-3 text-[9px] sm:text-xs lg:text-xs';
 
   // Terminal state: render static badge without select options
   if (allowedNext.length === 0) {

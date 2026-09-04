@@ -62,10 +62,10 @@ export const ResellerHeader: React.FC = () => {
   };
 
   return (
-    <header className="pb-5 sm:pb-6 mb-6 sm:mb-8 border-b border-stone-300 space-y-2.5 sm:space-y-3">
-      {/* Top Header Row: Title on Left, Action Buttons on Right */}
+    <header className="pb-3 mb-4 border-b border-stone-300">
+      {/* Top Header Row */}
       <div className="flex items-center justify-between gap-2 sm:gap-4">
-        <h1 className="text-lg sm:text-2xl lg:text-3xl font-extrabold uppercase tracking-tight text-stone-900 leading-tight">
+        <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold uppercase tracking-tight text-stone-900 leading-tight">
           {meta.title}
         </h1>
 
@@ -73,13 +73,13 @@ export const ResellerHeader: React.FC = () => {
           {currentStatus === 'Pending Verification' && (
             <button
               className="flex items-center justify-center gap-1.5
-               px-2.5 py-1.5
-               sm:px-4 sm:py-2.5
-               text-2xs sm:text-xs
-               whitespace-nowrap
-               rounded-xs
-               bg-stone-900 hover:bg-black
-               text-white font-bold uppercase tracking-wider"
+              px-2.5 py-1.5
+              sm:px-4 sm:py-2.5
+              text-2xs sm:text-xs
+              whitespace-nowrap
+              rounded-xs
+              bg-stone-900 hover:bg-black
+              text-white font-bold uppercase tracking-wider"
             >
               <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
               <span>ADD NEW COLLECTION</span>
@@ -89,22 +89,22 @@ export const ResellerHeader: React.FC = () => {
           <button
             onClick={handleAddNewCollection}
             className="flex items-center justify-center gap-1.5
-               px-2.5 py-1.5
-               sm:px-4 sm:py-2.5
-               text-2xs sm:text-xs
-               whitespace-nowrap
-               rounded-xs
-               bg-stone-900 hover:bg-black
-               text-white font-bold uppercase tracking-wider"
+            px-2.5 py-1.5
+            sm:px-4 sm:py-2.5
+            text-2xs sm:text-xs
+            whitespace-nowrap
+            rounded-xs
+            bg-stone-900 hover:bg-black
+            text-white font-bold uppercase tracking-wider"
           >
             <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-            <span>ADD NEW COLLECTION</span>
+            <span>ADD COLLECTION</span>
           </button>
         </div>
       </div>
 
-      {/* Description Paragraph Below Top Row */}
-      <p className="text-xs md:text-xs lg:text-sm text-stone-600 leading-relaxed max-w-3xl">
+      {/* Description */}
+      <p className="mt-1 text-[9px] sm:text-xs lg:text-sm text-stone-600 leading-relaxed max-w-3xl">
         {meta.description}
       </p>
     </header>

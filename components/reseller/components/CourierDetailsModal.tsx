@@ -97,10 +97,10 @@ export const CourierDetailsModal: React.FC<CourierDetailsModalProps> = ({
               <Truck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm sm:text-base font-bold text-white tracking-tight">
+              <h3 className="text-sm sm:text-base lg:text-base font-bold text-white tracking-tight">
                 Courier & Dispatch Details
               </h3>
-              <p className="text-[11px] text-stone-400">
+              <p className="text-[9px] sm:text-xs lg:text-xs text-stone-400">
                 Order <strong className="text-amber-400">#{orderNumber}</strong> &rarr; Mark as{' '}
                 <strong className="text-white uppercase">{targetStatus}</strong>
               </p>
@@ -119,17 +119,17 @@ export const CourierDetailsModal: React.FC<CourierDetailsModalProps> = ({
         </div>
 
         {/* MODAL FORM BODY */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs sm:text-sm text-stone-800">
+        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-[10px] sm:text-xs lg:text-xs text-stone-800">
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-start space-x-2.5">
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-              <span className="text-xs font-medium leading-relaxed">{errorMsg}</span>
+              <span className="text-[10px] sm:text-xs lg:text-xs font-medium leading-relaxed">{errorMsg}</span>
             </div>
           )}
 
           {/* FIELD 1: CHOOSE COURIER COMPANY */}
           <div className="space-y-1.5">
-            <label htmlFor="courier-select" className="block text-xs font-bold uppercase tracking-wider text-stone-700">
+            <label htmlFor="courier-select" className="block text-[10px] sm:text-xs lg:text-xs font-bold uppercase tracking-wider text-stone-700">
               Courier Company <span className="text-red-500">*</span>
             </label>
             <select

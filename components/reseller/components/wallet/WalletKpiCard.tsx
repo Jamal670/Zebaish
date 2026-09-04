@@ -82,7 +82,7 @@ export const WalletKpiCard: React.FC<WalletKpiCardProps> = ({
       <div>
         <div className="flex items-center justify-between mb-2.5">
           <span
-            className={`text-2xs sm:text-xs font-semibold uppercase tracking-wider ${accent === 'dark' ? 'text-stone-300' : 'text-stone-600'
+            className={`text-[9px] sm:text-xs lg:text-xs font-semibold uppercase tracking-wider ${accent === 'dark' ? 'text-stone-300' : 'text-stone-600'
               }`}
           >
             {label}
@@ -93,7 +93,7 @@ export const WalletKpiCard: React.FC<WalletKpiCardProps> = ({
         </div>
 
         <div className="mt-1">
-          <div className={`text-xl sm:text-2xl lg:text-3xl font-extrabold tracking-tight font-mono ${style.amountColor}`}>
+          <div className={`text-sm sm:text-xl lg:text-xl font-extrabold tracking-tight font-mono ${style.amountColor}`}>
             {format$(amount)}
           </div>
         </div>
@@ -102,7 +102,7 @@ export const WalletKpiCard: React.FC<WalletKpiCardProps> = ({
       <div className="mt-3.5 pt-2.5 border-t border-black/5 flex items-center justify-between">
         {subtext ? (
           <span
-            className={`text-2xs sm:text-xs font-medium truncate ${accent === 'dark' ? 'text-stone-400' : 'text-stone-500'
+            className={`text-[9px] sm:text-xs lg:text-xs font-medium truncate ${accent === 'dark' ? 'text-stone-400' : 'text-stone-500'
               }`}
           >
             {subtext}
@@ -112,7 +112,7 @@ export const WalletKpiCard: React.FC<WalletKpiCardProps> = ({
         )}
 
         {style.badgeText && (
-          <span className={`text-2xs uppercase font-bold px-2 py-0.5 rounded-md shrink-0 ml-1 ${style.badgeBg}`}>
+          <span className={`text-[8px] sm:text-[10px] lg:text-[10px] uppercase font-bold px-2 py-0.5 rounded-md shrink-0 ml-1 ${style.badgeBg}`}>
             {style.badgeText}
           </span>
         )}
