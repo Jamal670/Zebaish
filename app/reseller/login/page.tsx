@@ -10,6 +10,14 @@ export default function ResellerLoginRoutePage() {
   const { user, resellerProfile, loading } = useAuth();
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isRecovery = window.location.hash.includes('type=recovery') || window.location.search.includes('type=recovery');
+      if (isRecovery) {
+        router.replace('/reseller/update-password');
+        return;
+      }
+    }
+
     if (!loading && user && resellerProfile) {
       router.push('/dashboard');
     }

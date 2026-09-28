@@ -52,7 +52,7 @@ export const MainLayoutShell: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const handleFooterResellerClick = () => {
-    router.push('/dashboard');
+    router.push('/reseller/signup');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

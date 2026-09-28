@@ -1,15 +1,19 @@
-import React, { useState } from 'react';
-import { Store, ArrowRight, Mail, AlertCircle, Loader2, CheckCircle2, KeyRound } from 'lucide-react';
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2, KeyRound, Eye, EyeOff } from 'lucide-react';
 import supabase from '@/src/api/client';
 import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/context/AppContext';
 
-interface ResellerFgtPassProps {
+interface ResellerUpdatePassProps {
+  onSuccess: () => void;
   onNavigateLogin: () => void;
   onNavigateHome: () => void;
 }
 
-export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
+export const ResellerUpdatePass: React.FC<ResellerUpdatePassProps> = ({
+  onSuccess,
   onNavigateLogin,
   onNavigateHome,
 }) => {
@@ -21,17 +25,24 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
     setIsCartOpen,
   } = useApp();
 
-  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState<string>('');
+  const [passwordError, setPasswordError] = useState<string>('');
+  const [confirmError, setConfirmError] = useState<string>('');
 
-  const validateEmail = (value: string): string => {
-    if (!value || !value.trim()) return 'Email address is required.';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
-      return 'Please enter a valid email address.';
-    }
+  const validatePassword = (val: string): string => {
+    if (!val) return 'Password is required.';
+    if (val.length < 6) return 'Password must be at least 6 characters long.';
+    return '';
+  };
+
+  const validateConfirm = (val: string, pass: string): string => {
+    if (!val) return 'Please confirm your new password.';
+    if (val !== pass) return 'Passwords do not match.';
     return '';
   };
 
@@ -40,45 +51,37 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const err = validateEmail(email);
-    if (err) {
-      setEmailError(err);
-      setErrorMessage('Please enter a valid email address.');
+    const pErr = validatePassword(password);
+    const cErr = validateConfirm(confirmPassword, password);
+
+    if (pErr || cErr) {
+      setPasswordError(pErr);
+      setConfirmError(cErr);
+      setErrorMessage('Please fix the errors below before proceeding.');
       return;
     }
 
     setLoading(true);
 
-    if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.includes('dummy')) {
-      setErrorMessage(
-        'Missing API Key: NEXT_PUBLIC_SUPABASE_ANON_KEY is missing or invalid in your .env file.'
-      );
-      setLoading(false);
-      return;
-    }
-
     try {
-      const redirectUrl = typeof window !== 'undefined'
-        ? `${window.location.origin}/reseller/update-password`
-        : undefined;
-
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: redirectUrl,
+      const { error } = await supabase.auth.updateUser({
+        password: password,
       });
 
       if (error) {
-        console.error('Supabase password reset error:', error);
-        setErrorMessage(error.message || 'Failed to send password reset email. Please try again.');
+        console.error('Supabase update password error:', error);
+        setErrorMessage(error.message || 'Failed to update password. Please try again or request a new reset link.');
         setLoading(false);
         return;
       }
 
-      setSuccessMessage(
-        'Password reset link has been sent to your email address! Please check your inbox and follow the instructions to reset your password.'
-      );
+      setSuccessMessage('Your password has been updated successfully! You can now log in with your new password.');
       setLoading(false);
+
+      // Automatically sign out recovery session so user logs in with new password
+      await supabase.auth.signOut();
     } catch (err: any) {
-      console.error('Unexpected password reset error:', err);
+      console.error('Unexpected password update error:', err);
       setErrorMessage(err?.message || 'An unexpected error occurred. Please try again.');
       setLoading(false);
     }
@@ -105,24 +108,20 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
             ZEBAISH SELLER PORTAL
           </span>
           <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold tracking-tight font-script mb-3">
-            Reset Your Seller Password
+            Set Your New Password
           </h1>
           <p className="text-[9px] sm:text-xs lg:text-sm text-stone-300 max-w-xl mx-auto leading-relaxed">
-            Enter your registered seller email address below to receive instant password reset instructions.
+            Please enter your new password below to secure your seller account.
           </p>
 
           <div className="mt-6 flex flex-wrap justify-center gap-6 text-[10px] sm:text-xs text-stone-300">
             <div className="flex items-center space-x-1.5">
               <CheckCircle2 className="w-4 h-4 text-amber-400" />
-              <span>Zero Listing Monthly Fee</span>
+              <span>Enhanced Account Security</span>
             </div>
             <div className="flex items-center space-x-1.5">
               <CheckCircle2 className="w-4 h-4 text-amber-400" />
-              <span>Direct Bank / EasyPaisa Payouts</span>
-            </div>
-            <div className="flex items-center space-x-1.5">
-              <CheckCircle2 className="w-4 h-4 text-amber-400" />
-              <span>Automated TCS / Leopards Pickup</span>
+              <span>Instant Dashboard Access</span>
             </div>
           </div>
         </div>
@@ -132,16 +131,15 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
           <div className="flex items-center justify-between pb-6 mb-6 border-b border-stone-200">
             <h2 className="text-xs sm:text-sm lg:text-base font-bold uppercase tracking-wider text-stone-900 flex items-center space-x-2">
               <KeyRound className="w-5 h-5 text-amber-600" />
-              <span>Forgot Password</span>
+              <span>Update Password</span>
             </h2>
             <span className="text-xs text-stone-500">
-              Remember your password?{' '}
               <button
                 type="button"
                 onClick={onNavigateLogin}
                 className="font-bold text-stone-900 underline hover:text-black cursor-pointer"
               >
-                Log In Here
+                Back to Login
               </button>
             </span>
           </div>
@@ -158,7 +156,7 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xs text-xs text-emerald-800 font-medium leading-relaxed flex items-start space-x-3">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-bold text-emerald-900 mb-1">Check Your Email</p>
+                  <p className="font-bold text-emerald-900 mb-1">Password Successfully Updated!</p>
                   <p>{successMessage}</p>
                 </div>
               </div>
@@ -169,7 +167,7 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
                   onClick={onNavigateLogin}
                   className="w-full py-4 bg-stone-900 hover:bg-black text-white text-xs font-bold uppercase tracking-widest rounded-xs shadow-md flex items-center justify-center space-x-2 transition-all cursor-pointer"
                 >
-                  <span>RETURN TO SELLER LOGIN</span>
+                  <span>PROCEED TO SELLER LOGIN</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
@@ -178,34 +176,69 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
             <form onSubmit={handleSubmit} className="space-y-6 text-xs" noValidate>
               <div className="space-y-4">
                 <h3 className="font-bold text-stone-900 uppercase tracking-wider text-xs border-b border-stone-100 pb-2 flex items-center space-x-2">
-                  <Mail className="w-4 h-4 text-stone-500" />
-                  <span>Account Email</span>
+                  <Lock className="w-4 h-4 text-stone-500" />
+                  <span>New Credentials</span>
                 </h3>
 
-                <div>
-                  <label className="font-semibold text-stone-700 block mb-1">
-                    Email Address <span className="text-red-600">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="email"
-                      required
-                      placeholder="reseller@example.com"
-                      value={email}
-                      onChange={(e) => {
-                        setEmail(e.target.value);
-                        if (emailError) setEmailError('');
-                      }}
-                      onBlur={() => {
-                        const err = validateEmail(email);
-                        setEmailError(err);
-                      }}
-                      className={`w-full p-2.5 pl-9 border rounded-xs focus:outline-none ${emailError ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                        }`}
-                    />
-                    <Mail className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="font-semibold text-stone-700 block mb-1">
+                      New Password <span className="text-red-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        placeholder="Min 6 characters"
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          if (passwordError) setPasswordError('');
+                        }}
+                        onBlur={() => {
+                          const err = validatePassword(password);
+                          setPasswordError(err);
+                        }}
+                        className={`w-full p-2.5 pl-9 pr-9 border rounded-xs focus:outline-none ${passwordError ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                          }`}
+                      />
+                      <Lock className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2.5 top-3 text-stone-400 hover:text-stone-600 cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {passwordError && <p className="text-xs text-red-600 font-medium mt-1">{passwordError}</p>}
                   </div>
-                  {emailError && <p className="text-xs text-red-600 font-medium mt-1">{emailError}</p>}
+
+                  <div>
+                    <label className="font-semibold text-stone-700 block mb-1">
+                      Confirm New Password <span className="text-red-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        placeholder="Re-enter new password"
+                        value={confirmPassword}
+                        onChange={(e) => {
+                          setConfirmPassword(e.target.value);
+                          if (confirmError) setConfirmError('');
+                        }}
+                        onBlur={() => {
+                          const err = validateConfirm(confirmPassword, password);
+                          setConfirmError(err);
+                        }}
+                        className={`w-full p-2.5 pl-9 pr-9 border rounded-xs focus:outline-none ${confirmError ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                          }`}
+                      />
+                      <Lock className="w-4 h-4 text-stone-400 absolute left-2.5 top-3" />
+                    </div>
+                    {confirmError && <p className="text-xs text-red-600 font-medium mt-1">{confirmError}</p>}
+                  </div>
                 </div>
               </div>
 
@@ -218,11 +251,11 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>SENDING RESET LINK...</span>
+                      <span>UPDATING PASSWORD...</span>
                     </>
                   ) : (
                     <>
-                      <span>SEND RESET LINK</span>
+                      <span>UPDATE PASSWORD</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
@@ -235,4 +268,5 @@ export const ResellerFgtPass: React.FC<ResellerFgtPassProps> = ({
     </div>
   );
 };
-export default ResellerFgtPass;
+
+export default ResellerUpdatePass;

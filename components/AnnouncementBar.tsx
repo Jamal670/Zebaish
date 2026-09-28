@@ -14,15 +14,15 @@ export const AnnouncementBar: React.FC = () => {
           </a>
         </div>
         <div className="hidden sm:flex items-center space-x-3 sm:space-x-4 text-[9px] sm:text-[10px] lg:text-xs">
-          <a href="https://instagram.com" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
+          <a href="https://www.instagram.com/officialzebaish01/" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
             INSTAGRAM
           </a>
           <span className="text-stone-700">|</span>
-          <a href="https://facebook.com" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
-            FACEBOOK
+          <a href="https://www.tiktok.com/@officialzebaish" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
+            TIKTOK
           </a>
           <span className="text-stone-700">|</span>
-          <a href="https://youtube.com" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
+          <a href="https://www.youtube.com/@OfficialZebaish" target="_blank" rel="noreferrer" className="hover:text-white transition-colors">
             YOUTUBE
           </a>
         </div>

@@ -161,7 +161,7 @@ export const ContactPage: React.FC = () => {
                     <Phone className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="font-bold text-stone-900 block text-xs uppercase tracking-wider">Call Support</span>
+                    <span className="font-bold text-stone-900 block text-xs uppercase tracking-wider">Whatsapp Support</span>
                     <p className="text-stone-600">+92 316 7156734</p>
                   </div>
                 </div>
