@@ -126,7 +126,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
           {/* STAT CARD 2: AVAILABLE PAYOUT */}
           <ScrollableStatCard
-            title="AVAILABLE PAYOUT"
+            title="PAYABLE COMMISSION"
             value={`Rs. ${(sec1?.available_payout || 0).toLocaleString()}`}
             subtitle="Pending bank transfer"
             icon={Wallet}

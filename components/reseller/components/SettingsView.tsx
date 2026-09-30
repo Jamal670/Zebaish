@@ -33,6 +33,7 @@ import {
   Check,
   X,
   Truck,
+  Copy,
 } from 'lucide-react';
 
 import { useQuery } from '@tanstack/react-query';
@@ -49,6 +50,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
   const sellerId = user?.id || resellerProfile?.id || '';
 
   const [activeTab, setActiveTab] = useState<ActiveProfileTab>('profile');
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
+
+  const handleCopyStoreLink = () => {
+    if (!sellerId) return;
+    const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://localhost:3000';
+    const storeUrl = `${origin}/store/${sellerId}`;
+    navigator.clipboard.writeText(storeUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
 
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
   const [updatingPassword, setUpdatingPassword] = useState<boolean>(false);
@@ -462,9 +473,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
           <div className="space-y-2 text-center sm:text-left flex-1">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              <span className="text-2xs font-bold uppercase tracking-widest text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded border border-amber-400/20">
-                VERIFIED MARKETPLACE SELLER
-              </span>
+              
 
               {/* Status Display: Active Seller / Inactive Seller / Suspended Seller */}
               <span
@@ -472,6 +481,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
               >
                 ✓ {statusBadge.text}
               </span>
+
+              {/* Copy Store Link Button */}
+              <button
+                type="button"
+                onClick={handleCopyStoreLink}
+                className="inline-flex items-center space-x-1 px-2.5 py-0.5 bg-stone-800 hover:bg-stone-700 text-amber-400 text-2xs font-bold rounded-full border border-stone-700 transition-colors cursor-pointer"
+                title="Copy Store Link"
+              >
+                {copiedLink ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    <span className="text-emerald-400">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3 text-amber-400" />
+                    <span>Copy Store Link</span>
+                  </>
+                )}
+              </button>
             </div>
 
             <h1 className="text-lg sm:text-2xl lg:text-2xl font-extrabold tracking-tight font-script">

@@ -175,7 +175,7 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
               />
 
               <WalletKpiCard
-                label="Remaining Commission"
+                label="Payable Commission"
                 amount={kpis?.remaining_commission ?? payableAmount}
                 icon={AlertTriangle}
                 subtext={`Previous month (${cycleMonthYear})`}
