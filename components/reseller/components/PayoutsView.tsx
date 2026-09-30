@@ -25,6 +25,8 @@ import {
   Calendar,
 } from 'lucide-react';
 
+import { useQuery } from '@tanstack/react-query';
+
 export interface PayoutsViewProps {
   iban?: string;
   bankName?: string;
@@ -39,22 +41,11 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
   const { user } = useAuth();
   const sellerId = user?.id || '';
 
-  // Phase 1: Wallet KPI Summary State (fires first, renders first)
-  const [kpis, setKpis] = useState<WalletKpiResponse | null>(null);
-  const [loadingKpis, setLoadingKpis] = useState<boolean>(true);
-
-  // Phase 2: Commission Payment History Table State (fires AFTER Phase 1)
-  const [history, setHistory] = useState<SellerPaymentRecord[]>([]);
-  const [totalHistoryRecords, setTotalHistoryRecords] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [loadingHistory, setLoadingHistory] = useState<boolean>(true);
-
   const [isHowToPayOpen, setIsHowToPayOpen] = useState<boolean>(false);
   const [isVerifyModalOpen, setIsVerifyModalOpen] = useState<boolean>(false);
   const [activeScreenshotUrl, setActiveScreenshotUrl] = useState<string | null>(null);
   const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
-
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -62,64 +53,43 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Phase 2 Load Function (History Table - 5 per page)
-  const loadHistoryPage = useCallback(async (pageToLoad = 1) => {
-    if (!sellerId) return;
+  // TanStack Query 1: Wallet KPIs
+  const { data: kpis = null, isLoading: loadingKpis, refetch: refetchKpis } = useQuery({
+    queryKey: ['sellerWalletKpis', sellerId],
+    queryFn: () => fetchSellerWalletKpis(sellerId),
+    enabled: Boolean(sellerId),
+    staleTime: 60 * 1000,
+  });
 
-    try {
-      setLoadingHistory(true);
-      const historyData = await fetchSellerCommissionHistory({
+  // TanStack Query 2: Commission Payment History
+  const { data: historyData, isLoading: loadingHistory, refetch: refetchHistory } = useQuery({
+    queryKey: ['sellerCommissionHistory', sellerId, currentPage],
+    queryFn: () =>
+      fetchSellerCommissionHistory({
         sellerId,
-        page: pageToLoad,
+        page: currentPage,
         pageSize: 5,
-      });
+      }),
+    enabled: Boolean(sellerId),
+    staleTime: 60 * 1000,
+  });
 
-      setHistory(historyData.records);
-      setTotalHistoryRecords(historyData.total_count);
-      setCurrentPage(historyData.page);
-      setTotalPages(historyData.total_pages);
-    } catch (err) {
-      console.error('Failed to load seller payment history:', err);
-    } finally {
-      setLoadingHistory(false);
-    }
-  }, [sellerId]);
+  const history = historyData?.records || [];
+  const totalHistoryRecords = historyData?.total_count || 0;
+  const totalPages = historyData?.total_pages || 1;
 
-  // Phase 1 Load Function (Wallet Summary - Renders Immediately)
-  const loadWalletKpisFirst = useCallback(async () => {
-    if (!sellerId) return;
-
-    try {
-      setLoadingKpis(true);
-      // QUERY 1 — WALLET SUMMARY (Renders Immediately)
-      const kpiData = await fetchSellerWalletKpis(sellerId);
-      setKpis(kpiData);
-      setLoadingKpis(false);
-
-      // QUERY 2 — COMMISSION PAYMENT HISTORY TABLE (Fires AFTER Query 1 resolves & renders)
-      loadHistoryPage(1);
-    } catch (err) {
-      console.error('Failed to load seller wallet KPIs:', err);
-      setLoadingKpis(false);
-      setLoadingHistory(false);
-    }
-  }, [sellerId, loadHistoryPage]);
-
-  useEffect(() => {
-    if (sellerId) {
-      loadWalletKpisFirst();
-    }
-  }, [sellerId, loadWalletKpisFirst]);
+  const refreshAll = () => {
+    refetchKpis();
+    refetchHistory();
+  };
 
   const handlePageChange = (newPage: number) => {
-    loadHistoryPage(newPage);
+    setCurrentPage(newPage);
   };
 
   const handleVerificationSuccess = (msg: string) => {
     showToast(msg);
-    if (sellerId) {
-      loadWalletKpisFirst();
-    }
+    refreshAll();
   };
 
   const currentCycle = kpis?.current_cycle;

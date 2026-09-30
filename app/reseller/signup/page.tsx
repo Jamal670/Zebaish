@@ -30,8 +30,8 @@ export default function ResellerSignupRoutePage() {
 
   return (
     <ResellerSignup
-      onSignupSuccess={() => router.push('/dashboard')}
-      onNavigateLogin={() => router.push('/reseller/login')}
+      onSignupSuccess={(email) => router.push(`/verify-email?email=${encodeURIComponent(email || '')}`)}
+      onNavigateLogin={() => router.push('/login')}
       onNavigateHome={() => router.push('/')}
     />
   );

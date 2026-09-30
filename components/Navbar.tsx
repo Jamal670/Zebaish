@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Menu, Search, Heart, User, ShoppingBag } from 'lucide-react';
+import useAuth from '@/src/hooks/useAuth';
 
 interface NavbarProps {
   onOpenMenu: () => void;
@@ -64,6 +65,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   const isSolid = !hasDarkHero || isScrolled;
+  const { user, role } = useAuth();
+  const accountHref = !user ? '/login' : role === 'seller' ? '/dashboard' : '/account';
 
   return (
     <header
@@ -149,7 +152,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* User Account — NOW VISIBLE ON MOBILE */}
           <Link
-            href="/account"
+            href={accountHref}
             aria-label="User Account"
             className="transition-colors duration-300 focus:outline-none p-1 inline-block hover:opacity-80"
           >

@@ -39,7 +39,7 @@ export default function SignupPage() {
 
   return (
     <UserSignup
-      onSignupSuccess={() => router.replace('/account')}
+      onSignupSuccess={(email) => router.push(`/verify-email?email=${encodeURIComponent(email || '')}`)}
       onNavigateLogin={() => router.push('/login')}
       onNavigateHome={() => router.push('/')}
     />

@@ -3,6 +3,7 @@ import { useRouter } from 'next/navigation';
 import { Trash2, ChevronLeft, ChevronRight, RefreshCw, AlertCircle, Edit3, Package, ShieldAlert } from 'lucide-react';
 import { Product } from '@/types';
 import supabase from '@/src/api/client';
+import { useSellerProductsQuery } from '@/src/hooks/useQueries';
 import useAuth from '@/src/hooks/useAuth';
 import useSellerStatus from '@/src/hooks/useSellerStatus';
 import { ResponsiveTable, ColumnDef } from './common/ResponsiveTable';
@@ -35,44 +36,11 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
   } = useSellerStatus();
   const [filterText, setFilterText] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [dbProducts, setDbProducts] = useState<any[]>([]);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const itemsPerPage = 10;
 
-  // Fetch product listings from Supabase for the authenticated seller
-  const fetchProducts = async () => {
-    if (!user?.id) return;
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select(`
-          *,
-          product_images (*),
-          product_variants (*)
-        `)
-        .eq('seller_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching Supabase products:', error.message);
-        setErrorMessage('Failed to load collection listings. Please try again.');
-      } else if (data) {
-        setDbProducts(data);
-      }
-    } catch (err: any) {
-      console.error('Unexpected error fetching products:', err);
-      setErrorMessage('Network error while loading collections.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchProducts();
-  }, [user?.id]);
+  // TanStack Query for seller products (includes views column, staleTime: 60s)
+  const { data: dbProducts = [], isLoading: loading, isError, refetch: refetchProducts } = useSellerProductsQuery(user?.id);
+  const errorMessage = isError ? 'Failed to load collection listings. Please try again.' : null;
 
   const activeItems = dbProducts.map((p) => {
     const thumb =
@@ -98,6 +66,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       status: p.status,
       isDeactivated: p.status === 'Inactive',
       isSoldOut: p.status === 'Sold Out',
+      views: p.views !== undefined && p.views !== null ? Number(p.views) : 0,
       image: thumb,
       rawProduct: p,
     };
@@ -127,9 +96,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       .eq('seller_id', user.id);
 
     if (!error) {
-      setDbProducts((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, status: newStatus } : p))
-      );
+      refetchProducts();
     } else {
       alert(`Could not update listing status: ${error.message}`);
     }
@@ -146,9 +113,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       .eq('seller_id', user.id);
 
     if (!error) {
-      setDbProducts((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, status: newStatus } : p))
-      );
+      refetchProducts();
     } else {
       alert(`Could not update listing status: ${error.message}`);
     }
@@ -166,7 +131,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       .eq('seller_id', user.id);
 
     if (!error) {
-      setDbProducts((prev) => prev.filter((p) => p.id !== id));
+      refetchProducts();
     } else {
       alert(`Failed to delete listing: ${error.message}`);
     }
@@ -215,6 +180,10 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
     {
       header: 'Retail Price',
       cell: (row) => <span className="font-extrabold text-stone-900 text-xs sm:text-sm lg:text-base whitespace-nowrap">RS. {Number(row.originalPrice).toLocaleString()}</span>,
+    },
+    {
+      header: 'Views',
+      cell: (row) => <span className="font-extrabold text-stone-900 text-xs sm:text-sm lg:text-base whitespace-nowrap">{row.views}</span>,
     },
     {
       header: 'Status',
@@ -340,7 +309,7 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
             placeholder="Search by brand or title..."
           />
           <button
-            onClick={fetchProducts}
+            onClick={() => refetchProducts()}
             className="hidden sm:inline-flex items-center justify-center p-2.5 sm:px-3.5 sm:py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs sm:text-sm font-semibold rounded-lg border border-stone-300 transition-colors cursor-pointer min-h-[36px] sm:min-h-[40px] shrink-0"
             title="Refresh Listings"
           >

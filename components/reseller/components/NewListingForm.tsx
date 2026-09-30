@@ -11,11 +11,17 @@ import {
   FileText,
   RefreshCw,
   ShieldAlert,
+  Search,
+  ChevronDown,
+  Check,
+  Plus,
 } from 'lucide-react';
 import { BRANDS } from '@/data/mockData';
 import supabase from '@/src/api/client';
 import useAuth from '@/src/hooks/useAuth';
 import useSellerStatus from '@/src/hooks/useSellerStatus';
+import { useQueryClient } from '@tanstack/react-query';
+import { useBrandNamesQuery } from '@/src/hooks/useQueries';
 
 export interface ExistingImage {
   id?: string;
@@ -195,6 +201,7 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
   onSuccess,
   onCancel,
 }) => {
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const {
     status: sellerStatus,
@@ -231,6 +238,125 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+
+  // TanStack React Query for fetching brandNames table
+  const { data: fetchedBrandNames = [], isLoading: isBrandsLoading } = useBrandNamesQuery();
+
+  // Combine fetched brand names with fallback mock BRANDS (deduplicated case-insensitively)
+  const allBrands = React.useMemo(() => {
+    const set = new Set<string>();
+    const list: string[] = [];
+
+    const addBrand = (b: string) => {
+      if (!b || typeof b !== 'string') return;
+      const trimmed = b.trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (!set.has(lower)) {
+        set.add(lower);
+        list.push(trimmed);
+      }
+    };
+
+    if (Array.isArray(fetchedBrandNames)) {
+      fetchedBrandNames.forEach(addBrand);
+    }
+
+    if (Array.isArray(BRANDS)) {
+      BRANDS.forEach(addBrand);
+    }
+
+    return list;
+  }, [fetchedBrandNames]);
+
+  // Predefined Defect / Flaw Options
+  const PREDEFINED_DEFECTS = React.useMemo(() => [
+    'None (100% Mint Factory Surplus)',
+    'Minor printing misalignment on hem',
+    'Missing original brand cardboard tag',
+    'End-of-season clearance roll leftover',
+    'Minor embroidery irregularity',
+    'Slight color variation from original batch',
+    'Minor stitching imperfection',
+    'Small fabric weaving irregularity',
+  ], []);
+
+  // Dropdown UI states
+  const [isBrandDropdownOpen, setIsBrandDropdownOpen] = useState<boolean>(false);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState<boolean>(false);
+  const [isSubcategoryDropdownOpen, setIsSubcategoryDropdownOpen] = useState<boolean>(false);
+  const [isDefectDropdownOpen, setIsDefectDropdownOpen] = useState<boolean>(false);
+
+  const [brandSearchTerm, setBrandSearchTerm] = useState<string>('');
+  const [customBrandInput, setCustomBrandInput] = useState<string>('');
+  const [customDefectInput, setCustomDefectInput] = useState<string>('');
+
+  const brandDropdownRef = useRef<HTMLDivElement>(null);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
+  const subcategoryDropdownRef = useRef<HTMLDivElement>(null);
+  const defectDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close brand, category, subcategory, and defect dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (brandDropdownRef.current && !brandDropdownRef.current.contains(e.target as Node)) {
+        setIsBrandDropdownOpen(false);
+      }
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target as Node)) {
+        setIsCategoryDropdownOpen(false);
+      }
+      if (subcategoryDropdownRef.current && !subcategoryDropdownRef.current.contains(e.target as Node)) {
+        setIsSubcategoryDropdownOpen(false);
+      }
+      if (defectDropdownRef.current && !defectDropdownRef.current.contains(e.target as Node)) {
+        setIsDefectDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Filtered brands list based on search term
+  const filteredBrands = React.useMemo(() => {
+    if (!brandSearchTerm.trim()) return allBrands;
+    const q = brandSearchTerm.trim().toLowerCase();
+    return allBrands.filter((b) => b.toLowerCase().includes(q));
+  }, [allBrands, brandSearchTerm]);
+
+  // Handle selecting an existing brand from list
+  const handleSelectBrand = (brandName: string) => {
+    handleInputChange('brand', brandName);
+    setIsBrandDropdownOpen(false);
+    setBrandSearchTerm('');
+  };
+
+  // Handle adding custom brand name from sticky bottom input
+  const handleAddCustomBrand = () => {
+    const trimmed = customBrandInput.trim();
+    if (!trimmed) return;
+
+    // Check if custom brand already exists in fetched list (case-insensitive)
+    const existingMatch = allBrands.find(
+      (b) => b.toLowerCase() === trimmed.toLowerCase()
+    );
+
+    const finalBrandName = existingMatch || trimmed;
+
+    handleInputChange('brand', finalBrandName);
+    setCustomBrandInput('');
+    setBrandSearchTerm('');
+    setIsBrandDropdownOpen(false);
+  };
+
+  // Handle adding custom defect / flaw description
+  const handleAddCustomDefect = () => {
+    const trimmed = customDefectInput.trim();
+    if (!trimmed) return;
+
+    handleInputChange('defect', trimmed);
+    setCustomDefectInput('');
+    setIsDefectDropdownOpen(false);
+  };
 
   const isSizeBasedCategory = ['Ready to Wear', 'Formal', 'Formals', 'Bridal', 'Bridal Wear'].includes(
     formData.stitching_status
@@ -794,6 +920,10 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
         setErrors({});
       }
 
+      if (sellerId) {
+        queryClient.invalidateQueries({ queryKey: ['sellerProducts', sellerId] });
+      }
+
       if (onSuccess) {
         setTimeout(() => {
           onSuccess();
@@ -1032,25 +1162,122 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-            {/* Brand */}
-            <div>
+            {/* Brand Dropdown */}
+            <div className="relative" ref={brandDropdownRef}>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                 Brand <span className="text-red-600">*</span>
               </label>
-              <select
-                value={formData.brand}
-                onChange={(e) => handleInputChange('brand', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${
-                  errors.brand ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+
+              {/* Trigger Button */}
+              <button
+                type="button"
+                onClick={() => setIsBrandDropdownOpen((prev) => !prev)}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${
+                  errors.brand ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
                 }`}
               >
-                {BRANDS.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
+                <span className={`text-xs sm:text-sm font-semibold truncate ${formData.brand ? 'text-stone-900' : 'text-stone-400'}`}>
+                  {formData.brand || 'Select Brand'}
+                </span>
+                <div className="flex items-center space-x-1 shrink-0 text-stone-400">
+                  {isBrandsLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-600" />}
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isBrandDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
+                </div>
+              </button>
+
               {errors.brand && <p className="text-xs text-red-600 font-medium mt-1">{errors.brand}</p>}
+
+              {/* Dropdown Menu */}
+              {isBrandDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-80 w-full animate-in fade-in slide-in-from-top-2 duration-150">
+                  
+                  {/* 1. STICKY TOP: Search Input */}
+                  <div className="sticky top-0 bg-white border-b border-stone-200 p-2 z-10 shrink-0">
+                    <div className="relative flex items-center">
+                      <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search brand..."
+                        value={brandSearchTerm}
+                        onChange={(e) => setBrandSearchTerm(e.target.value)}
+                        className="w-full pl-8 pr-7 py-2 bg-stone-50 border border-stone-200 rounded-md text-xs text-stone-900 focus:outline-none focus:border-stone-900 focus:bg-white placeholder-stone-400"
+                        autoFocus
+                      />
+                      {brandSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandSearchTerm('')}
+                          className="absolute right-2.5 p-0.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 2. MIDDLE SCROLLABLE: Brand List */}
+                  <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 max-h-48 min-h-[100px]">
+                    {isBrandsLoading && filteredBrands.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-stone-500 flex items-center justify-center space-x-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
+                        <span>Loading brands...</span>
+                      </div>
+                    ) : filteredBrands.length > 0 ? (
+                      filteredBrands.map((b) => {
+                        const isSelected = formData.brand === b;
+                        return (
+                          <button
+                            key={b}
+                            type="button"
+                            onClick={() => handleSelectBrand(b)}
+                            className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${
+                              isSelected
+                                ? 'bg-stone-900 text-white font-bold'
+                                : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
+                            }`}
+                          >
+                            <span className="truncate">{b}</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="p-3 text-center text-xs text-stone-500 font-medium">
+                        No brand found matching "{brandSearchTerm}"
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. STICKY BOTTOM: Add your own brand name */}
+                  <div className="sticky bottom-0 bg-stone-50 border-t border-stone-200 p-2 z-10 shrink-0">
+                    <div className="flex items-center space-x-1.5">
+                      <input
+                        type="text"
+                        placeholder="Add your own brand name"
+                        value={customBrandInput}
+                        onChange={(e) => setCustomBrandInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddCustomBrand();
+                          }
+                        }}
+                        className="flex-1 px-3 py-1.5 bg-white border border-stone-300 rounded-md text-xs text-stone-900 focus:outline-none focus:border-stone-900 placeholder-stone-400 min-w-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCustomBrand}
+                        disabled={!customBrandInput.trim()}
+                        className="px-3 py-1.5 bg-stone-900 hover:bg-black text-white text-xs font-bold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 flex items-center space-x-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              )}
             </div>
 
             {/* Suit Title */}
@@ -1088,45 +1315,111 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             </div>
 
             {/* Category Dropdown */}
-            <div>
+            <div className="relative" ref={categoryDropdownRef}>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                 Category <span className="text-red-600">*</span>
               </label>
-              <select
-                value={formData.stitching_status}
-                onChange={(e) => handleCategoryChange(e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${
-                  errors.stitching_status ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCategoryDropdownOpen((prev) => !prev);
+                  setIsBrandDropdownOpen(false);
+                  setIsSubcategoryDropdownOpen(false);
+                  setIsDefectDropdownOpen(false);
+                }}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${
+                  errors.stitching_status ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
                 }`}
               >
-                <option value="Unstitched">Unstitched</option>
-                <option value="Ready to Wear">Ready to Wear</option>
-                <option value="Formal">Formal</option>
-              </select>
+                <span className={`text-xs sm:text-sm font-semibold truncate ${formData.stitching_status ? 'text-stone-900' : 'text-stone-400'}`}>
+                  {formData.stitching_status || 'Select Category'}
+                </span>
+                <div className="flex items-center space-x-1 shrink-0 text-stone-400">
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isCategoryDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
+                </div>
+              </button>
               {errors.stitching_status && (
                 <p className="text-xs text-red-600 font-medium mt-1">{errors.stitching_status}</p>
+              )}
+
+              {isCategoryDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col w-full animate-in fade-in slide-in-from-top-2 duration-150 p-1.5 space-y-0.5">
+                  {['Unstitched', 'Ready to Wear', 'Formal'].map((cat) => {
+                    const isSelected = formData.stitching_status === cat;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => {
+                          handleCategoryChange(cat);
+                          setIsCategoryDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${
+                          isSelected
+                            ? 'bg-stone-900 text-white font-bold'
+                            : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
+                        }`}
+                      >
+                        <span className="truncate">{cat}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
             {/* Subcategory Dropdown */}
-            <div>
+            <div className="relative" ref={subcategoryDropdownRef}>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                 Subcategory <span className="text-red-600">*</span>
               </label>
-              <select
-                value={formData.piece_count}
-                onChange={(e) => handleInputChange('piece_count', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] ${
-                  errors.piece_count ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSubcategoryDropdownOpen((prev) => !prev);
+                  setIsBrandDropdownOpen(false);
+                  setIsCategoryDropdownOpen(false);
+                  setIsDefectDropdownOpen(false);
+                }}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${
+                  errors.piece_count ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
                 }`}
               >
-                {currentSubcategoryOptions.map((sub) => (
-                  <option key={sub} value={sub}>
-                    {sub}
-                  </option>
-                ))}
-              </select>
+                <span className={`text-xs sm:text-sm font-semibold truncate ${formData.piece_count ? 'text-stone-900' : 'text-stone-400'}`}>
+                  {formData.piece_count || 'Select Subcategory'}
+                </span>
+                <div className="flex items-center space-x-1 shrink-0 text-stone-400">
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isSubcategoryDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
+                </div>
+              </button>
               {errors.piece_count && <p className="text-xs text-red-600 font-medium mt-1">{errors.piece_count}</p>}
+
+              {isSubcategoryDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-60 w-full animate-in fade-in slide-in-from-top-2 duration-150 p-1.5 space-y-0.5 overflow-y-auto">
+                  {currentSubcategoryOptions.map((sub) => {
+                    const isSelected = formData.piece_count === sub;
+                    return (
+                      <button
+                        key={sub}
+                        type="button"
+                        onClick={() => {
+                          handleInputChange('piece_count', sub);
+                          setIsSubcategoryDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${
+                          isSelected
+                            ? 'bg-stone-900 text-white font-bold'
+                            : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
+                        }`}
+                      >
+                        <span className="truncate">{sub}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Retail Price */}
@@ -1257,39 +1550,95 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
             </div>
           )}
 
-          {/* Defect Disclaimer */}
-          <div>
+          {/* Defect Disclaimer Dropdown */}
+          <div className="relative" ref={defectDropdownRef}>
             <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">Defect / Flaw Disclaimer</label>
-            <select
-              value={formData.defect}
-              onChange={(e) => handleInputChange('defect', e.target.value)}
-              className="w-full p-3 border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white min-h-[42px]"
+            <button
+              type="button"
+              onClick={() => {
+                setIsDefectDropdownOpen((prev) => !prev);
+                setIsBrandDropdownOpen(false);
+                setIsCategoryDropdownOpen(false);
+                setIsSubcategoryDropdownOpen(false);
+              }}
+              className="w-full p-3 border border-stone-300 hover:border-stone-400 focus:border-stone-900 rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer"
             >
-              <option value="None (100% Mint Factory Surplus)">
-                None (100% Mint Factory Surplus)
-              </option>
-              <option value="Minor printing misalignment on hem">
-                Minor printing misalignment on hem
-              </option>
-              <option value="Missing original brand cardboard tag">
-                Missing original brand cardboard tag
-              </option>
-              <option value="End-of-season clearance roll leftover">
-                End-of-season clearance roll leftover
-              </option>
-              <option value="Minor embroidery irregularity">
-                Minor embroidery irregularity
-              </option>
-              <option value="Slight color variation from original batch">
-                Slight color variation from original batch
-              </option>
-              <option value="Minor stitching imperfection">
-                Minor stitching imperfection
-              </option>
-              <option value="Small fabric weaving irregularity">
-                Small fabric weaving irregularity
-              </option>
-            </select>
+              <span className={`text-xs sm:text-sm font-semibold truncate ${formData.defect ? 'text-stone-900' : 'text-stone-400'}`}>
+                {formData.defect || 'Select Defect / Flaw'}
+              </span>
+              <div className="flex items-center space-x-1 shrink-0 text-stone-400">
+                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isDefectDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
+              </div>
+            </button>
+
+            {isDefectDropdownOpen && (
+              <div className="absolute left-0 right-0 bottom-full mb-1.5 sm:bottom-auto sm:top-full sm:mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-80 w-full animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* Scrollable list of predefined defect options */}
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 max-h-48 min-h-[100px]">
+                  {PREDEFINED_DEFECTS.map((defOption) => {
+                    const isSelected = formData.defect === defOption;
+                    return (
+                      <button
+                        key={defOption}
+                        type="button"
+                        onClick={() => {
+                          handleInputChange('defect', defOption);
+                          setIsDefectDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${
+                          isSelected
+                            ? 'bg-stone-900 text-white font-bold'
+                            : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
+                        }`}
+                      >
+                        <span className="truncate">{defOption}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+
+                  {/* Display custom defect item if selected */}
+                  {formData.defect && !PREDEFINED_DEFECTS.includes(formData.defect) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDefectDropdownOpen(false)}
+                      className="w-full text-left px-3 py-2 text-xs font-bold bg-stone-900 text-white rounded-md flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="truncate">Custom: {formData.defect}</span>
+                      <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Sticky Bottom Action: Add your item's defect */}
+                <div className="sticky bottom-0 bg-stone-50 border-t border-stone-200 p-2 z-10 shrink-0">
+                  <div className="flex items-center space-x-1.5">
+                    <input
+                      type="text"
+                      placeholder="Add your item's defect"
+                      value={customDefectInput}
+                      onChange={(e) => setCustomDefectInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomDefect();
+                        }
+                      }}
+                      className="flex-1 px-3 py-1.5 bg-white border border-stone-300 rounded-md text-xs text-stone-900 focus:outline-none focus:border-stone-900 placeholder-stone-400 min-w-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomDefect}
+                      disabled={!customDefectInput.trim()}
+                      className="px-3 py-1.5 bg-stone-900 hover:bg-black text-white text-xs font-bold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 flex items-center space-x-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Detailed Description */}

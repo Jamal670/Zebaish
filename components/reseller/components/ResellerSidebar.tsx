@@ -150,9 +150,9 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
     <div className="flex flex-col justify-between h-full bg-stone-900 text-white">
       <div>
         {/* Brand Header */}
-        <div className="p-6 border-b border-stone-800 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3 min-w-0">
+        <div className="p-5 border-b border-stone-800 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
               <div className="w-9 h-9 rounded-full bg-amber-400 text-stone-950 font-extrabold flex items-center justify-center shrink-0 overflow-hidden">
                 <img
                   src={imgError ? DEFAULT_STORE_IMAGE : (storeImageUrl || DEFAULT_STORE_IMAGE)}
@@ -161,20 +161,50 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
                   onError={() => setImgError(true)}
                 />
               </div>
-              <div className="min-w-0">
-                <span className="text-2xs font-bold text-amber-400 tracking-widest uppercase block">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold text-amber-400 tracking-widest uppercase block mb-0.5">
                   ZEBAISH SELLER
                 </span>
-                <span className="text-xs font-bold text-white tracking-wider block line-clamp-1">
-                  {storeSettings.storeName}
-                </span>
+                <div className="flex items-center justify-between gap-2 min-w-0 w-full">
+                  <span
+                    className="text-[11px] font-bold text-white tracking-wider truncate whitespace-nowrap min-w-0 flex-1"
+                    title={storeSettings.storeName}
+                  >
+                    {storeSettings.storeName}
+                  </span>
+
+                  {sellerId ? (
+                    <Link
+                      href={`/store/${sellerId}`}
+                      onClick={() => setIsMobileDrawerOpen(false)}
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 hover:text-amber-300 text-[10px] font-bold rounded border border-amber-400/30 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+                      title="Visit Store"
+                    >
+                      <span>Visit Store</span>
+                      <ArrowUpRight className="w-2.5 h-2.5 shrink-0" />
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setIsMobileDrawerOpen(false);
+                        onNavigateHome();
+                      }}
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 hover:text-amber-300 text-[10px] font-bold rounded border border-amber-400/30 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+                      title="Visit Store"
+                    >
+                      <span>Visit Store</span>
+                      <ArrowUpRight className="w-2.5 h-2.5 shrink-0" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
+
             {/* Close button for mobile drawer */}
             <button
               onClick={() => setIsMobileDrawerOpen(false)}
               aria-label="Close Sidebar Drawer"
-              className="lg:hidden p-1.5 text-stone-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+              className="lg:hidden p-1 text-stone-400 hover:text-white rounded-lg transition-colors cursor-pointer shrink-0 ml-1"
             >
               <X className="w-5 h-5" />
             </button>
@@ -206,8 +236,8 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
                   setIsMobileDrawerOpen(false);
                 }}
                 className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xs transition-colors cursor-pointer ${active
-                    ? 'bg-amber-400 text-stone-950 font-bold shadow-2xs'
-                    : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+                  ? 'bg-amber-400 text-stone-950 font-bold shadow-2xs'
+                  : 'text-stone-300 hover:bg-stone-800 hover:text-white'
                   }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -247,17 +277,17 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
   return (
     <>
       {/* TABLET & MOBILE TOP NAVIGATION BAR (Visible on screens < lg) */}
-      <div className="lg:hidden bg-stone-900 text-white border-b border-stone-800 p-4 flex items-center justify-between sticky top-0 z-40 shadow-sm">
-        <div className="flex items-center space-x-3">
+      <div className="lg:hidden bg-stone-900 text-white border-b border-stone-800 p-3.5 flex items-center justify-between sticky top-0 z-40 shadow-sm gap-2">
+        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
           <button
             onClick={() => setIsMobileDrawerOpen(true)}
             aria-label="Open Navigation Drawer"
-            className="p-2 text-stone-300 hover:text-white hover:bg-stone-800 rounded-lg transition-colors cursor-pointer"
+            className="p-1.5 text-stone-300 hover:text-white hover:bg-stone-800 rounded-lg transition-colors cursor-pointer shrink-0"
           >
-            <Menu className="w-6 h-6" />
+            <Menu className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 min-w-0 flex-1">
             <div className="w-7 h-7 rounded-full bg-amber-400 text-stone-950 font-bold flex items-center justify-center text-xs shrink-0 overflow-hidden">
               <img
                 src={imgError ? DEFAULT_STORE_IMAGE : (storeImageUrl || DEFAULT_STORE_IMAGE)}
@@ -266,11 +296,31 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
                 onError={() => setImgError(true)}
               />
             </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 truncate whitespace-nowrap min-w-0 flex-1">
               {storeSettings.storeName}
             </span>
           </div>
         </div>
+
+        {sellerId ? (
+          <Link
+            href={`/store/${sellerId}`}
+            className="inline-flex items-center space-x-1 px-2 py-1 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 text-[10px] font-bold rounded border border-amber-400/30 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+            title="Visit Store"
+          >
+            <span>Visit Store</span>
+            <ArrowUpRight className="w-2.5 h-2.5 shrink-0" />
+          </Link>
+        ) : (
+          <button
+            onClick={onNavigateHome}
+            className="inline-flex items-center space-x-1 px-2 py-1 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 text-[10px] font-bold rounded border border-amber-400/30 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+            title="Visit Store"
+          >
+            <span>Visit Store</span>
+            <ArrowUpRight className="w-2.5 h-2.5 shrink-0" />
+          </button>
+        )}
       </div>
 
       {/* DESKTOP FIXED SIDEBAR (Visible on screens >= lg) */}

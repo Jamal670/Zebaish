@@ -57,7 +57,7 @@ export const MainLayoutShell: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const handleFooterSellerLoginClick = () => {
-    router.push('/reseller/login');
+    router.push('/login');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 

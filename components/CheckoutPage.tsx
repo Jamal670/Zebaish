@@ -3,6 +3,7 @@ import { ShieldCheck, Truck, CreditCard, Banknote, Smartphone, CheckCircle, Chev
 import { CartItem, Order, CustomerOrderItem } from '@/types';
 import useAuth from '@/src/hooks/useAuth';
 import { placeOrder } from '@/src/api/orderService';
+import supabase from '@/src/api/client';
 
 interface CheckoutPageProps {
   cartItems: CartItem[];
@@ -48,8 +49,104 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   }, [user, userProfile]);
 
   const subtotal = cartItems.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const shippingFee = subtotal > 150 ? 0 : 15;
+  const [shippingFee, setShippingFee] = useState<number>(0);
+  const [isLoadingShipping, setIsLoadingShipping] = useState<boolean>(false);
+  const [sellerShippingMap, setSellerShippingMap] = useState<Record<string, number>>({});
+
   const grandTotal = subtotal + shippingFee;
+
+  // Dynamic Shipping Charges calculation from Supabase `sellers` table
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchDeliveryCharges = async () => {
+      if (!cartItems || cartItems.length === 0) {
+        if (isMounted) {
+          setShippingFee(0);
+          setSellerShippingMap({});
+        }
+        return;
+      }
+
+      // Extract sellerId values from cart items (single or multiple sellers)
+      const sellerIds = cartItems
+        .map(
+          (item) =>
+            item.product.resellerId ||
+            (item.product as any).seller_id ||
+            (item.product as any).sellerId ||
+            (item.product.seller as any)?.id
+        )
+        .filter(Boolean);
+
+      const uniqueSellerIds = Array.from(new Set(sellerIds)) as string[];
+
+      if (uniqueSellerIds.length === 0) {
+        if (isMounted) {
+          setShippingFee(0);
+          setSellerShippingMap({});
+        }
+        return;
+      }
+
+      try {
+        if (isMounted) setIsLoadingShipping(true);
+
+        // Fetch all required sellers in ONE database query using unique seller IDs
+        const { data, error } = await supabase
+          .from('sellers')
+          .select('id, shipping_charges')
+          .in('id', uniqueSellerIds);
+
+        if (error) {
+          console.error('Error fetching seller shipping charges:', error);
+          if (isMounted) {
+            setShippingFee(0);
+            setSellerShippingMap({});
+          }
+          return;
+        }
+
+        const map: Record<string, number> = {};
+        if (data && data.length > 0) {
+          data.forEach((seller: any) => {
+            const rawFee = seller.shipping_charges;
+            const fee =
+              rawFee !== null && rawFee !== undefined && !isNaN(Number(rawFee))
+                ? Number(rawFee)
+                : 0;
+            map[seller.id] = fee;
+          });
+        }
+
+        // Calculate sum of shipping charges for all unique sellers in the cart
+        let totalShipping = 0;
+        uniqueSellerIds.forEach((sId) => {
+          const fee = map[sId] ?? 0;
+          totalShipping += fee;
+        });
+
+        if (isMounted) {
+          setSellerShippingMap(map);
+          setShippingFee(totalShipping);
+        }
+      } catch (err) {
+        console.error('Failed to fetch seller shipping charges:', err);
+        if (isMounted) {
+          setShippingFee(0);
+          setSellerShippingMap({});
+        }
+      } finally {
+        if (isMounted) setIsLoadingShipping(false);
+      }
+    };
+
+    fetchDeliveryCharges();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [cartItems]);
 
   const validateCheckoutForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -158,6 +255,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
       const newOrders: Order[] = Object.entries(resellerGroups).map(([resId, group], index) => {
         const orderSubtotal = group.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+        const sellerShipping = sellerShippingMap[resId] ?? 0;
         const tracking = `TCS-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
         return {
@@ -165,7 +263,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           date: 'Today, Just Now',
           createdAt: new Date().toISOString(),
           items: group.items,
-          totalAmount: orderSubtotal + (orderSubtotal > 150 ? 0 : 15),
+          totalAmount: orderSubtotal + sellerShipping,
           status: 'Order Placed',
           courierName: 'TCS Express',
           trackingNumber: tracking,
@@ -383,7 +481,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                 </label>
 
                 {/* Option 2: JazzCash Mobile Wallet */}
-                <label
+                {/* <label
                   onClick={() => setPaymentMethod('JazzCash')}
                   className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all ${paymentMethod === 'JazzCash'
                     ? 'border-stone-900 bg-stone-50 ring-1 ring-stone-900'
@@ -407,10 +505,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     </div>
                   </div>
                   <Smartphone className="w-4 h-4 text-stone-400" />
-                </label>
+                </label> */}
 
                 {/* Option 3: EasyPaisa */}
-                <label
+                {/* <label
                   onClick={() => setPaymentMethod('EasyPaisa')}
                   className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all ${paymentMethod === 'EasyPaisa'
                     ? 'border-stone-900 bg-stone-50 ring-1 ring-stone-900'
@@ -434,10 +532,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     </div>
                   </div>
                   <Smartphone className="w-4 h-4 text-stone-400" />
-                </label>
+                </label> */}
 
                 {/* Option 4: Bank Card */}
-                <label
+                {/* <label
                   onClick={() => setPaymentMethod('Bank Card')}
                   className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-all ${paymentMethod === 'Bank Card'
                     ? 'border-stone-900 bg-stone-50 ring-1 ring-stone-900'
@@ -461,7 +559,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     </div>
                   </div>
                   <CreditCard className="w-4 h-4 text-stone-400" />
-                </label>
+                </label> */}
               </div>
             </div>
           </div>
@@ -500,7 +598,15 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                 </div>
                 <div className="flex justify-between text-stone-600">
                   <span>Delivery / Shipping</span>
-                  <span>{shippingFee === 0 ? <strong className="text-emerald-700">FREE</strong> : `Rs. ${shippingFee}`}</span>
+                  <span>
+                    {isLoadingShipping ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-stone-500 inline" />
+                    ) : shippingFee === 0 ? (
+                      <strong className="text-emerald-700">FREE</strong>
+                    ) : (
+                      `Rs. ${shippingFee.toLocaleString()}`
+                    )}
+                  </span>
                 </div>
               </div>
 

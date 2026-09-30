@@ -35,6 +35,8 @@ import {
   Truck,
 } from 'lucide-react';
 
+import { useQuery } from '@tanstack/react-query';
+
 export interface SettingsViewProps {
   storeSettings?: any;
   setStoreSettings?: React.Dispatch<React.SetStateAction<any>>;
@@ -48,12 +50,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
   const [activeTab, setActiveTab] = useState<ActiveProfileTab>('profile');
 
-  const [loading, setLoading] = useState<boolean>(true);
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
   const [updatingPassword, setUpdatingPassword] = useState<boolean>(false);
   const [savingShipping, setSavingShipping] = useState<boolean>(false);
 
-  const [stats, setStats] = useState<StoreOverviewStats | null>(null);
+  // TanStack Query for seller profile & stats
+  const { data: profileQueryData, isLoading: loading } = useQuery({
+    queryKey: ['sellerFullProfile', sellerId],
+    queryFn: () => fetchSellerFullProfile(sellerId),
+    enabled: Boolean(sellerId),
+    staleTime: 60 * 1000,
+  });
+
+  const stats = profileQueryData?.stats || null;
 
   const [originalData, setOriginalData] = useState<any>(null);
   const [formData, setFormData] = useState({
@@ -105,49 +114,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
   };
 
   useEffect(() => {
-    let isMounted = true;
-    if (sellerId) {
-      setLoading(true);
-      fetchSellerFullProfile(sellerId).then(({ profile, stats }) => {
-        if (!isMounted) return;
-        const initial = {
-          full_name: profile.full_name || '',
-          email: profile.email || user?.email || '',
-          phone: profile.phone || '',
-          cnic: profile.cnic || '35202-1234567-8',
-          city: profile.city || '',
-          address: profile.address || '',
-          shop_name: profile.shop_name || '',
-          bank_name: profile.bank_name || '',
-          account_title: profile.account_title || '',
-          iban: profile.iban || '',
-          avatar_url:
-            profile.avatar_url ||
-            (profile as any).store_image_url ||
-            'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
-          store_image_url:
-            (profile as any).store_image_url ||
-            profile.avatar_url ||
-            'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
-          status: profile.status || 'Active',
-          created_at: profile.created_at || new Date().toISOString(),
-        };
+    if (profileQueryData?.profile) {
+      const profile = profileQueryData.profile;
+      const stats = profileQueryData.stats;
+      const initial = {
+        full_name: profile.full_name || '',
+        email: profile.email || user?.email || '',
+        phone: profile.phone || '',
+        cnic: profile.cnic || '35202-1234567-8',
+        city: profile.city || '',
+        address: profile.address || '',
+        shop_name: profile.shop_name || '',
+        bank_name: profile.bank_name || '',
+        account_title: profile.account_title || '',
+        iban: profile.iban || '',
+        avatar_url:
+          profile.avatar_url ||
+          (profile as any).store_image_url ||
+          'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
+        store_image_url:
+          (profile as any).store_image_url ||
+          profile.avatar_url ||
+          'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
+        status: profile.status || 'Active',
+        created_at: profile.created_at || new Date().toISOString(),
+      };
 
-        setFormData(initial);
-        setOriginalData(initial);
-        setAvatarPreview(initial.store_image_url || initial.avatar_url);
-        setStats(stats);
+      setFormData(initial);
+      setOriginalData(initial);
+      setAvatarPreview(initial.store_image_url || initial.avatar_url);
 
-        const initialShipping = stats?.shippingCharges ?? (profile.shipping_charges || 150);
-        setShippingChargesInput(String(initialShipping));
-        setOriginalShippingCharges(initialShipping);
-        setLoading(false);
-      });
+      const initialShipping = stats?.shippingCharges ?? (profile.shipping_charges || 150);
+      setShippingChargesInput(String(initialShipping));
+      setOriginalShippingCharges(initialShipping);
     }
-    return () => {
-      isMounted = false;
-    };
-  }, [sellerId, user?.email]);
+  }, [profileQueryData, user?.email]);
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

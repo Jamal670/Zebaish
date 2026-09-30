@@ -178,6 +178,8 @@ export const KpiCard: React.FC<KpiCardProps> = ({
 // 2. MAIN ANALYTICS VIEW COMPONENT
 // ==========================================
 
+import { useQuery } from '@tanstack/react-query';
+
 export const AnalyticsView: React.FC = () => {
   const { user, resellerProfile } = useAuth();
   const sellerId = resellerProfile?.id || user?.id || 'demo-reseller-id';
@@ -188,32 +190,20 @@ export const AnalyticsView: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'sales' | 'inventory' | 'reviews'>('sales');
 
-  const [analyticsData, setAnalyticsData] = useState<SellerAnalyticsResponse | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadAnalytics = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchSellerAnalyticsData({
+  const { data: analyticsData = null, isLoading: loading, isError, refetch: loadAnalytics } = useQuery({
+    queryKey: ['sellerAnalyticsData', sellerId, dateRange, selectedCity, selectedBrand],
+    queryFn: () =>
+      fetchSellerAnalyticsData({
         sellerId,
         dateRange,
         selectedCity,
         selectedBrand,
-      });
-      setAnalyticsData(data);
-    } catch (err: any) {
-      console.error('Failed to load seller analytics:', err);
-      setError('Unable to fetch live analytics data. Showing offline metrics.');
-    } finally {
-      setLoading(false);
-    }
-  }, [sellerId, dateRange, selectedCity, selectedBrand]);
+      }),
+    enabled: Boolean(sellerId),
+    staleTime: 60 * 1000,
+  });
 
-  useEffect(() => {
-    loadAnalytics();
-  }, [loadAnalytics]);
+  const error = isError ? 'Unable to fetch live analytics data. Showing offline metrics.' : null;
 
   const exportToCSV = (filename: string, rows: object[]) => {
     if (!rows || rows.length === 0) return;
@@ -252,7 +242,7 @@ export const AnalyticsView: React.FC = () => {
         {/* FIX #2: LEFT-SIDE ACTION BUTTONS ROW (SINGLE HORIZONTALLY SCROLLABLE ROW, NEVER WRAPS) */}
         <HorizontalScrollRow className="pb-1" showScrollButtons={false}>
           <button
-            onClick={loadAnalytics}
+            onClick={() => loadAnalytics()}
             className={`p-2 sm:p-2.5 border rounded-lg transition-colors cursor-pointer shrink-0 min-h-[36px] sm:min-h-[38px] flex items-center justify-center ${isDarkMode
                 ? 'bg-stone-800 border-stone-700 text-stone-300 hover:text-white'
                 : 'bg-stone-100 border-stone-200 text-stone-700 hover:text-black'

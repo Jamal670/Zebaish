@@ -1,22 +1,31 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, AlertCircle, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { AlertCircle, Loader2, Store, UserPlus, Lock, Mail } from 'lucide-react';
 import supabase from '@/src/api/client';
 import useAuth from '@/src/hooks/useAuth';
 
 interface UserLoginProps {
   onLoginSuccess: () => void;
-  onNavigateSignup: () => void;
+  onNavigateUserSignup?: () => void;
+  onNavigateResellerSignup?: () => void;
+  onNavigateSignup?: () => void;
   onNavigateHome: () => void;
+  onNavigateForgotPass?: () => void;
 }
 
 export const UserLogin: React.FC<UserLoginProps> = ({
   onLoginSuccess,
+  onNavigateUserSignup,
+  onNavigateResellerSignup,
   onNavigateSignup,
   onNavigateHome,
+  onNavigateForgotPass,
 }) => {
-  const { user, refetchProfile } = useAuth();
+  const router = useRouter();
+  const { user, role, sellerStatus, resellerProfile, refetchProfile, logout } = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -115,9 +124,9 @@ export const UserLogin: React.FC<UserLoginProps> = ({
         console.error('Supabase login error:', error);
         const msg = error.message || '';
         if (msg.toLowerCase().includes('invalid login credentials') || error.status === 400) {
-          setErrorMessage('Invalid email address or password. Please check your details and try again.');
+          setErrorMessage('Invalid credentials.');
         } else if (msg.toLowerCase().includes('email not confirmed')) {
-          setErrorMessage('Your email address has not been verified yet. Please check your inbox.');
+          setErrorMessage('Your email address has not been verified yet. Please check your inbox for the confirmation link.');
         } else {
           setErrorMessage(error.message || 'Authentication failed. Please try again.');
         }
@@ -126,7 +135,30 @@ export const UserLogin: React.FC<UserLoginProps> = ({
       }
 
       if (data?.user) {
-        await refetchProfile();
+        const profileData = await refetchProfile(data.user);
+
+        if (profileData.role === 'seller') {
+          const status = (profileData.sellerStatus || profileData.resellerProfile?.status || 'active').toLowerCase();
+          if (status === 'suspended') {
+            setErrorMessage('Your seller account is currently suspended. Please contact support at help@zebaish.com.');
+            await logout();
+            setLoading(false);
+            return;
+          }
+          if (status === 'inactive') {
+            setErrorMessage('Your seller account is currently inactive. Please contact support.');
+            await logout();
+            setLoading(false);
+            return;
+          }
+          setLoading(false);
+          router.replace('/dashboard');
+          return;
+        } else {
+          setLoading(false);
+          router.replace('/account');
+          return;
+        }
       }
 
       setLoading(false);
@@ -138,28 +170,44 @@ export const UserLogin: React.FC<UserLoginProps> = ({
     }
   };
 
+  const handleForgotPassClick = () => {
+    if (onNavigateForgotPass) {
+      onNavigateForgotPass();
+    } else {
+      router.push('/reseller/forgot-password');
+    }
+  };
+
+  const handleUserSignupClick = () => {
+    if (onNavigateUserSignup) {
+      onNavigateUserSignup();
+    } else if (onNavigateSignup) {
+      onNavigateSignup();
+    } else {
+      router.push('/signup');
+    }
+  };
+
+  const handleResellerSignupClick = () => {
+    if (onNavigateResellerSignup) {
+      onNavigateResellerSignup();
+    } else {
+      router.push('/reseller/signup');
+    }
+  };
+
   return (
     <div className="bg-white min-h-screen text-stone-900 pb-20 animate-fade-in w-full font-sans">
-      {/* Top Header / Breadcrumb
-      <div className="bg-stone-50 border-b border-stone-200 py-3 px-4 md:px-8">
-        <div className="max-w-7xl mx-auto flex items-center space-x-2 text-xs font-medium text-stone-500 uppercase tracking-wider">
-          <button onClick={onNavigateHome} className="hover:text-stone-900 transition-colors">
-            Home
-          </button>
-          <ChevronRight className="w-3.5 h-3.5 text-stone-400" />
-          <span className="text-stone-900 font-bold">Login</span>
-        </div>
-      </div> */}
-
       <div className="max-w-md mx-auto px-4 pt-10 sm:pt-14">
         {/* Form Container */}
         <div className="w-full">
-          <h1 className="text-lg sm:text-2xl lg:text-2xl font-light text-center text-stone-900 mb-8 tracking-wide">
+          <h1 className="text-lg sm:text-2xl lg:text-2xl font-light text-center text-stone-900 mb-2 tracking-wide">
             Login
           </h1>
+         
 
           {errorMessage && (
-            <div className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-md flex items-center space-x-2.5 text-[10px] sm:text-xs text-red-700 font-medium">
+            <div className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-md flex items-center space-x-2.5 text-[10px] sm:text-xs text-red-700 font-medium animate-shake">
               <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
               <span>{errorMessage}</span>
             </div>
@@ -167,46 +215,64 @@ export const UserLogin: React.FC<UserLoginProps> = ({
 
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
             <div>
-              <input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errors.email) setErrors((prev) => ({ ...prev, email: '' }));
-                }}
-                onBlur={() => {
-                  const err = validateField('email', email);
-                  setErrors((prev) => ({ ...prev, email: err }));
-                }}
-                className={`w-full px-4 py-3 border text-[11px] sm:text-xs lg:text-sm rounded-md focus:outline-none transition-colors ${errors.email
-                    ? 'border-red-500 focus:border-red-600'
-                    : 'border-stone-300 focus:border-stone-900'
-                  }`}
-              />
+              <label className="block text-xs font-semibold text-stone-700 mb-1">Email</label>
+              <div className="relative">
+                <input
+                  type="email"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (errors.email) setErrors((prev) => ({ ...prev, email: '' }));
+                  }}
+                  onBlur={() => {
+                    const err = validateField('email', email);
+                    setErrors((prev) => ({ ...prev, email: err }));
+                  }}
+                  className={`w-full px-4 py-3 pl-10 border text-xs sm:text-sm rounded-md focus:outline-none transition-colors ${errors.email
+                      ? 'border-red-500 focus:border-red-600'
+                      : 'border-stone-300 focus:border-stone-900'
+                    }`}
+                />
+                <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
+              </div>
               {errors.email && (
                 <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.email}</p>
               )}
             </div>
 
             <div>
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  if (errors.password) setErrors((prev) => ({ ...prev, password: '' }));
-                }}
-                onBlur={() => {
-                  const err = validateField('password', password);
-                  setErrors((prev) => ({ ...prev, password: err }));
-                }}
-                className={`w-full px-4 py-3 border text-sm rounded-md focus:outline-none transition-colors ${errors.password
-                    ? 'border-red-500 focus:border-red-600'
-                    : 'border-stone-300 focus:border-stone-900'
-                  }`}
-              />
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-semibold text-stone-700">Password</label>
+                
+              </div>
+              <div className="relative">
+                <input
+                  type="password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password) setErrors((prev) => ({ ...prev, password: '' }));
+                  }}
+                  onBlur={() => {
+                    const err = validateField('password', password);
+                    setErrors((prev) => ({ ...prev, password: err }));
+                  }}
+                  className={`w-full px-4 py-3 pl-10 border text-xs sm:text-sm rounded-md focus:outline-none transition-colors ${errors.password
+                      ? 'border-red-500 focus:border-red-600'
+                      : 'border-stone-300 focus:border-stone-900'
+                    }`}
+                />
+                <Lock className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
+              </div>
+              <button
+  type="button"
+  onClick={handleForgotPassClick}
+  className="block w-full text-right text-xs text-stone-500 hover:text-stone-900 hover:underline cursor-pointer mt-1"
+>
+  Forgot password?
+</button>
               {errors.password && (
                 <p className="text-xs text-red-600 font-medium mt-1 ml-1">{errors.password}</p>
               )}
@@ -215,7 +281,7 @@ export const UserLogin: React.FC<UserLoginProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 bg-stone-950 hover:bg-black disabled:bg-stone-500 text-white text-sm font-semibold rounded-md shadow-xs flex items-center justify-center space-x-2 transition-colors cursor-pointer mt-6"
+              className="w-full py-3.5 bg-stone-950 hover:bg-black disabled:bg-stone-500 text-white text-xs font-bold uppercase tracking-wider rounded-md shadow-xs flex items-center justify-center space-x-2 transition-colors cursor-pointer mt-6"
             >
               {loading ? (
                 <>
@@ -238,12 +304,12 @@ export const UserLogin: React.FC<UserLoginProps> = ({
             </span>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <button
               type="button"
               disabled={loading || googleLoading}
               onClick={handleGoogleLogin}
-              className="w-full py-3 border border-stone-300 rounded-md flex items-center justify-center space-x-3 text-sm font-bold text-stone-800 hover:bg-stone-50 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full py-3 border border-stone-300 rounded-md flex items-center justify-center space-x-3 text-xs sm:text-sm font-bold text-stone-800 hover:bg-stone-50 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {googleLoading ? (
                 <>
@@ -274,17 +340,27 @@ export const UserLogin: React.FC<UserLoginProps> = ({
                 </>
               )}
             </button>
-          </div>
 
-          <div className="mt-8 text-center text-xs text-stone-600">
-            <span>Don't have an account? </span>
-            <button
-              type="button"
-              onClick={onNavigateSignup}
-              className="font-bold text-stone-900 underline hover:text-black ml-1 cursor-pointer"
-            >
-              Sign Up
-            </button>
+            {/* Separate Signup Options */}
+            <div className="space-y-3 pt-1">
+              <button
+                type="button"
+                onClick={handleUserSignupClick}
+                className="w-full py-3 border border-stone-300 rounded-md flex items-center justify-center space-x-3 text-xs sm:text-sm font-bold text-stone-800 hover:bg-stone-50 transition-colors cursor-pointer"
+              >
+                <UserPlus className="w-5 h-5 text-stone-700" />
+                <span>Sign Up as Customer</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResellerSignupClick}
+                className="w-full py-3 bg-amber-400 hover:bg-amber-300 border border-amber-500 text-stone-950 rounded-md flex items-center justify-center space-x-3 text-xs sm:text-sm font-bold uppercase tracking-wider transition-colors shadow-xs cursor-pointer"
+              >
+                <Store className="w-5 h-5 text-stone-950" />
+                <span>Become a Seller</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

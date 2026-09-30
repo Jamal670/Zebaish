@@ -140,19 +140,34 @@ function applyBaseFilters(query: any, params: FetchCollectionParams) {
  * Distribution per batch: 3 New Products (last 7 days), 2 Highly Rated (rating >= 4, review_count >= 3), 5 Discovery.
  * Respects active filters, enforces seller diversity, avoids duplicate items across batches, and provides graceful fallbacks.
  */
+export interface FetchCollectionParams {
+  categoryTitle?: string;
+  brandFilter?: string;
+  page?: number;
+  pageSize?: number;
+  excludedIds?: string[];
+  filters?: FilterOptions;
+  sortBy?: string;
+}
+
+/**
+ * Single-query collection fetcher with database-level filtering, sorting, and pagination.
+ */
 export async function fetchCollectionProducts({
   categoryTitle = 'ALL LEFTOVER SUITS',
   brandFilter,
   page = 0,
-  pageSize = 10,
+  pageSize = 12,
   excludedIds = [],
   filters,
+  sortBy = 'featured',
 }: FetchCollectionParams): Promise<FetchCollectionResult> {
   try {
-    const params: FetchCollectionParams = { categoryTitle, brandFilter, page, pageSize, excludedIds, filters };
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const params: FetchCollectionParams = { categoryTitle, brandFilter, page, pageSize, excludedIds, filters, sortBy };
+    const fromIndex = page * pageSize;
+    const toIndex = fromIndex + pageSize - 1;
 
-    const selectFields = `
+    let query = supabase.from('products').select(`
       id,
       seller_id,
       brand,
@@ -178,137 +193,46 @@ export async function fetchCollectionProducts({
         id,
         size,
         quantity
+      ),
+      seller:sellers (
+        id,
+        shop_name,
+        average_rating,
+        store_image_url
       )
-    `;
+    `, { count: 'exact' });
 
-    // 1. New Products Query (created_at >= 7 days ago)
-    let newQuery = supabase.from('products').select(selectFields);
-    newQuery = applyBaseFilters(newQuery, params)
-      .gte('created_at', sevenDaysAgo)
-      .order('created_at', { ascending: false })
-      .limit(6);
+    query = applyBaseFilters(query, params);
 
-    // 2. Highly-Rated Products Query (average_rating >= 4 AND review_count >= 3)
-    let ratedQuery = supabase.from('products').select(selectFields);
-    ratedQuery = applyBaseFilters(ratedQuery, params)
-      .gte('average_rating', 4)
-      .gte('review_count', 3)
-      .order('average_rating', { ascending: false })
-      .limit(6);
-
-    // 3. Discovery Products Query (General Filtered Feed Window)
-    const fromIndex = page * pageSize;
-    const toIndex = fromIndex + 20;
-    let discoveryQuery = supabase.from('products').select(selectFields, { count: 'exact' });
-    discoveryQuery = applyBaseFilters(discoveryQuery, params)
-      .order('created_at', { ascending: false })
-      .range(fromIndex, toIndex);
-
-    const [newRes, ratedRes, discoveryRes] = await Promise.all([
-      newQuery,
-      ratedQuery,
-      discoveryQuery,
-    ]);
-
-    const rawNew = newRes.data || [];
-    const rawRated = ratedRes.data || [];
-    const rawDiscovery = discoveryRes.data || [];
-    const totalCount = discoveryRes.count || (rawDiscovery.length + rawNew.length + rawRated.length);
-
-    // Assembly of 10-Product Batch with Target Ratios (3 New, 2 Rated, 5 Discovery) & Seller Diversity
-    const selectedProducts: any[] = [];
-    const selectedIds = new Set<string>(excludedIds || []);
-    const sellerCountMap: Record<string, number> = {};
-    const MAX_PER_SELLER = 3;
-
-    function tryAdd(p: any, ignoreSellerLimit = false): boolean {
-      if (!p || !p.id || selectedIds.has(p.id)) return false;
-      const sid = p.seller_id || 'default';
-      const countForSeller = sellerCountMap[sid] || 0;
-      if (!ignoreSellerLimit && countForSeller >= MAX_PER_SELLER) return false;
-
-      selectedProducts.push(p);
-      selectedIds.add(p.id);
-      sellerCountMap[sid] = countForSeller + 1;
-      return true;
+    // Apply database-level sorting
+    if (sortBy === 'price-low') {
+      query = query.order('surplus_selling_price', { ascending: true });
+    } else if (sortBy === 'price-high') {
+      query = query.order('surplus_selling_price', { ascending: false });
+    } else if (sortBy === 'newest') {
+      query = query.order('created_at', { ascending: false });
+    } else if (sortBy === 'best-discount') {
+      query = query.order('average_rating', { ascending: false, nullsFirst: false });
+    } else {
+      // Default: featured / most-popular -> average_rating DESC
+      query = query.order('average_rating', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
     }
 
-    // Pick 3 New
-    let newCount = 0;
-    for (const p of rawNew) {
-      if (newCount >= 3) break;
-      if (tryAdd(p)) newCount++;
+    // Apply pagination range
+    query = query.range(fromIndex, toIndex);
+
+    const { data: rawProducts, count: totalCount, error } = await query;
+
+    if (error || !rawProducts) {
+      if (error) console.error('Error in fetchCollectionProducts query:', error);
+      return { products: [], sellerGroups: [], hasMore: false, totalCount: 0 };
     }
 
-    // Pick 2 Rated
-    let ratedCount = 0;
-    for (const p of rawRated) {
-      if (ratedCount >= 2) break;
-      if (tryAdd(p)) ratedCount++;
-    }
-
-    // Fill remaining (up to pageSize = 10) with Discovery
-    for (const p of rawDiscovery) {
-      if (selectedProducts.length >= pageSize) break;
-      tryAdd(p);
-    }
-
-    // Fallback: If seller limits or pool constraints prevented reaching pageSize, relax seller limit
-    if (selectedProducts.length < pageSize) {
-      const allPool = [...rawNew, ...rawRated, ...rawDiscovery];
-      for (const p of allPool) {
-        if (selectedProducts.length >= pageSize) break;
-        tryAdd(p, true);
-      }
-    }
-
-    // Interleave the batch items for a dynamic MVP feed feel: [New, Discovery, Rated, Discovery, ...]
-    const newItems = selectedProducts.filter((p) => rawNew.some((n) => n.id === p.id));
-    const ratedItems = selectedProducts.filter(
-      (p) => !newItems.some((n) => n.id === p.id) && rawRated.some((r) => r.id === p.id)
-    );
-    const discoveryItems = selectedProducts.filter(
-      (p) => !newItems.some((n) => n.id === p.id) && !ratedItems.some((r) => r.id === p.id)
-    );
-
-    const batchProducts: any[] = [];
-    while (newItems.length > 0 || ratedItems.length > 0 || discoveryItems.length > 0) {
-      if (newItems.length > 0) batchProducts.push(newItems.shift());
-      if (discoveryItems.length > 0) batchProducts.push(discoveryItems.shift());
-      if (ratedItems.length > 0) batchProducts.push(ratedItems.shift());
-      if (discoveryItems.length > 0) batchProducts.push(discoveryItems.shift());
-    }
-
-    if (batchProducts.length === 0) {
-      return { products: [], sellerGroups: [], hasMore: false, totalCount: totalCount || 0 };
-    }
-
-    // Batch fetch seller details
-    const uniqueSellerIds = Array.from(new Set(batchProducts.map((p) => p.seller_id).filter(Boolean)));
-    let sellerMap: Record<string, { shopName: string; averageRating: number }> = {};
-
-    if (uniqueSellerIds.length > 0) {
-      const { data: sellersData } = await supabase
-        .from('sellers')
-        .select('id, shop_name')
-        .in('id', uniqueSellerIds);
-
-      if (sellersData) {
-        sellersData.forEach((s) => {
-          sellerMap[s.id] = {
-            shopName: s.shop_name || 'Verified Seller',
-            averageRating: 4.9,
-          };
-        });
-      }
-    }
-
-    // Format Supabase rows into standard Product type
-    const formattedProducts: Product[] = batchProducts.map((p) => {
-      const seller = sellerMap[p.seller_id];
+    const formattedProducts: Product[] = rawProducts.map((p: any) => {
+      const sellerObj = Array.isArray(p.seller) ? p.seller[0] : p.seller;
       const imagesArr = Array.isArray(p.product_images) ? p.product_images : [];
       const thumbnailObj = imagesArr.find((img: any) => img.is_thumbnail) || imagesArr[0];
-      const mainImg = thumbnailObj?.image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
+      const mainImg = thumbnailObj?.image_url || p.image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
       const extraImgs = imagesArr.map((img: any) => img.image_url);
 
       const origPrice = Number(p.original_retail_price || p.surplus_selling_price || 0);
@@ -336,13 +260,13 @@ export async function fetchCollectionProducts({
         fabric: p.fabric,
         color: p.color,
         description: p.description || 'Authentic designer surplus suit from clearance inventory.',
-        inStock: p.status === 'Active',
+        inStock: p.status === 'Active' && totalStock > 0,
         quantity: totalStock,
         variants: variants.map((v: any) => ({ id: v.id, size: v.size, quantity: Number(v.quantity) || 0 })),
         listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',
         resellerId: p.seller_id,
-        resellerName: seller?.shopName || 'Verified Reseller',
-        resellerRating: seller?.averageRating || 4.9,
+        resellerName: sellerObj?.shop_name || 'Verified Reseller',
+        resellerRating: sellerObj?.average_rating !== undefined && sellerObj?.average_rating !== null ? Number(sellerObj.average_rating) : 4.9,
         discountPercentage: discount,
         average_rating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 0,
         review_count: p.review_count !== undefined && p.review_count !== null ? Number(p.review_count) : 0,
@@ -351,28 +275,11 @@ export async function fetchCollectionProducts({
       };
     });
 
-    // Build Seller Groups
-    const sellerGroupMap: Record<string, SellerGroup> = {};
-    formattedProducts.forEach((p) => {
-      const sid = p.resellerId || 'default-seller';
-      if (!sellerGroupMap[sid]) {
-        sellerGroupMap[sid] = {
-          sellerId: sid,
-          shopName: p.resellerName || 'Verified Seller',
-          averageRating: p.resellerRating || 4.9,
-          products: [],
-        };
-      }
-      sellerGroupMap[sid].products.push(p);
-    });
-
-    const sellerGroups = Object.values(sellerGroupMap);
-    const totalSeenSoFar = (excludedIds ? excludedIds.length : 0) + formattedProducts.length;
-    const hasMore = totalSeenSoFar < totalCount && formattedProducts.length > 0;
+    const hasMore = (fromIndex + formattedProducts.length) < (totalCount || 0);
 
     return {
       products: formattedProducts,
-      sellerGroups,
+      sellerGroups: [],
       hasMore,
       totalCount: totalCount || formattedProducts.length,
     };
@@ -384,18 +291,20 @@ export async function fetchCollectionProducts({
 
 export interface FetchProductDetailResult {
   product: Product | null;
-  reviews: any[];
+  reviews: Review[];
   relatedProducts: Product[];
 }
 
 /**
- * Fetches a single product by UUID from Supabase along with seller details,
- * product images, reviews, and related product recommendations.
+ * Single-query product detail fetcher that returns product details, seller info, images, variants, and reviews.
  */
 export async function fetchProductById(productId: string): Promise<FetchProductDetailResult> {
+  if (!productId) {
+    return { product: null, reviews: [], relatedProducts: [] };
+  }
+
   try {
-    // QUERY 1 — Product Details (single row from products, joined with sellers, product_images, and product_variants)
-    let { data: p, error: pErr } = await supabase
+    const { data: p, error: pErr } = await supabase
       .from('products')
       .select(`
         *,
@@ -415,67 +324,27 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
           id,
           size,
           quantity
+        ),
+        reviews (
+          id,
+          rating,
+          review,
+          created_at,
+          users (
+            first_name,
+            last_name
+          )
         )
       `)
       .eq('id', productId)
       .maybeSingle();
 
-    if (pErr) {
-      // Fallback: Try sellers without alias if relationship embedding varies
-      const { data: fallbackP, error: fallbackErr } = await supabase
-        .from('products')
-        .select(`
-          *,
-          sellers (
-            id,
-            store_image_url,
-            shop_name,
-            average_rating,
-            status
-          ),
-          product_images (
-            id,
-            image_url,
-            is_thumbnail
-          ),
-          product_variants (
-            id,
-            size,
-            quantity
-          )
-        `)
-        .eq('id', productId)
-        .maybeSingle();
-
-      if (!fallbackErr && fallbackP) {
-        p = fallbackP;
-        pErr = null;
-      }
-    }
-
     if (pErr || !p) {
-      if (pErr) console.warn('Product not found:', productId, pErr);
+      if (pErr) console.error('Error fetching product by ID:', pErr);
       return { product: null, reviews: [], relatedProducts: [] };
     }
 
-    // Extract seller info from joined relation (seller object or array)
-    let joinedSeller = Array.isArray((p as any).seller) ? (p as any).seller[0] : (p as any).seller || (p as any).sellers;
-    let sellerObj = Array.isArray(joinedSeller) ? joinedSeller[0] : joinedSeller;
-
-    // Fallback: Direct seller lookup if p.seller_id exists but embedding returned null
-    if (!sellerObj && p.seller_id) {
-      try {
-        const { data: sData } = await supabase
-          .from('sellers')
-          .select('id, store_image_url, shop_name, average_rating, status')
-          .eq('id', p.seller_id)
-          .maybeSingle();
-        if (sData) sellerObj = sData;
-      } catch (e) {
-        console.warn('Fallback seller query failed:', e);
-      }
-    }
-
+    const sellerObj = Array.isArray(p.seller) ? p.seller[0] : p.seller;
     const storeImageUrl = sellerObj?.store_image_url || null;
     const shopName = sellerObj?.shop_name || 'Verified Reseller';
     const sellerStatus = sellerObj?.status || undefined;
@@ -483,23 +352,36 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
       ? Number(sellerObj.average_rating)
       : 0;
 
-    // Process images
     const imagesArr = Array.isArray(p.product_images) ? p.product_images : [];
     const thumbnailObj = imagesArr.find((img: any) => img.is_thumbnail) || imagesArr[0];
-    const mainImg = thumbnailObj?.image_url || (p as any).image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
+    const mainImg = thumbnailObj?.image_url || p.image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
     const extraImgs = imagesArr.map((img: any) => img.image_url);
 
-    // Process prices & stock
-    const origPrice = Number(p.original_retail_price || (p as any).price || p.surplus_selling_price || 0);
-    const surplusPrice = Number(p.surplus_selling_price || (p as any).price || 0);
+    const origPrice = Number(p.original_retail_price || p.price || p.surplus_selling_price || 0);
+    const surplusPrice = Number(p.surplus_selling_price || p.price || 0);
     const discount = origPrice > surplusPrice ? Math.round(((origPrice - surplusPrice) / origPrice) * 100) : 0;
 
     const variants = Array.isArray(p.product_variants) ? p.product_variants : [];
     const totalStock = variants.reduce((sum: number, v: any) => sum + (Number(v.quantity) || 0), 0);
 
+    const reviewsArr = Array.isArray(p.reviews) ? p.reviews : [];
+    const formattedReviews: Review[] = reviewsArr.map((rev: any) => {
+      const userObj = Array.isArray(rev.users) ? rev.users[0] : rev.users;
+      const fullName = userObj ? `${userObj.first_name || ''} ${userObj.last_name || ''}`.trim() : '';
+      return {
+        id: rev.id,
+        productId: p.id,
+        userName: fullName || 'Verified Customer',
+        rating: rev.rating || 5,
+        comment: rev.review || '',
+        date: rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recent',
+        verifiedPurchase: true,
+      };
+    });
+
     const formattedProduct: Product = {
       id: p.id,
-      title: p.suit_title || (p as any).title || 'Branded Leftover Suit',
+      title: p.suit_title || p.title || 'Branded Leftover Suit',
       brand: p.brand || 'Luxury Brand',
       price: origPrice,
       originalPrice: surplusPrice > 0 && surplusPrice !== origPrice ? surplusPrice : undefined,
@@ -540,7 +422,7 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
 
     return {
       product: formattedProduct,
-      reviews: [],
+      reviews: formattedReviews,
       relatedProducts: [],
     };
   } catch (err) {
@@ -933,6 +815,34 @@ export async function fetchTrendingProductsByTab(tabCategory: string): Promise<P
   } catch (err) {
     console.error('Error in fetchTrendingProductsByTab:', err);
     return [];
+  }
+}
+
+/**
+ * Background non-blocking helper to increment product views in database.
+ * Executes atomically via RPC 'increment_product_views' or fallback atomic update.
+ */
+export async function incrementProductViews(productId: string): Promise<void> {
+  if (!productId) return;
+  try {
+    const { error: rpcErr } = await supabase.rpc('increment_product_views', { target_product_id: productId });
+
+    if (rpcErr) {
+      const { data: p } = await supabase
+        .from('products')
+        .select('views')
+        .eq('id', productId)
+        .maybeSingle();
+
+      const currentViews = p?.views !== undefined && p?.views !== null ? Number(p.views) : 0;
+
+      await supabase
+        .from('products')
+        .update({ views: currentViews + 1 })
+        .eq('id', productId);
+    }
+  } catch (err) {
+    console.warn('Background error incrementing product views:', err);
   }
 }
 

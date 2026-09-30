@@ -36,7 +36,7 @@ export default function ResellerForgotPasswordRoutePage() {
 
   return (
     <ResellerFgtPass
-      onNavigateLogin={() => router.push('/reseller/login')}
+      onNavigateLogin={() => router.push('/login')}
       onNavigateHome={() => router.push('/')}
     />
   );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronRight,
   Heart,
@@ -21,17 +21,20 @@ import { ProductCard } from './ProductCard';
 import { Product, Review } from '@/types';
 import { ALL_PRODUCTS, MOCK_REVIEWS } from '@/data/mockData';
 import supabase from '@/src/api/client';
+import { useProductQuery, useIncrementViewsMutation } from '@/src/hooks/useQueries';
+import { incrementProductViews } from '@/src/api/collectionService';
 import { getItemAvailableStock } from '@/src/utils/stockUtils';
 import { useRouter } from 'next/navigation';
 import useAuth from '@/src/hooks/useAuth';
+const DEFAULT_STORE_IMAGE =
+  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
 
 export { getItemAvailableStock };
 
 interface ProductDetailPageProps {
-  product: Product;
+  productId?: string;
+  product?: Product;
   reviews?: Review[];
-  reviewsLoading?: boolean;
-  relatedProducts?: Product[];
   onAddToCart: (product: Product, size?: string, quantity?: number) => void;
   onToggleWishlist: (productId: string) => void;
   isWishlisted: boolean;
@@ -42,10 +45,9 @@ interface ProductDetailPageProps {
 }
 
 export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
-  product,
-  reviews = [],
-  reviewsLoading = false,
-  relatedProducts: propRelatedProducts,
+  productId,
+  product: initialProduct,
+  reviews: initialReviews = [],
   onAddToCart,
   onToggleWishlist,
   isWishlisted,
@@ -54,6 +56,25 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   onNavigateHome,
   onNavigateCollection,
 }) => {
+  const targetId = productId || initialProduct?.id || '';
+
+  // TanStack Query with staleTime: 3 * 60 * 1000 (3 minutes) directly inside ProductDetailPage
+  const { data: queryData, isLoading: isQueryLoading } = useProductQuery(targetId);
+
+  const product = queryData?.product || initialProduct;
+  const reviews = queryData?.reviews || initialReviews;
+
+  if (isQueryLoading && !product) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6 space-y-3 bg-stone-50">
+        <Loader2 className="w-8 h-8 animate-spin text-stone-800" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-stone-600">
+          Loading Product Details...
+        </p>
+      </div>
+    );
+  }
+
   if (!product || !product.id) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6 bg-stone-50">
@@ -99,6 +120,17 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     ? Number(sellerData.average_rating)
     : (product.resellerRating !== undefined && product.resellerRating !== null ? Number(product.resellerRating) : 0);
   const [imgError, setImgError] = useState<boolean>(false);
+
+  // Non-blocking background views increment via useMutation (guarded against duplicate increments)
+  const incrementViewsMutation = useIncrementViewsMutation();
+  const incrementedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!product || !product.id) return;
+    if (incrementedIdRef.current === product.id) return;
+    incrementedIdRef.current = product.id;
+    incrementViewsMutation.mutate(product.id);
+  }, [product?.id]);
 
   // Close full-screen zoom modal on ESC keypress
   useEffect(() => {
@@ -401,11 +433,6 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     setOpenAccordion((prev) => (prev === id ? null : id));
   };
 
-  const relatedProducts =
-    propRelatedProducts && propRelatedProducts.length > 0
-      ? propRelatedProducts
-      : ALL_PRODUCTS.filter((p) => p.id !== product.id).slice(0, 4);
-
   return (
     <div className="bg-white min-h-screen text-stone-900 pb-20 animate-fade-in">
       {/* 1. Breadcrumb Bar */}
@@ -500,22 +527,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             {(sellerData || product.resellerName || product.sellerStoreImageUrl) && (
               <div className="mb-4 sm:mb-5 p-2.5 sm:p-3 lg:p-3.5 rounded-lg border border-stone-200 bg-stone-50/80 flex items-center justify-between gap-2.5 sm:gap-3 shadow-2xs">
                 <div className="flex items-center space-x-2 sm:space-x-2.5 min-w-0">
-                  {sellerImageUrl && !imgError ? (
-                    <div className="w-8 h-8 sm:w-9 sm:h-9 lg:w-10 lg:h-10 rounded-full overflow-hidden shrink-0 border border-stone-200 bg-stone-100 flex items-center justify-center shadow-2xs">
-                      <img
-                        src={sellerImageUrl}
-                        alt={storeName}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-cover rounded-full"
-                        onError={() => setImgError(true)}
-                      />
-                    </div>
-                  ) : (
-                    <div className="w-8 h-8 sm:w-9 sm:h-9 lg:w-10 lg:h-10 rounded-full bg-stone-900 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs">
-                      <Store className="w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-4.5 lg:h-4.5 text-amber-400" />
-                    </div>
-                  )}
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 lg:w-10 lg:h-10 rounded-full overflow-hidden shrink-0 border border-stone-200 bg-stone-100 flex items-center justify-center shadow-2xs">
+                    <img
+                      src={imgError ? DEFAULT_STORE_IMAGE : (sellerImageUrl || DEFAULT_STORE_IMAGE)}
+                      alt={storeName}
+                      loading="lazy"
+                      decoding="async"
+                      className="w-full h-full object-cover rounded-full"
+                      onError={() => setImgError(true)}
+                    />
+                  </div>
                   <div className="min-w-0">
                     <div className="flex items-center space-x-1">
                       <span className="text-[10px] sm:text-xs lg:text-sm font-bold text-stone-900 truncate">
@@ -1026,7 +1047,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
           </div>
 
 
-          {reviewsLoading ? (<div className="p-6 sm:p-7 bg-stone-50 border border-stone-200 rounded-lg text-center flex items-center justify-center space-x-2 text-[10px] sm:text-xs text-stone-600 font-medium"> <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin text-stone-800" /> <span>Loading Customer Reviews...</span> </div>) : productReviews && productReviews.length > 0 ? (<div className="overflow-x-auto overflow-y-hidden scrollbar-thin pb-2"> <div className="flex flex-nowrap gap-4 sm:gap-5 lg:gap-5 w-max"> {productReviews.map((rev) => (<div key={rev.id} className=" shrink-0 w-[260px] sm:w-[280px] lg:w-[300px] p-4 sm:p-4.5 lg:p-5 rounded-lg border border-stone-200 bg-white flex flex-col justify-between " > <div> <div className="flex items-center justify-between mb-1.5 sm:mb-2"> <div className="flex text-amber-500"> {[...Array(rev.rating)].map((_, i) => (<Star key={i} className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-500 text-amber-500" />))} </div> <span className="text-[9px] sm:text-[10px] text-stone-400"> {rev.date} </span> </div> <p className="text-[10px] sm:text-xs text-stone-700 leading-relaxed mb-2.5 sm:mb-3"> "{rev.comment}" </p> {rev.resellerReply && (<div className="mt-2.5 sm:mt-3 p-2.5 sm:p-3 bg-amber-50/60 rounded-xs border-l-2 border-amber-500 text-[10px] sm:text-xs"> <span className="font-bold text-stone-900 block text-[9px] sm:text-[10px] mb-0.5"> Response from {product.resellerName || 'Seller'}: </span> <p className="text-stone-700 italic"> "{rev.resellerReply}" </p> </div>)} </div> <div className="pt-2.5 sm:pt-3 border-t border-stone-100 flex items-center justify-between gap-2 text-[10px] sm:text-xs mt-2.5 sm:mt-3"> <span className="font-bold text-stone-900 truncate"> {rev.userName} </span> {rev.verifiedPurchase && (<span className="text-[9px] sm:text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 sm:px-2 py-0.5 rounded-xs border border-emerald-200 whitespace-nowrap"> ✓ Verified Buyer </span>)} </div> </div>))} </div> </div>) : (<div className="p-6 sm:p-7 bg-stone-50 border border-stone-200 rounded-lg text-center text-[10px] sm:text-xs text-stone-500 font-medium"> No reviews submitted yet for this collection item. </div>)}
+          {productReviews && productReviews.length > 0 ? (<div className="overflow-x-auto overflow-y-hidden scrollbar-thin pb-2"> <div className="flex flex-nowrap gap-4 sm:gap-5 lg:gap-5 w-max"> {productReviews.map((rev) => (<div key={rev.id} className=" shrink-0 w-[260px] sm:w-[280px] lg:w-[300px] p-4 sm:p-4.5 lg:p-5 rounded-lg border border-stone-200 bg-white flex flex-col justify-between " > <div> <div className="flex items-center justify-between mb-1.5 sm:mb-2"> <div className="flex text-amber-500"> {[...Array(rev.rating)].map((_, i) => (<Star key={i} className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-amber-500 text-amber-500" />))} </div> <span className="text-[9px] sm:text-[10px] text-stone-400"> {rev.date} </span> </div> <p className="text-[10px] sm:text-xs text-stone-700 leading-relaxed mb-2.5 sm:mb-3"> "{rev.comment}" </p> {rev.resellerReply && (<div className="mt-2.5 sm:mt-3 p-2.5 sm:p-3 bg-amber-50/60 rounded-xs border-l-2 border-amber-500 text-[10px] sm:text-xs"> <span className="font-bold text-stone-900 block text-[9px] sm:text-[10px] mb-0.5"> Response from {product.resellerName || 'Seller'}: </span> <p className="text-stone-700 italic"> "{rev.resellerReply}" </p> </div>)} </div> <div className="pt-2.5 sm:pt-3 border-t border-stone-100 flex items-center justify-between gap-2 text-[10px] sm:text-xs mt-2.5 sm:mt-3"> <span className="font-bold text-stone-900 truncate"> {rev.userName} </span> {rev.verifiedPurchase && (<span className="text-[9px] sm:text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 sm:px-2 py-0.5 rounded-xs border border-emerald-200 whitespace-nowrap"> ✓ Verified Buyer </span>)} </div> </div>))} </div> </div>) : (<div className="p-6 sm:p-7 bg-stone-50 border border-stone-200 rounded-lg text-center text-[10px] sm:text-xs text-stone-500 font-medium"> No reviews submitted yet for this collection item. </div>)}
         </div>
 
 

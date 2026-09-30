@@ -21,10 +21,10 @@ export interface ToastState {
   type: 'success' | 'error';
 }
 
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
 export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
-  const [orders, setOrders] = useState<SellerOrderRow[]>([]);
-  const [totalCount, setTotalCount] = useState<number>(0);
-  const [loading, setLoading] = useState<boolean>(true);
+  const queryClient = useQueryClient();
 
   // Filter & Pagination States
   const [specificStatus, setSpecificStatus] = useState<string>('All');
@@ -35,6 +35,28 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
   // Sorting State
   const [sortBy, setSortBy] = useState<'created_at' | 'seller_total' | 'customer_name'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  const fetchSortBy = sortBy === 'customer_name' ? 'created_at' : sortBy;
+
+  // TanStack Query for orders
+  const { data: orderData, isLoading: loading, refetch: loadOrders } = useQuery({
+    queryKey: ['sellerOrders', sellerId, specificStatus, searchQuery, page, pageSize, fetchSortBy, sortOrder],
+    queryFn: () =>
+      fetchSellerOrders({
+        sellerId,
+        statusFilter: specificStatus,
+        search: searchQuery,
+        page,
+        pageSize,
+        sortBy: fetchSortBy,
+        sortOrder,
+      }),
+    enabled: Boolean(sellerId),
+    staleTime: 60 * 1000,
+  });
+
+  const orders = orderData?.orders || [];
+  const totalCount = orderData?.total_count || 0;
 
   // Modal State
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -70,34 +92,6 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
     }, 4000);
   }, []);
 
-  const loadOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const fetchSortBy = sortBy === 'customer_name' ? 'created_at' : sortBy;
-      const res = await fetchSellerOrders({
-        sellerId,
-        statusFilter: specificStatus,
-        search: searchQuery,
-        page,
-        pageSize,
-        sortBy: fetchSortBy,
-        sortOrder,
-      });
-      setOrders(res.orders || []);
-      setTotalCount(res.total_count || 0);
-    } catch (err) {
-      console.warn('Unable to load orders from database, setting empty state:', err);
-      setOrders([]);
-      setTotalCount(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [sellerId, specificStatus, searchQuery, page, pageSize, sortBy, sortOrder]);
-
-  useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
-
   const sortedOrders = useMemo(() => {
     if (sortBy === 'customer_name') {
       return [...orders].sort((a, b) => {
@@ -117,30 +111,13 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
     orderNumber: string,
     courierDetails?: { courierName: string; trackingNumber: string }
   ): Promise<boolean> => {
-    const originalOrders = [...orders];
-
-    setOrders((prev) =>
-      prev.map((ord) =>
-        ord.seller_order_id === sellerOrderId
-          ? {
-            ...ord,
-            seller_order_status: newStatus,
-            courier_name: courierDetails?.courierName || ord.courier_name,
-            tracking_number: courierDetails?.trackingNumber || ord.tracking_number,
-            order_updated_at: new Date().toISOString(),
-          }
-          : ord
-      )
-    );
-
     const res = await updateSellerOrderStatus(sellerOrderId, sellerId, newStatus, courierDetails);
 
     if (res.success) {
       addToast(`Order #${orderNumber} marked as ${newStatus}`, 'success');
-      loadOrders();
+      queryClient.invalidateQueries({ queryKey: ['sellerOrders', sellerId] });
       return true;
     } else {
-      setOrders(originalOrders);
       addToast(res.error || `Failed to update status for Order #${orderNumber}`, 'error');
       return false;
     }

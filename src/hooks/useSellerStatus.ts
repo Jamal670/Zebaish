@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import supabase from '@/src/api/client';
 import useAuth from '@/src/hooks/useAuth';
 
@@ -16,7 +16,7 @@ export interface SellerStatusData extends SellerStatusDetails {
   restrictedUntil: string | null;
   loading: boolean;
   error: string | null;
-  refetchStatus: () => Promise<void>;
+  refetchStatus: () => Promise<any>;
 }
 
 export function getSellerRestrictionDetails(
@@ -59,7 +59,6 @@ export function getSellerRestrictionDetails(
     );
   }
 
-  // Fallbacks if status is Inactive or Suspended without specific boolean flags
   if (messages.length === 0) {
     if (normStatus.toLowerCase() === 'suspended') {
       messages.push('Your seller account is currently suspended. You do not have permission to perform product management actions.');
@@ -89,35 +88,25 @@ export function getSellerRestrictionDetails(
 
 export const useSellerStatus = (): SellerStatusData => {
   const { user } = useAuth();
-  const [status, setStatus] = useState<'Active' | 'Inactive' | 'Suspended' | string | null>(null);
-  const [pendingOrdersInactive, setPendingOrdersInactive] = useState<boolean>(false);
-  const [commissionInactive, setCommissionInactive] = useState<boolean>(false);
-  const [restrictedUntil, setRestrictedUntil] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchStatus = useCallback(async () => {
-    if (!user?.id) {
-      setStatus(null);
-      setPendingOrdersInactive(false);
-      setCommissionInactive(false);
-      setRestrictedUntil(null);
-      setLoading(false);
-      return;
-    }
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['sellerStatus', user?.id],
+    queryFn: async () => {
+      if (!user?.id) {
+        return {
+          status: 'Active',
+          pendingOrdersInactive: false,
+          commissionInactive: false,
+          restrictedUntil: null,
+        };
+      }
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Fast lightweight query selecting ONLY required fields
       let { data, error: dbError } = await supabase
         .from('sellers')
         .select('status, pending_orders_inactive, commission_inactive, restricted_until')
         .eq('id', user.id)
         .maybeSingle();
 
-      // Graceful fallback if new columns don't exist in DB schema yet
       if (
         dbError &&
         (dbError.message?.includes('pending_orders_inactive') ||
@@ -139,42 +128,23 @@ export const useSellerStatus = (): SellerStatusData => {
               restricted_until: null,
             }
           : null;
-        dbError = fallback.error;
       }
 
-      if (dbError) {
-        console.warn('Error fetching seller status:', dbError.message);
-        setError(dbError.message);
-        setStatus('Active');
-        setPendingOrdersInactive(false);
-        setCommissionInactive(false);
-        setRestrictedUntil(null);
-      } else if (data) {
-        setStatus(data.status || 'Active');
-        setPendingOrdersInactive(Boolean(data.pending_orders_inactive));
-        setCommissionInactive(Boolean(data.commission_inactive));
-        setRestrictedUntil(data.restricted_until || null);
-      } else {
-        setStatus('Active');
-        setPendingOrdersInactive(false);
-        setCommissionInactive(false);
-        setRestrictedUntil(null);
-      }
-    } catch (err: any) {
-      console.error('Unexpected error fetching seller status:', err);
-      setError(err?.message || 'Failed to fetch seller status');
-      setStatus('Active');
-      setPendingOrdersInactive(false);
-      setCommissionInactive(false);
-      setRestrictedUntil(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
+      return {
+        status: data?.status || 'Active',
+        pendingOrdersInactive: Boolean(data?.pending_orders_inactive),
+        commissionInactive: Boolean(data?.commission_inactive),
+        restrictedUntil: data?.restricted_until || null,
+      };
+    },
+    enabled: Boolean(user?.id),
+    staleTime: 60 * 1000,
+  });
 
-  useEffect(() => {
-    fetchStatus();
-  }, [fetchStatus]);
+  const status = data?.status || 'Active';
+  const pendingOrdersInactive = data?.pendingOrdersInactive || false;
+  const commissionInactive = data?.commissionInactive || false;
+  const restrictedUntil = data?.restrictedUntil || null;
 
   const restrictionDetails = getSellerRestrictionDetails(
     status,
@@ -188,9 +158,12 @@ export const useSellerStatus = (): SellerStatusData => {
     pendingOrdersInactive,
     commissionInactive,
     restrictedUntil,
-    loading,
-    error,
-    refetchStatus: fetchStatus,
+    loading: isLoading,
+    error: isError ? (error as Error)?.message || 'Failed to fetch seller status' : null,
+    refetchStatus: async () => {
+      const res = await refetch();
+      return res.data;
+    },
     ...restrictionDetails,
   };
 };

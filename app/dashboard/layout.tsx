@@ -16,7 +16,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
     if (loading) return;
 
     if (!user) {
-      router.replace('/reseller/login');
+      router.replace('/login');
     } else if (role === 'customer') {
       // Authenticated Customer attempting to access Seller Dashboard -> Redirect to /account
       router.replace('/account');
@@ -25,7 +25,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     await logout();
-    router.replace('/reseller/login');
+    router.replace('/login');
   };
 
   if (loading) {

@@ -29,7 +29,6 @@ import sixth from '@/src/assets/images/prod_rawsilk_maroon_1784669163942.jpg';
 
 export const BRANDS: string[] = [
   'Sana Safinaz',
-  'Maria B',
   'Khaadi',
   'Gul Ahmed',
   'Bareeze',

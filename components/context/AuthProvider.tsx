@@ -33,6 +33,13 @@ export interface UserProfile {
 
 export type UserRole = 'seller' | 'customer' | null;
 
+export interface ProfileResult {
+  role: UserRole;
+  resellerProfile: ResellerProfile | null;
+  userProfile: UserProfile | null;
+  sellerStatus: string | null;
+}
+
 export interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -42,7 +49,7 @@ export interface AuthContextType {
   sellerStatus: string | null;
   loading: boolean;
   logout: () => Promise<void>;
-  refetchProfile: () => Promise<void>;
+  refetchProfile: (targetUser?: User | null) => Promise<ProfileResult>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -54,7 +61,12 @@ const AuthContext = createContext<AuthContextType>({
   sellerStatus: null,
   loading: true,
   logout: async () => {},
-  refetchProfile: async () => {},
+  refetchProfile: async () => ({
+    role: null,
+    resellerProfile: null,
+    userProfile: null,
+    sellerStatus: null,
+  }),
 });
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -104,21 +116,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const loadUserProfilesAndRole = async (userId: string, authUser?: User | null) => {
+  const loadUserProfilesAndRole = async (userId: string, authUser?: User | null): Promise<ProfileResult> => {
     let sellerRes = await fetchResellerProfile(userId);
     let customerRes = await fetchUserProfile(userId);
 
-    // Auto-create customer profile for OAuth users (e.g. Google Sign-In) if no profile exists yet
+    // Auto-create customer profile if no seller profile exists and no customer profile exists yet
     if (!sellerRes && !customerRes && authUser) {
       try {
         const meta = authUser.user_metadata || {};
         const fullName = (meta.full_name || meta.name || '').trim();
         const nameParts = fullName ? fullName.split(/\s+/) : [];
 
-        const firstName = meta.given_name || (nameParts.length > 0 ? nameParts[0] : '') || 'User';
-        const lastName = meta.family_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+        const firstName = meta.first_name || meta.given_name || (nameParts.length > 0 ? nameParts[0] : '') || (authUser.email ? authUser.email.split('@')[0] : 'User');
+        const lastName = meta.last_name || meta.family_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
         const email = authUser.email || meta.email || '';
-        const phoneNo = authUser.phone || meta.phone || null;
+        const phoneNo = authUser.phone || meta.phone_no || meta.phone || null;
 
         const { data: createdProfile, error: insertErr } = await supabase
           .from('users')
@@ -140,7 +152,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           customerRes = await fetchUserProfile(userId);
         }
       } catch (err) {
-        console.warn('Auto-create customer profile error for OAuth user:', err);
+        console.warn('Auto-create customer profile error:', err);
         customerRes = await fetchUserProfile(userId);
       }
     }
@@ -148,22 +160,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setResellerProfile(sellerRes);
     setUserProfile(customerRes);
 
+    let resolvedRole: UserRole = null;
+    let resolvedStatus: string | null = null;
+
     if (sellerRes) {
-      setRole('seller');
-      setSellerStatus(sellerRes.status || 'Active');
-    } else if (customerRes) {
-      setRole('customer');
-      setSellerStatus(null);
+      resolvedRole = 'seller';
+      resolvedStatus = sellerRes.status || 'Active';
     } else {
-      setRole(null);
-      setSellerStatus(null);
+      resolvedRole = 'customer';
+      resolvedStatus = null;
     }
+
+    setRole(resolvedRole);
+    setSellerStatus(resolvedStatus);
+
+    return {
+      role: resolvedRole,
+      resellerProfile: sellerRes,
+      userProfile: customerRes,
+      sellerStatus: resolvedStatus,
+    };
   };
 
-  const refetchProfile = async () => {
-    if (user?.id) {
-      await loadUserProfilesAndRole(user.id, user);
+  const refetchProfile = async (targetUser?: User | null): Promise<ProfileResult> => {
+    const activeUser = targetUser || user;
+    if (activeUser?.id) {
+      return await loadUserProfilesAndRole(activeUser.id, activeUser);
     }
+    return {
+      role: null,
+      resellerProfile: null,
+      userProfile: null,
+      sellerStatus: null,
+    };
   };
 
   const logout = async () => {

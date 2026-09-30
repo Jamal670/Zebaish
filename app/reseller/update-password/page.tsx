@@ -9,8 +9,8 @@ export default function ResellerUpdatePasswordRoutePage() {
 
   return (
     <ResellerUpdatePass
-      onSuccess={() => router.push('/reseller/login')}
-      onNavigateLogin={() => router.push('/reseller/login')}
+      onSuccess={() => router.push('/login')}
+      onNavigateLogin={() => router.push('/login')}
       onNavigateHome={() => router.push('/')}
     />
   );

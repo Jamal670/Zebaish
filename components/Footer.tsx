@@ -45,7 +45,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigateReseller, onNavigateSe
               <li><Link href="/contact" className="hover:text-stone-900 transition-colors">Contact Us</Link></li>
               {/* <li><a href="#shipping" className="hover:text-stone-900 transition-colors">Shipping Policy</a></li> */}
               <li><Link href="/terms" className="hover:text-stone-900 transition-colors">Terms and Conditions</Link></li>
-              <li><Link href="/reseller/login" className="hover:text-stone-900 transition-colors font-medium text-amber-700">Seller Login</Link></li>
+              <li><Link href="/login" className="hover:text-stone-900 transition-colors font-medium text-stone-800">Login / Account</Link></li>
               <li className="pt-3 border-t border-stone-200 flex flex-wrap gap-2.5 items-center">
                 <button
                   type="button"

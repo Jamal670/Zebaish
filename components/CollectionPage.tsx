@@ -5,6 +5,7 @@ import { FiltersDrawer } from './FiltersDrawer';
 import { ALL_PRODUCTS, BRANDS } from '@/data/mockData';
 import { Product, FilterOptions } from '@/types';
 import { fetchCollectionProducts } from '@/src/api/collectionService';
+import { useCollectionProductsQuery } from '@/src/hooks/useQueries';
 
 interface CollectionPageProps {
   categoryTitle?: string;
@@ -34,16 +35,12 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
   onSelectBrand,
 }) => {
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
-  const [gridCols, setGridCols] = useState<2 | 3 | 4>(3);
+  const [gridCols, setGridCols] = useState<2 | 3 | 4>(4);
   const [sortBy, setSortBy] = useState<'featured' | 'price-low' | 'price-high' | 'newest' | 'best-discount' | 'most-popular'>('featured');
 
   // Supabase Paginated Products & Infinite Scroll State
-  const [supabaseProducts, setSupabaseProducts] = useState<Product[]>([]);
+  const [accumulatedProducts, setAccumulatedProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const isFetchingRef = useRef(false);
 
   const [filters, setFilters] = useState<FilterOptions>({
     brands: brandFilter ? [brandFilter] : [],
@@ -70,181 +67,68 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
     }
   }, [brandFilter]);
 
-  const seenProductIdsRef = useRef<Set<string>>(new Set());
+  const queryParams = useMemo(() => ({
+    categoryTitle,
+    brandFilter,
+    filters,
+    sortBy,
+    page,
+    pageSize: 12,
+  }), [categoryTitle, brandFilter, filters, sortBy, page]);
 
-  // Load products from Supabase in batches of 10 for the MVP Feed
-  const loadProducts = async (pageToFetch: number, isReset: boolean = false) => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
+  // TanStack Query with staleTime: 3 * 60 * 1000 (3 minutes)
+  const { data: queryResult, isLoading, isFetching } = useCollectionProductsQuery(queryParams);
 
-    if (isReset) {
-      setLoading(true);
-      seenProductIdsRef.current.clear();
-    } else {
-      setLoadingMore(true);
+  // Sync query data into accumulatedProducts for continuous infinite scroll pagination
+  useEffect(() => {
+    if (queryResult?.products) {
+      if (page === 0) {
+        setAccumulatedProducts(queryResult.products);
+      } else {
+        setAccumulatedProducts((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          const newProducts = queryResult.products.filter((p) => !existingIds.has(p.id));
+          return [...prev, ...newProducts];
+        });
+      }
     }
+  }, [queryResult, page]);
 
-    try {
-      const excludedIds = Array.from(seenProductIdsRef.current);
-      const res = await fetchCollectionProducts({
-        categoryTitle,
-        brandFilter,
-        filters,
-        page: pageToFetch,
-        pageSize: 10,
-        excludedIds,
-      });
-
-      res.products.forEach((p) => seenProductIdsRef.current.add(p.id));
-
-      setSupabaseProducts((prev) => {
-        if (isReset) return res.products;
-        const existingIds = new Set(prev.map((p) => p.id));
-        const newProducts = res.products.filter((p) => !existingIds.has(p.id));
-        return [...prev, ...newProducts];
-      });
-
-      setHasMore(res.hasMore);
-      setPage(pageToFetch);
-    } catch (err) {
-      console.error('Error loading paginated MVP feed products:', err);
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-      isFetchingRef.current = false;
-    }
-  };
-
-  // Reset & load page 0 whenever category, brandFilter, or active filters change
+  // Reset page to 0 when filter/sort options change
   useEffect(() => {
     setPage(0);
-    setHasMore(true);
-    seenProductIdsRef.current.clear();
-    setSupabaseProducts([]);
-    loadProducts(0, true);
-  }, [categoryTitle, brandFilter, filters]);
+    setAccumulatedProducts([]);
+  }, [categoryTitle, brandFilter, filters, sortBy]);
+
+  const hasMore = queryResult?.hasMore ?? true;
+  const totalCount = queryResult?.totalCount ?? accumulatedProducts.length;
 
   // Infinite Scroll Listener
   useEffect(() => {
     const handleScroll = () => {
-      if (loading || loadingMore || !hasMore || isFetchingRef.current) return;
+      if (isLoading || isFetching || !hasMore) return;
 
       const scrollPosition = window.innerHeight + window.scrollY;
       const threshold = document.documentElement.scrollHeight - 600;
 
       if (scrollPosition >= threshold) {
-        loadProducts(page + 1, false);
+        setPage((prevPage) => prevPage + 1);
       }
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [loading, loadingMore, hasMore, page, categoryTitle, brandFilter, filters]);
+  }, [isLoading, isFetching, hasMore]);
 
   // Memoize wishlistSet for O(1) instant lookup inside grid renders
   const wishlistSet = useMemo(() => new Set(wishlistIds), [wishlistIds]);
 
-  // Filter and Sort logic
-  const filteredProducts = useMemo(() => {
-    const sourceProducts = supabaseProducts.length > 0 ? supabaseProducts : (productsList || []);
-
-    return sourceProducts
-      .filter((product) => {
-        // Hide deactivated products
-        if (product.listingStatus === 'Deactivated') return false;
-
-        // Brand Filter
-        if (filters.brands && filters.brands.length > 0) {
-          if (!product.brand || !filters.brands.includes(product.brand)) {
-            return false;
-          }
-        }
-
-        // Stitching Status
-        if (filters.stitchingStatuses && filters.stitchingStatuses.length > 0) {
-          if (!product.stitchingStatus || !filters.stitchingStatuses.includes(product.stitchingStatus)) {
-            return false;
-          }
-        }
-
-        // Piece Count
-        if (filters.pieceCounts && filters.pieceCounts.length > 0) {
-          if (!product.pieceCount || !filters.pieceCounts.includes(product.pieceCount)) {
-            return false;
-          }
-        }
-
-        // Fabric Filter
-        if (filters.fabrics && filters.fabrics.length > 0) {
-          if (!product.fabric) return false;
-          const matchesFab = filters.fabrics.some((f) =>
-            product.fabric?.toLowerCase().includes(f.toLowerCase())
-          );
-          if (!matchesFab) return false;
-        }
-
-        // Color Filter
-        if (filters.colors && filters.colors.length > 0) {
-          if (!product.color) return false;
-          const matchesCol = filters.colors.some((c) =>
-            product.color?.toLowerCase().includes(c.toLowerCase())
-          );
-          if (!matchesCol) return false;
-        }
-
-        // Occasion Filter
-        if (filters.occasions && filters.occasions.length > 0) {
-          if (!product.occasion || !filters.occasions.includes(product.occasion)) {
-            return false;
-          }
-        }
-
-        // Size Filter
-        if (filters.sizes && filters.sizes.length > 0) {
-          if (!product.size || !filters.sizes.includes(product.size)) {
-            return false;
-          }
-        }
-
-        // Discount Ranges Filter ('10-30%', '30-50%', '50%+')
-        if (filters.discountRanges && filters.discountRanges.length > 0) {
-          const disc = product.discountPercentage || 0;
-          const matchesDisc = filters.discountRanges.some((range) => {
-            if (range === '10-30%') return disc >= 10 && disc <= 30;
-            if (range === '30-50%') return disc > 30 && disc <= 50;
-            if (range === '50%+') return disc > 50;
-            return true;
-          });
-          if (!matchesDisc) return false;
-        }
-
-        // Reseller Rating
-        if (filters.minResellerRating && filters.minResellerRating > 0) {
-          if ((product.resellerRating || 0) < filters.minResellerRating) {
-            return false;
-          }
-        }
-
-        // Price Range Filter
-        if (filters.priceRange && (product.price < filters.priceRange[0] || product.price > filters.priceRange[1])) {
-          return false;
-        }
-
-        // In Stock Filter
-        if (filters.inStockOnly && !product.inStock) {
-          return false;
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === 'price-low') return a.price - b.price;
-        if (sortBy === 'price-high') return b.price - a.price;
-        if (sortBy === 'best-discount') return (b.discountPercentage || 0) - (a.discountPercentage || 0);
-        if (sortBy === 'most-popular') return (b.resellerRating || 0) - (a.resellerRating || 0);
-        return 0; // Default newest-first from Supabase created_at DESC query
-      });
-  }, [supabaseProducts, productsList, filters, sortBy]);
+  // Products to display: prioritizes accumulated scroll products, falls back to direct TanStack query cache (e.g. on back navigation), then productsList prop
+  const displayProducts = useMemo(() => {
+    if (accumulatedProducts.length > 0) return accumulatedProducts;
+    if (queryResult?.products && queryResult.products.length > 0) return queryResult.products;
+    return productsList || [];
+  }, [accumulatedProducts, queryResult?.products, productsList]);
 
   const activeFilterCount =
     (filters.brands?.length || 0) +
@@ -455,7 +339,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
               >
                 Showing{" "}
                 <strong className="text-stone-900">
-                  {filteredProducts.length}
+                  {totalCount || displayProducts.length}
                 </strong>{" "}
                 items
               </span>
@@ -730,14 +614,14 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
         )}
 
         {/* Initial Loading State */}
-        {loading && supabaseProducts.length === 0 ? (
+        {isLoading && displayProducts.length === 0 ? (
           <div className="bg-white border border-stone-200 rounded-lg p-16 text-center my-8 shadow-2xs">
             <Loader2 className="w-8 h-8 animate-spin text-stone-800 mx-auto mb-3" />
             <p className="text-xs font-semibold uppercase tracking-wider text-stone-600">
               Loading Leftover Suits...
             </p>
           </div>
-        ) : filteredProducts.length === 0 ? (
+        ) : displayProducts.length === 0 ? (
           <div className="bg-white border border-stone-200 rounded-lg p-12 text-center my-8">
             <Filter className="w-10 h-10 text-stone-300 mx-auto mb-3" />
             <h3 className="text-base font-bold text-stone-900 uppercase tracking-wider">
@@ -778,7 +662,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
                   : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
                 }`}
             >
-              {filteredProducts.map((product) => (
+              {displayProducts.map((product) => (
                 <ProductCard
                   key={product.id}
                   product={product}
@@ -793,7 +677,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
             </div>
 
             {/* Infinite Scroll Bottom Loading Spinner */}
-            {loadingMore && (
+            {isFetching && page > 0 && (
               <div className="py-10 text-center flex items-center justify-center space-x-2 text-stone-600">
                 <Loader2 className="w-5 h-5 animate-spin text-stone-800" />
                 <span className="text-xs font-semibold uppercase tracking-wider">
@@ -833,7 +717,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
             categories: [],
           })
         }
-        totalResultsCount={filteredProducts.length}
+        totalResultsCount={totalCount || displayProducts.length}
       />
     </div>
   );

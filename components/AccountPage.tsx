@@ -75,6 +75,8 @@ const formatOrderDate = (isoString?: string): string => {
   }
 };
 
+import { useQuery } from '@tanstack/react-query';
+
 export const AccountPage: React.FC<AccountPageProps> = ({
   initialTab = 'orders',
   wishlistIds,
@@ -90,15 +92,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   const { user, userProfile, logout, refetchProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<'orders' | 'wishlist' | 'profile'>(initialTab);
 
-  // 1. ORDERS STATE & FETCHING
-  const [dbOrders, setDbOrders] = useState<DbOrder[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState<boolean>(true);
-
-  // 2. WISHLIST STATE & FETCHING
-  const [wishlistProducts, setWishlistProducts] = useState<Product[]>([]);
-  const [wishlistLoading, setWishlistLoading] = useState<boolean>(true);
-
-  // 3. PROFILE STATE
+  // Profile State
   const [profileData, setProfileData] = useState({
     firstName: userProfile?.first_name || user?.user_metadata?.first_name || 'Customer',
     lastName: userProfile?.last_name || user?.user_metadata?.last_name || 'User',
@@ -110,327 +104,168 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch real User Orders from DB
-  useEffect(() => {
-    if (!user?.id) {
-      setDbOrders([]);
-      setOrdersLoading(false);
-      return;
-    }
+  // TanStack Query for User Orders
+  const { data: dbOrders = [], isLoading: ordersLoading } = useQuery({
+    queryKey: ['userOrders', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data: rawOrders, error: ordersErr } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-    const userId = user.id;
-    let isMounted = true;
+      if (ordersErr || !rawOrders || rawOrders.length === 0) return [];
 
-    async function fetchUserOrders() {
-      setOrdersLoading(true);
-      try {
-        // Step 1: Fetch orders matching user_id ordered by created_at DESC
-        const { data: rawOrders, error: ordersErr } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
+      const orderIds = rawOrders.map((o: any) => o.id);
+      const [itemsRes, sellerOrdersRes] = await Promise.all([
+        supabase.from('order_items').select('*').in('order_id', orderIds),
+        supabase.from('seller_orders').select('order_id, seller_id, courier_name, tracking_number, status').in('order_id', orderIds),
+      ]);
 
-        if (ordersErr) {
-          console.error('Error fetching user orders:', ordersErr);
-          if (isMounted) setOrdersLoading(false);
-          return;
+      const orderItems = itemsRes.data || [];
+      const rawSellerOrders = sellerOrdersRes.data || [];
+
+      const sellerOrdersByOrderId: Record<string, { courier_name?: string; tracking_number?: string; status?: string }[]> = {};
+      rawSellerOrders.forEach((so: any) => {
+        if (!sellerOrdersByOrderId[so.order_id]) {
+          sellerOrdersByOrderId[so.order_id] = [];
         }
-
-        if (!rawOrders || rawOrders.length === 0) {
-          if (isMounted) {
-            setDbOrders([]);
-            setOrdersLoading(false);
-          }
-          return;
-        }
-
-        const orderIds = rawOrders.map((o: any) => o.id);
-
-        // Step 2: Batch fetch order_items & seller_orders matching order_id IN (orderIds)
-        const [itemsRes, sellerOrdersRes] = await Promise.all([
-          supabase.from('order_items').select('*').in('order_id', orderIds),
-          supabase.from('seller_orders').select('order_id, seller_id, courier_name, tracking_number, status').in('order_id', orderIds),
-        ]);
-
-        if (itemsRes.error) {
-          console.error('Error fetching order items:', itemsRes.error);
-          if (isMounted) setOrdersLoading(false);
-          return;
-        }
-
-        const orderItems = itemsRes.data || [];
-        const rawSellerOrders = sellerOrdersRes.data || [];
-
-        // Map seller_orders by order_id
-        const sellerOrdersByOrderId: Record<string, { courier_name?: string; tracking_number?: string; status?: string }[]> = {};
-        rawSellerOrders.forEach((so: any) => {
-          if (!sellerOrdersByOrderId[so.order_id]) {
-            sellerOrdersByOrderId[so.order_id] = [];
-          }
-          sellerOrdersByOrderId[so.order_id].push({
-            courier_name: so.courier_name,
-            tracking_number: so.tracking_number,
-            status: so.status,
-          });
+        sellerOrdersByOrderId[so.order_id].push({
+          courier_name: so.courier_name,
+          tracking_number: so.tracking_number,
+          status: so.status,
         });
+      });
 
-        const productIds = Array.from(new Set(orderItems.map((item: any) => item.product_id).filter(Boolean)));
+      const productIds = Array.from(new Set(orderItems.map((item: any) => item.product_id).filter(Boolean)));
+      let validProductIds = new Set<string>();
 
-        // Step 3: Check which products exist in products table (Handling deleted products per Requirement #5)
-        const validProductIdsSet = new Set<string>();
-        if (productIds.length > 0) {
-          const { data: existingProducts } = await supabase
-            .from('products')
-            .select('id')
-            .in('id', productIds);
-          if (existingProducts) {
-            existingProducts.forEach((p: any) => validProductIdsSet.add(p.id));
-          }
+      if (productIds.length > 0) {
+        const { data: validProds } = await supabase.from('products').select('id').in('id', productIds);
+        if (validProds) {
+          validProds.forEach((p: any) => validProductIds.add(p.id));
         }
-
-        // Step 4: Fetch thumbnail images for valid product IDs
-        const imageMap: Record<string, string> = {};
-        if (validProductIdsSet.size > 0) {
-          const { data: rawImages } = await supabase
-            .from('product_images')
-            .select('product_id, image_url, is_thumbnail')
-            .in('product_id', Array.from(validProductIdsSet));
-
-          if (rawImages) {
-            rawImages.forEach((img: any) => {
-              if (img.is_thumbnail || !imageMap[img.product_id]) {
-                imageMap[img.product_id] = img.image_url;
-              }
-            });
-          }
-        }
-
-        // Step 5: Group order_items by order_id, skipping deleted products
-        const itemsByOrderId: Record<string, DbOrderItem[]> = {};
-        orderItems.forEach((item: any) => {
-          if (!validProductIdsSet.has(item.product_id)) return;
-
-          const pId = item.product_id;
-          const itemObj: DbOrderItem = {
-            id: item.id,
-            order_id: item.order_id,
-            product_id: pId,
-            seller_id: item.seller_id,
-            product_title: item.product_title || 'Designer Suit',
-            brand: item.brand || 'Designer Brand',
-            quantity: Number(item.quantity) || 1,
-            price: Number(item.price) || 0,
-            subtotal: Number(item.subtotal) || (Number(item.price) * Number(item.quantity) || 0),
-            thumbnail_url: imageMap[pId] || 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop',
-          };
-
-          if (!itemsByOrderId[item.order_id]) {
-            itemsByOrderId[item.order_id] = [];
-          }
-          itemsByOrderId[item.order_id].push(itemObj);
-        });
-
-        // Construct final DbOrder array with courier & tracking derived strictly from seller_orders
-        const formattedOrders: DbOrder[] = rawOrders.map((o: any) => {
-          const validItems = itemsByOrderId[o.id] || [];
-          const computedSubtotal = validItems.reduce((acc, curr) => acc + curr.subtotal, 0);
-
-          const sellerOrdersList = sellerOrdersByOrderId[o.id] || [];
-
-          // Find matching seller_order entry containing non-empty courier_name & tracking_number
-          const matchingSellerOrder = sellerOrdersList.find(
-            (so) => (so.courier_name || '').trim() !== '' && (so.tracking_number || '').trim() !== ''
-          );
-
-          const activeSellerOrder = matchingSellerOrder || sellerOrdersList[0];
-          const effectiveOrderStatus = (activeSellerOrder && activeSellerOrder.status)
-            ? activeSellerOrder.status
-            : (o.order_status || o.status || 'Pending');
-
-          return {
-            id: o.id,
-            order_number: o.order_number || o.id,
-            created_at: o.created_at,
-            order_status: effectiveOrderStatus,
-            courier_name: matchingSellerOrder ? (matchingSellerOrder.courier_name || '').trim() : undefined,
-            tracking_number: matchingSellerOrder ? (matchingSellerOrder.tracking_number || '').trim() : undefined,
-            estimated_delivery: o.estimated_delivery,
-            subtotal: computedSubtotal,
-            items: validItems,
-          };
-        });
-
-        if (isMounted) {
-          setDbOrders(formattedOrders);
-          setOrdersLoading(false);
-        }
-      } catch (err) {
-        console.error('Unexpected error loading user orders:', err);
-        if (isMounted) setOrdersLoading(false);
       }
-    }
 
-    fetchUserOrders();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.id]);
-
-  // Fetch real Wishlist products from DB
-  useEffect(() => {
-    if (!user?.id) {
-      setWishlistProducts([]);
-      setWishlistLoading(false);
-      return;
-    }
-
-    const userId = user.id;
-    let isMounted = true;
-
-    async function fetchUserWishlist() {
-      setWishlistLoading(true);
-      try {
-        // Step 1: Query wishlists for user
-        const { data: rawWishlists, error: wishErr } = await supabase
-          .from('wishlists')
-          .select('id')
-          .eq('user_id', userId);
-
-        if (wishErr || !rawWishlists || rawWishlists.length === 0) {
-          if (isMounted) {
-            setWishlistProducts([]);
-            setWishlistLoading(false);
-          }
-          return;
+      const itemsByOrderId: Record<string, DbOrderItem[]> = {};
+      orderItems.forEach((item: any) => {
+        if (!itemsByOrderId[item.order_id]) {
+          itemsByOrderId[item.order_id] = [];
         }
+        itemsByOrderId[item.order_id].push({
+          id: item.id,
+          order_id: item.order_id,
+          product_id: item.product_id,
+          seller_id: item.seller_id,
+          product_title: validProductIds.has(item.product_id) ? (item.product_title || 'Designer Suit') : '[Product No Longer Available]',
+          brand: item.brand || 'Luxury Brand',
+          quantity: item.quantity || 1,
+          price: Number(item.price) || 0,
+          subtotal: Number(item.subtotal) || 0,
+          thumbnail_url: item.thumbnail_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=300&q=80',
+        });
+      });
 
-        const wishlistIdsList = rawWishlists.map((w: any) => w.id);
+      return rawOrders.map((o: any) => {
+        const soList = sellerOrdersByOrderId[o.id] || [];
+        const firstWithCourier = soList.find((so) => so.courier_name || so.tracking_number);
+        const resolvedCourier = firstWithCourier?.courier_name || o.courier_name || undefined;
+        const resolvedTracking = firstWithCourier?.tracking_number || o.tracking_number || undefined;
 
-        // Step 2: Query wishlist_items
-        const { data: rawWishItems, error: itemsErr } = await supabase
-          .from('wishlist_items')
-          .select('product_id')
-          .in('wishlist_id', wishlistIdsList);
+        return {
+          id: o.id,
+          order_number: o.order_number || o.id.slice(0, 8).toUpperCase(),
+          created_at: o.created_at,
+          order_status: o.order_status || 'Pending',
+          courier_name: resolvedCourier,
+          tracking_number: resolvedTracking,
+          estimated_delivery: o.estimated_delivery || undefined,
+          subtotal: Number(o.total_amount || o.subtotal || 0),
+          items: itemsByOrderId[o.id] || [],
+        };
+      });
+    },
+    enabled: Boolean(user?.id),
+    staleTime: 60 * 1000,
+  });
 
-        if (itemsErr || !rawWishItems || rawWishItems.length === 0) {
-          if (isMounted) {
-            setWishlistProducts([]);
-            setWishlistLoading(false);
-          }
-          return;
-        }
+  // TanStack Query for User Wishlist Products
+  const { data: wishlistProducts = [], isLoading: wishlistLoading } = useQuery({
+    queryKey: ['userWishlistProducts', user?.id, wishlistIds],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const { data: rawWishlists } = await supabase.from('wishlists').select('id').eq('user_id', user.id);
+      if (!rawWishlists || rawWishlists.length === 0) return [];
 
-        const pIds = Array.from(new Set(rawWishItems.map((item: any) => item.product_id).filter(Boolean)));
+      const wishlistIdsList = rawWishlists.map((w: any) => w.id);
+      const { data: rawWishItems } = await supabase.from('wishlist_items').select('product_id').in('wishlist_id', wishlistIdsList);
+      if (!rawWishItems || rawWishItems.length === 0) return [];
 
-        if (pIds.length === 0) {
-          if (isMounted) {
-            setWishlistProducts([]);
-            setWishlistLoading(false);
-          }
-          return;
-        }
+      const pIds = Array.from(new Set(rawWishItems.map((item: any) => item.product_id).filter(Boolean)));
+      if (pIds.length === 0) return [];
 
-        // Step 3: Query matching products
-        const { data: rawProducts, error: prodErr } = await supabase
-          .from('products')
-          .select(`
-            *,
-            product_variants (
-              id,
-              size,
-              quantity
-            )
-          `)
-          .in('id', pIds);
+      const { data: rawProducts } = await supabase
+        .from('products')
+        .select(`*, product_variants (id, size, quantity)`)
+        .in('id', pIds);
 
-        if (prodErr || !rawProducts || rawProducts.length === 0) {
-          if (isMounted) {
-            setWishlistProducts([]);
-            setWishlistLoading(false);
-          }
-          return;
-        }
+      if (!rawProducts || rawProducts.length === 0) return [];
 
-        const validProducts = rawProducts;
-        const validPIds = validProducts.map((p: any) => p.id);
+      const validPIds = rawProducts.map((p: any) => p.id);
+      const imageMap: Record<string, string[]> = {};
+      const { data: rawImages } = await supabase
+        .from('product_images')
+        .select('product_id, image_url, is_thumbnail')
+        .in('product_id', validPIds);
 
-        // Step 4: Query product_images for thumbnails
-        const imageMap: Record<string, string[]> = {};
-        const { data: rawImages } = await supabase
-          .from('product_images')
-          .select('product_id, image_url, is_thumbnail')
-          .in('product_id', validPIds);
+      if (rawImages) {
+        rawImages.forEach((img: any) => {
+          if (!imageMap[img.product_id]) imageMap[img.product_id] = [];
+          if (img.is_thumbnail) imageMap[img.product_id].unshift(img.image_url);
+          else imageMap[img.product_id].push(img.image_url);
+        });
+      }
 
-        if (rawImages) {
-          rawImages.forEach((img: any) => {
-            if (!imageMap[img.product_id]) {
-              imageMap[img.product_id] = [];
-            }
-            if (img.is_thumbnail) {
-              imageMap[img.product_id].unshift(img.image_url);
-            } else {
-              imageMap[img.product_id].push(img.image_url);
-            }
-          });
-        }
-
-        const formattedWishlist: Product[] = validProducts.map((p: any) => {
-          const imgs = imageMap[p.id] || [];
-          const mainImg = imgs[0] || p.image_url || 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
-          const origPrice = Number(p.price) || 0;
-          const surplusPrice = Number(p.original_price) || 0;
-
-          return {
-            id: p.id,
-            title: p.suit_title || 'Branded Leftover Suit',
-            brand: p.brand || 'Luxury Brand',
-            price: origPrice,
-            originalPrice: surplusPrice > origPrice ? surplusPrice : undefined,
-            currency: 'Rs.',
-            image: mainImg,
-            hoverImage: imgs[1] || mainImg,
-            additionalImages: imgs,
-            badge: p.badge || undefined,
-            category: p.category || 'Unstitched',
-            subcategory: p.subcategory || '',
-            stitchingStatus: p.stitching_status || 'Unstitched',
-            pieceCount: p.piece_count || '3-Piece',
-            fabric: p.fabric || 'Lawn',
-            color: p.color || 'Multi',
-            occasion: p.occasion || 'Casual',
-            description: p.description || '',
-            inStock: true,
-            listingStatus: 'Active In Stock',
-            resellerId: p.seller_id,
-            resellerName: p.reseller_name || 'Verified Reseller',
-            variants: Array.isArray(p.product_variants)
-              ? p.product_variants.map((v: any) => ({
+      return rawProducts.map((p: any) => {
+        const imgs = imageMap[p.id] || [];
+        const mainImg = imgs[0] || p.image_url || 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
+        return {
+          id: p.id,
+          title: p.suit_title || 'Branded Leftover Suit',
+          brand: p.brand || 'Luxury Brand',
+          price: Number(p.price) || 0,
+          originalPrice: Number(p.original_price) > Number(p.price) ? Number(p.original_price) : undefined,
+          currency: 'Rs.',
+          image: mainImg,
+          hoverImage: imgs[1] || mainImg,
+          additionalImages: imgs,
+          badge: p.badge || undefined,
+          category: p.category || 'Unstitched',
+          subcategory: p.subcategory || '',
+          stitchingStatus: p.stitching_status || 'Unstitched',
+          pieceCount: p.piece_count || '3-Piece',
+          fabric: p.fabric || 'Lawn',
+          color: p.color || 'Multi',
+          occasion: p.occasion || 'Casual',
+          description: p.description || '',
+          inStock: true,
+          listingStatus: 'Active In Stock' as const,
+          resellerId: p.seller_id,
+          resellerName: p.reseller_name || 'Verified Reseller',
+          variants: Array.isArray(p.product_variants)
+            ? p.product_variants.map((v: any) => ({
                 id: v.id,
                 size: v.size,
                 quantity: Number(v.quantity) || 0,
               }))
-              : [],
-          };
-        });
-
-        if (isMounted) {
-          setWishlistProducts(formattedWishlist);
-          setWishlistLoading(false);
-        }
-      } catch (err) {
-        console.error('Unexpected error fetching user wishlist:', err);
-        if (isMounted) setWishlistLoading(false);
-      }
-    }
-
-    fetchUserWishlist();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.id, wishlistIds.length]);
+            : [],
+        };
+      });
+    },
+    enabled: Boolean(user?.id),
+    staleTime: 60 * 1000,
+  });
 
   // Fetch real User Profile from DB
   useEffect(() => {
@@ -843,9 +678,6 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               <div className="bg-white border border-stone-200 rounded-lg p-8 sm:p-12 text-center my-4">
                 <Package className="w-10 h-10 sm:w-12 sm:h-12 text-stone-300 mx-auto mb-3" />
                 <h3 className="text-sm sm:text-base lg:text-lg font-bold text-stone-900 uppercase tracking-wider">No Orders Placed Yet</h3>
-                <p className="text-xs sm:text-sm lg:text-base text-stone-500 mt-1 max-w-sm mx-auto">
-                  Browse surplus Pakistani designer suits and place your first order.
-                </p>
                 <button
                   onClick={onNavigateHome}
                   className="mt-5 sm:mt-6 inline-block bg-stone-900 text-white text-xs sm:text-sm lg:text-base font-bold px-5 sm:px-6 py-2.5 sm:py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"
@@ -1079,16 +911,13 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               <div className="bg-white border border-stone-200 rounded-lg p-8 sm:p-12 text-center my-4 space-y-3">
                 <Loader2 className="w-8 h-8 animate-spin text-stone-700 mx-auto" />
                 <p className="text-xs sm:text-sm lg:text-base font-semibold uppercase tracking-wider text-stone-600">
-                  Loading Wishlist...
+                  Loading...
                 </p>
               </div>
             ) : wishlistProducts.length === 0 ? (
               <div className="bg-white border border-stone-200 rounded-lg p-8 sm:p-12 text-center my-4">
                 <Heart className="w-10 h-10 sm:w-12 sm:h-12 text-stone-300 mx-auto mb-3" />
                 <h3 className="text-sm sm:text-base lg:text-lg font-bold text-stone-900 uppercase">Your Wishlist is Empty</h3>
-                <p className="text-xs sm:text-sm lg:text-base text-stone-500 mt-1 max-w-sm mx-auto">
-                  Save leftover suits while browsing to keep track of end-of-season designer deals.
-                </p>
                 <button
                   onClick={onNavigateHome}
                   className="mt-5 sm:mt-6 inline-block bg-stone-900 text-white text-xs sm:text-sm lg:text-base font-bold px-5 sm:px-6 py-2.5 sm:py-3 rounded-xs uppercase tracking-wider hover:bg-black transition-colors"

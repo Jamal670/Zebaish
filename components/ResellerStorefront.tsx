@@ -14,6 +14,8 @@ interface ResellerStorefrontProps {
   onNavigateHome: () => void;
 }
 
+import { useQuery } from '@tanstack/react-query';
+
 export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   resellerId,
   onQuickView,
@@ -23,9 +25,14 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   onSelectProduct,
   onNavigateHome,
 }) => {
-  const [storefrontData, setStorefrontData] = useState<SellerStorefrontData | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: storefrontData = null, isLoading, isError, refetch: loadData } = useQuery({
+    queryKey: ['sellerStorefront', resellerId],
+    queryFn: () => fetchSellerStorefrontData(resellerId),
+    enabled: Boolean(resellerId),
+    staleTime: 60 * 1000,
+  });
+
+  const error = isError ? 'Failed to load seller storefront. Please check your connection.' : null;
 
   const [sortBy, setSortBy] = useState<'featured' | 'price-low' | 'price-high' | 'newest'>('featured');
   const [activeTab, setActiveTab] = useState<'listings' | 'reviews'>('listings');
@@ -41,23 +48,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
 
   const observerTargetRef = useRef<HTMLDivElement | null>(null);
 
-  const loadData = () => {
-    setIsLoading(true);
-    setError(null);
-    fetchSellerStorefrontData(resellerId)
-      .then((data) => {
-        setStorefrontData(data);
-        setIsLoading(false);
-      })
-      .catch((err) => {
-        console.error('Error fetching storefront data:', err);
-        setError('Failed to load seller storefront. Please check your connection.');
-        setIsLoading(false);
-      });
-  };
-
   useEffect(() => {
-    loadData();
     // Reset reviews state on resellerId change
     setHasInitializedReviews(false);
     setPaginatedReviews([]);
@@ -167,7 +158,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
           <h3 className="text-lg font-bold text-stone-900">Storefront Error</h3>
           <p className="text-xs text-stone-600 leading-relaxed">{error || 'Unable to fetch store details.'}</p>
           <button
-            onClick={loadData}
+            onClick={() => loadData()}
             className="px-5 py-2.5 bg-stone-900 text-white text-xs font-bold uppercase tracking-wider rounded-xs hover:bg-stone-800 transition-colors"
           >
             Try Again

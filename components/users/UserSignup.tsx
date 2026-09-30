@@ -6,9 +6,50 @@ import supabase from '@/src/api/client';
 import useAuth from '@/src/hooks/useAuth';
 
 interface UserSignupProps {
-  onSignupSuccess: () => void;
+  onSignupSuccess: (email?: string) => void;
   onNavigateLogin: () => void;
   onNavigateHome: () => void;
+}
+
+function parseUserSignupError(err: any): { message: string; field?: 'email' | 'phoneNo' } {
+  if (!err) return { message: 'An unexpected error occurred. Please try again.' };
+
+  const message = (err.message || err.error_description || String(err)).toLowerCase();
+  const details = (err.details || '').toLowerCase();
+
+  if (
+    message.includes('already registered') ||
+    message.includes('already in use') ||
+    message.includes('users_email_key') ||
+    details.includes('users_email_key') ||
+    err.status === 422
+  ) {
+    return {
+      message: 'An account with this email address is already registered. Please log in instead.',
+      field: 'email',
+    };
+  }
+
+  if (
+    message.includes('users_phone_no_key') ||
+    details.includes('users_phone_no_key') ||
+    (message.includes('phone') && (message.includes('exist') || message.includes('duplicate')))
+  ) {
+    return {
+      message: 'This phone number is already registered with another account.',
+      field: 'phoneNo',
+    };
+  }
+
+  if (message.includes('password') && message.includes('short')) {
+    return { message: 'Password must be at least 6 characters long.' };
+  }
+
+  if (message.includes('network') || message.includes('fetch') || message.includes('failed to fetch')) {
+    return { message: 'Unable to connect to server. Please check your internet connection and try again.' };
+  }
+
+  return { message: err.message || 'Registration failed. Please check your information and try again.' };
 }
 
 export const UserSignup: React.FC<UserSignupProps> = ({
@@ -130,6 +171,28 @@ export const UserSignup: React.FC<UserSignupProps> = ({
     setLoading(true);
 
     try {
+      // Pre-check for duplicate email or phone number in users table
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('email, phone_no')
+        .or(`email.eq.${email.trim()},phone_no.eq.${phoneNo.trim()}`)
+        .maybeSingle();
+
+      if (existingUser) {
+        if (existingUser.email?.toLowerCase() === email.trim().toLowerCase()) {
+          setErrorMessage('An account with this email address is already registered. Please log in instead.');
+          setErrors((prev) => ({ ...prev, email: 'Email address is already registered.' }));
+          setLoading(false);
+          return;
+        }
+        if (existingUser.phone_no === phoneNo.trim()) {
+          setErrorMessage('This phone number is already registered with another account.');
+          setErrors((prev) => ({ ...prev, phoneNo: 'Phone number is already registered.' }));
+          setLoading(false);
+          return;
+        }
+      }
+
       // 1. Sign up with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email.trim(),
@@ -145,7 +208,11 @@ export const UserSignup: React.FC<UserSignupProps> = ({
 
       if (authError) {
         console.error('Supabase signup error:', authError);
-        setErrorMessage(authError.message || 'Failed to create account. Please try again.');
+        const parsed = parseUserSignupError(authError);
+        setErrorMessage(parsed.message);
+        if (parsed.field) {
+          setErrors((prev) => ({ ...prev, [parsed.field!]: parsed.message }));
+        }
         setLoading(false);
         return;
       }
@@ -174,7 +241,7 @@ export const UserSignup: React.FC<UserSignupProps> = ({
       }
 
       setLoading(false);
-      onSignupSuccess();
+      onSignupSuccess(email.trim());
     } catch (err: any) {
       console.error('Unexpected signup error:', err);
       setErrorMessage(err?.message || 'An unexpected error occurred during signup.');

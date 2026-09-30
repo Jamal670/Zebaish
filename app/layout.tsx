@@ -5,6 +5,8 @@ import { AuthProvider } from "@/components/context/AuthProvider";
 import { AppProvider } from "@/components/context/AppContext";
 import { MainLayoutShell } from "@/components/MainLayoutShell";
 
+import { QueryProvider } from "@/src/providers/QueryProvider";
+
 export const metadata: Metadata = {
   title: 'ZEBAISH | Official Luxury Fashion Store',
   description: "Pakistan's Premier Designer Leftover Stock Hub.",
@@ -34,11 +36,13 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-white text-stone-900 antialiased selection:bg-stone-900 selection:text-white">
-        <AuthProvider>
-          <AppProvider>
-            <MainLayoutShell>{children}</MainLayoutShell>
-          </AppProvider>
-        </AuthProvider>
+        <QueryProvider>
+          <AuthProvider>
+            <AppProvider>
+              <MainLayoutShell>{children}</MainLayoutShell>
+            </AppProvider>
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   );

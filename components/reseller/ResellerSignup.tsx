@@ -9,7 +9,7 @@ import { Navbar } from '@/components/Navbar';
 import { useApp } from '@/components/context/AppContext';
 
 interface ResellerSignupProps {
-  onSignupSuccess: () => void;
+  onSignupSuccess: (email?: string) => void;
   onNavigateLogin: () => void;
   onNavigateHome: () => void;
 }
@@ -64,33 +64,55 @@ export function getCleanPhoneDigits(input: string): string {
 /**
  * Converts Supabase/Postgres technical errors into human-readable user messages
  */
-function parseSupabaseError(err: any): string {
-  if (!err) return 'An unexpected error occurred. Please try again.';
+function parseSupabaseError(err: any): { message: string; field?: string } {
+  if (!err) return { message: 'An unexpected error occurred. Please try again.' };
 
   const message = (err.message || err.error_description || String(err)).toLowerCase();
   const details = (err.details || '').toLowerCase();
 
-  if (message.includes('already registered') || message.includes('already in use') || err.status === 422) {
-    return 'An account with this email address already exists. Please log in instead.';
+  if (
+    message.includes('already registered') ||
+    message.includes('already in use') ||
+    message.includes('sellers_email_key') ||
+    details.includes('sellers_email_key') ||
+    err.status === 422
+  ) {
+    return {
+      message: 'An account with this email address is already registered. Please log in instead.',
+      field: 'email',
+    };
   }
 
   if (message.includes('cnic') || details.includes('cnic') || message.includes('sellers_cnic_key')) {
-    return 'A seller account with this CNIC number is already registered.';
+    return {
+      message: 'A seller account with this CNIC number is already registered.',
+      field: 'cnic',
+    };
   }
 
   if (message.includes('phone') || details.includes('phone') || message.includes('sellers_phone_key')) {
-    return 'This phone number is already registered with another seller account.';
+    return {
+      message: 'This phone number is already registered with another seller account.',
+      field: 'phone',
+    };
+  }
+
+  if (message.includes('shop') || details.includes('shop') || message.includes('sellers_shop_name_key')) {
+    return {
+      message: 'A business/shop with this name is already registered. Please choose a different shop name.',
+      field: 'shopName',
+    };
   }
 
   if (message.includes('password') && message.includes('short')) {
-    return 'Password must be at least 6 characters long.';
+    return { message: 'Password must be at least 6 characters long.', field: 'password' };
   }
 
   if (message.includes('network') || message.includes('fetch') || message.includes('failed to fetch')) {
-    return 'Unable to connect to server. Please check your internet connection and try again.';
+    return { message: 'Unable to connect to server. Please check your internet connection and try again.' };
   }
 
-  return err.message || 'Registration failed. Please check your information and try again.';
+  return { message: err.message || 'Registration failed. Please check your information and try again.' };
 }
 
 export const ResellerSignup: React.FC<ResellerSignupProps> = ({
@@ -282,6 +304,37 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
     }
 
     try {
+      const formattedCnic = formData.cnic.trim();
+      const formattedPhone = formData.phone.trim();
+
+      // Pre-check for duplicate email, CNIC, or phone number in sellers table
+      const { data: existingSeller } = await supabase
+        .from('sellers')
+        .select('email, cnic, phone')
+        .or(`email.eq.${email.trim()},cnic.eq.${formattedCnic},phone.eq.${formattedPhone}`)
+        .maybeSingle();
+
+      if (existingSeller) {
+        if (existingSeller.email?.toLowerCase() === email.trim().toLowerCase()) {
+          setErrorMessage('An account with this email address is already registered. Please log in instead.');
+          setErrors((prev) => ({ ...prev, email: 'Email address is already registered.' }));
+          setLoading(false);
+          return;
+        }
+        if (existingSeller.cnic === formattedCnic) {
+          setErrorMessage('A seller account with this CNIC number is already registered.');
+          setErrors((prev) => ({ ...prev, cnic: 'CNIC number is already registered.' }));
+          setLoading(false);
+          return;
+        }
+        if (existingSeller.phone === formattedPhone) {
+          setErrorMessage('This phone number is already registered with another seller account.');
+          setErrors((prev) => ({ ...prev, phone: 'Phone number is already registered.' }));
+          setLoading(false);
+          return;
+        }
+      }
+
       // 2. Supabase Auth Signup
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email.trim(),
@@ -290,11 +343,11 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
 
       if (authError) {
         console.error('Supabase signup error:', authError);
-        const userFriendlyMsg = parseSupabaseError(authError);
-        setErrorMessage(userFriendlyMsg);
+        const parsed = parseSupabaseError(authError);
+        setErrorMessage(parsed.message);
 
-        if (userFriendlyMsg.includes('already registered')) {
-          setErrors((prev) => ({ ...prev, email: 'Email is already registered.' }));
+        if (parsed.field) {
+          setErrors((prev) => ({ ...prev, [parsed.field!]: parsed.message }));
         }
 
         setLoading(false);
@@ -327,9 +380,6 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
       }
 
       // 4. Insert/upsert seller profile once with all seller data + persistent CNIC URLs
-      const formattedCnic = formData.cnic.trim();
-      const formattedPhone = formData.phone.trim();
-
       const { error: profileError } = await supabase
         .from('sellers')
         .upsert({
@@ -352,17 +402,22 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
 
       if (profileError) {
         console.error('Reseller database profile insert error:', profileError);
-        setErrorMessage(parseSupabaseError(profileError));
+        const parsed = parseSupabaseError(profileError);
+        setErrorMessage(parsed.message);
+        if (parsed.field) {
+          setErrors((prev) => ({ ...prev, [parsed.field!]: parsed.message }));
+        }
         setLoading(false);
         return;
       }
 
       await refetchProfile();
       setLoading(false);
-      onSignupSuccess();
+      onSignupSuccess(email.trim());
     } catch (err: any) {
       console.error('Unexpected signup error:', err);
-      setErrorMessage(parseSupabaseError(err));
+      const parsed = parseSupabaseError(err);
+      setErrorMessage(parsed.message);
       setLoading(false);
     }
   };
