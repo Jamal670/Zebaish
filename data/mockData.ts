@@ -418,22 +418,7 @@ export const HERO_SLIDES = [
     id: 'slide-1',
     image: heroZibaish,
   },
-  {
-    id: 'slide-2',
-    image: heroRiwayatiHusn,
-  },
-  {
-    id: 'slide-3',
-    image: heroClassic,
-  },
-  {
-    id: 'slide-4',
-    image: heroNafasat,
-  },
-  {
-    id: 'slide-5',
-    image: heroRonak,
-  },
+
 ];
 
 export const FEATURED_CALLOUTS = {
