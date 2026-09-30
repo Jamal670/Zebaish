@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ShieldCheck,
   AlertTriangle,
@@ -18,9 +19,26 @@ import {
 } from 'lucide-react';
 
 export const PrivacyPolicy: React.FC = () => {
+  const router = useRouter();
+
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in w-full">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-10">
+        {/* Back button */}
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) {
+              router.back();
+            } else {
+              router.push('/reseller/signup');
+            }
+          }}
+          className="inline-flex items-center space-x-2 text-stone-600 hover:text-stone-900 text-xs font-semibold mb-6 cursor-pointer group transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+          <span>Back to Registration</span>
+        </button>
 
 
         {/* Header Hero Banner */}

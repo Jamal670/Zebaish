@@ -115,6 +115,34 @@ function parseSupabaseError(err: any): { message: string; field?: string } {
   return { message: err.message || 'Registration failed. Please check your information and try again.' };
 }
 
+const DRAFT_STORAGE_KEY = 'reseller_signup_form_draft';
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string) || '');
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
+function base64ToFile(dataUrl: string, filename: string, mimeType: string): File | null {
+  try {
+    const arr = dataUrl.split(',');
+    if (arr.length < 2) return null;
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mimeType });
+  } catch (e) {
+    console.error('Failed to restore file from draft:', e);
+    return null;
+  }
+}
+
 export const ResellerSignup: React.FC<ResellerSignupProps> = ({
   onSignupSuccess,
   onNavigateLogin,
@@ -151,6 +179,99 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
   const backInputRef = useRef<HTMLInputElement | null>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const isLoadedRef = useRef(false);
+
+  // Restore draft from sessionStorage / localStorage on initial mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const savedText =
+        sessionStorage.getItem(DRAFT_STORAGE_KEY) || localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (savedText) {
+        const parsed = JSON.parse(savedText);
+        if (parsed.email !== undefined) setEmail(parsed.email);
+        if (parsed.password !== undefined) setPassword(parsed.password);
+        if (parsed.formData) {
+          setFormData((prev) => ({
+            ...prev,
+            ...parsed.formData,
+          }));
+        }
+      }
+
+      const savedImg =
+        sessionStorage.getItem(`${DRAFT_STORAGE_KEY}_img`) ||
+        localStorage.getItem(`${DRAFT_STORAGE_KEY}_img`);
+      if (savedImg) {
+        const parsedImg = JSON.parse(savedImg);
+        if (parsedImg.cnicFront?.dataUrl && parsedImg.cnicFront?.name) {
+          const file = base64ToFile(
+            parsedImg.cnicFront.dataUrl,
+            parsedImg.cnicFront.name,
+            parsedImg.cnicFront.type || 'image/jpeg'
+          );
+          if (file) setCnicFrontFile(file);
+        }
+        if (parsedImg.cnicBack?.dataUrl && parsedImg.cnicBack?.name) {
+          const file = base64ToFile(
+            parsedImg.cnicBack.dataUrl,
+            parsedImg.cnicBack.name,
+            parsedImg.cnicBack.type || 'image/jpeg'
+          );
+          if (file) setCnicBackFile(file);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading reseller signup draft:', err);
+    } finally {
+      isLoadedRef.current = true;
+    }
+  }, []);
+
+  // Synchronously save text fields to sessionStorage + localStorage on EVERY input change instantly
+  useEffect(() => {
+    if (!isLoadedRef.current || typeof window === 'undefined') return;
+    try {
+      const draftPayload = { email, password, formData };
+      sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
+    } catch (err) {
+      console.error('Error saving text draft:', err);
+    }
+  }, [email, password, formData]);
+
+  // Asynchronously save uploaded CNIC image base64 strings
+  useEffect(() => {
+    if (!isLoadedRef.current || typeof window === 'undefined') return;
+
+    const saveImageDraft = async () => {
+      try {
+        let frontData = null;
+        if (cnicFrontFile) {
+          const dataUrl = await fileToBase64(cnicFrontFile);
+          if (dataUrl) {
+            frontData = { dataUrl, name: cnicFrontFile.name, type: cnicFrontFile.type };
+          }
+        }
+
+        let backData = null;
+        if (cnicBackFile) {
+          const dataUrl = await fileToBase64(cnicBackFile);
+          if (dataUrl) {
+            backData = { dataUrl, name: cnicBackFile.name, type: cnicBackFile.type };
+          }
+        }
+
+        const imgPayload = { cnicFront: frontData, cnicBack: backData };
+        sessionStorage.setItem(`${DRAFT_STORAGE_KEY}_img`, JSON.stringify(imgPayload));
+        localStorage.setItem(`${DRAFT_STORAGE_KEY}_img`, JSON.stringify(imgPayload));
+      } catch (err) {
+        console.error('Error saving image draft:', err);
+      }
+    };
+
+    saveImageDraft();
+  }, [cnicFrontFile, cnicBackFile]);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -411,6 +532,12 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         return;
       }
 
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+        sessionStorage.removeItem(`${DRAFT_STORAGE_KEY}_img`);
+        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        localStorage.removeItem(`${DRAFT_STORAGE_KEY}_img`);
+      }
       await refetchProfile();
       setLoading(false);
       onSignupSuccess(email.trim());
@@ -838,8 +965,17 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                   I accept this{' '}
                   <Link
                     href="/privacy-policy"
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-blue-900 hover:text-black"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      try {
+                        const draftPayload = { email, password, formData };
+                        sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
+                        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
+                      } catch (err) {}
+                    }}
+                    className="text-blue-600 hover:text-blue-800 font-semibold underline transition-colors"
                   >
                     Privacy Policy
                   </Link>{' '}

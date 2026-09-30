@@ -23,6 +23,7 @@ import {
   X,
   Wallet,
   Calendar,
+  Copy,
 } from 'lucide-react';
 
 import { useQuery } from '@tanstack/react-query';
@@ -47,6 +48,7 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
   const [activeScreenshotUrl, setActiveScreenshotUrl] = useState<string | null>(null);
   const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [copiedIban, setCopiedIban] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -142,7 +144,29 @@ export const PayoutsView: React.FC<PayoutsViewProps> = ({
           <div>
             <span className="text-2xs uppercase font-bold text-stone-400 block">Assigned Settlement Account</span>
             <span className="text-xs font-bold text-stone-100 block">{bankName}</span>
-            <span className="text-xs font-mono text-amber-300 block">{iban}</span>
+            <div className="flex items-center space-x-1.5 mt-0.5">
+              <span className="text-xs font-mono text-amber-300 block">{iban}</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText((iban || '').replace(/\s+/g, ''));
+                    setCopiedIban(true);
+                    setTimeout(() => setCopiedIban(false), 2000);
+                  } catch (err) {
+                    console.error('Failed to copy IBAN:', err);
+                  }
+                }}
+                className="p-1 rounded text-stone-400 hover:text-amber-300 hover:bg-stone-800 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0"
+                title="Copy IBAN"
+              >
+                {copiedIban ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -47,7 +47,7 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
     address: 'Shop #12, Liberty Market, Gulberg III, Lahore',
     bank_name: 'Meezan Bank',
     account_title: 'Ayesha Luxury Surplus Ltd',
-    iban: 'PK36MEZN00000012345678',
+    iban: 'PK80MEZN0038020113013132',
     status: 'Active',
     created_at: '2024-01-15T10:00:00Z',
     avatar_url: 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',

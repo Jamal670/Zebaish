@@ -92,7 +92,7 @@ export const ResellerProvider: React.FC<{ children: ReactNode }> = ({ children }
       'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80',
     responseTime: 'Under 1 hour',
     warehouseAddress: resellerProfile?.address || 'Shop #12, Liberty Market, Gulberg III, Lahore',
-    iban: resellerProfile?.iban || 'PK36MEZN00000012345678',
+    iban: resellerProfile?.iban || 'PK80MEZN0038020113013132',
     emailNotifications: true,
     smsNotifications: true,
     bio: 'Verified reseller of premium Pakistani designer surplus. Direct factory leftovers at 50-70% off retail.',

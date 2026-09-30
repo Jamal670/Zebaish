@@ -95,21 +95,16 @@ export const HowToPayModal: React.FC<HowToPayModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopyIBAN}
-                className={`px-3 py-2 rounded-md text-xs font-bold flex items-center justify-center space-x-1.5 transition-all shrink-0 cursor-pointer min-h-[38px] ${copied
+                title="Copy IBAN"
+                className={`p-2 rounded-md flex items-center justify-center transition-all shrink-0 cursor-pointer ${copied
                     ? 'bg-emerald-500 text-stone-950 scale-105'
                     : 'bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700'
                   }`}
               >
                 {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Copied!</span>
-                  </>
+                  <Check className="w-4 h-4 text-stone-950" />
                 ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy IBAN</span>
-                  </>
+                  <Copy className="w-4 h-4" />
                 )}
               </button>
             </div>
