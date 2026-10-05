@@ -4,7 +4,7 @@ import { Product, Reseller, Review, Order, UGCItem, CategoryCard } from '@/types
 import heroZibaish from '@/src/assets/images/hero_zibaish_1784666632437.jpg';
 import heroNafasat from '@/src/assets/images/hero_nafasat_1784666696363.jpg';
 import heroRiwayatiHusn from '@/src/assets/images/hero_riwayati_husn_1784666650670.jpg';
-import heroRonak from '@/src/assets/images/hero_ronaq_1784666668739.jpg';
+import heroRonak from '@/src/assets/images/hero_zibaish_banner_1784666341674.jpg';
 import heroClassic from '@/src/assets/images/hero_classic_1784666682016.jpg';
 
 import campaignMastaniBg from '@/src/assets/images/campaign_mastani_bg_1784669097184.jpg';
@@ -417,6 +417,22 @@ export const HERO_SLIDES = [
   {
     id: 'slide-1',
     image: heroZibaish,
+  },
+  {
+    id: 'slide-2',
+    image: heroNafasat,
+  },
+  {
+    id: 'slide-3',
+    image: heroRiwayatiHusn,
+  },
+  {
+    id: 'slide-4',
+    image: heroRonak,
+  },
+  {
+    id: 'slide-5',
+    image: heroClassic,
   },
 
 ];
