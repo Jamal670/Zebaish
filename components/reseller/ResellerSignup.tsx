@@ -148,6 +148,9 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
   onNavigateLogin,
   onNavigateHome,
 }) => {
+  // Set to true to re-enable Section 3 (CNIC Identity Verification) in UI
+  const SHOW_CNIC_SECTION = false;
+
   const { user, refetchProfile } = useAuth();
   const {
     cartItems,
@@ -304,7 +307,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         return '';
       case 'cnic': {
         const digits = getCleanCnic(value);
-        if (!digits) return 'CNIC number is required.';
+        if (!digits) return '';
         if (digits.length !== 13) return 'CNIC must be exactly 13 digits (e.g. 35202-1234567-1).';
         return '';
       }
@@ -322,14 +325,14 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         if (value.trim().length < 5) return 'Please enter a complete address (min 5 characters).';
         return '';
       case 'cnicFront':
-        if (!value) return 'CNIC Front Image is required.';
+        if (!value) return '';
         if (!(value instanceof File) || !value.type.startsWith('image/')) {
           return 'Please upload a valid image file (PNG, JPG, WEBP).';
         }
         if (value.size > 5 * 1024 * 1024) return 'CNIC Front image must be under 5MB.';
         return '';
       case 'cnicBack':
-        if (!value) return 'CNIC Back Image is required.';
+        if (!value) return '';
         if (!(value instanceof File) || !value.type.startsWith('image/')) {
           return 'Please upload a valid image file (PNG, JPG, WEBP).';
         }
@@ -429,10 +432,18 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
       const formattedPhone = formData.phone.trim();
 
       // Pre-check for duplicate email, CNIC, or phone number in sellers table
+      const orConditions: string[] = [
+        `email.eq.${email.trim()}`,
+        `phone.eq.${formattedPhone}`,
+      ];
+      if (formattedCnic) {
+        orConditions.push(`cnic.eq.${formattedCnic}`);
+      }
+
       const { data: existingSeller } = await supabase
         .from('sellers')
         .select('email, cnic, phone')
-        .or(`email.eq.${email.trim()},cnic.eq.${formattedCnic},phone.eq.${formattedPhone}`)
+        .or(orConditions.join(','))
         .maybeSingle();
 
       if (existingSeller) {
@@ -442,7 +453,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
           setLoading(false);
           return;
         }
-        if (existingSeller.cnic === formattedCnic) {
+        if (formattedCnic && existingSeller.cnic === formattedCnic) {
           setErrorMessage('A seller account with this CNIC number is already registered.');
           setErrors((prev) => ({ ...prev, cnic: 'CNIC number is already registered.' }));
           setLoading(false);
@@ -458,8 +469,11 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
 
       // 2. Supabase Auth Signup
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password: password,
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/dashboard/overview`,
+        },
       });
 
       if (authError) {
@@ -482,22 +496,24 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         return;
       }
 
-      // 3. Upload CNIC Front and Back images to Supabase Storage bucket 'cnic-documents' in parallel
-      let frontUrl = '';
-      let backUrl = '';
+      // 3. Upload CNIC Front and Back images to Supabase Storage bucket 'cnic-documents' in parallel (if provided)
+      let frontUrl: string | null = null;
+      let backUrl: string | null = null;
 
-      try {
-        const [fUrl, bUrl] = await Promise.all([
-          uploadCnicFile(cnicFrontFile!, 'front', authUser.id),
-          uploadCnicFile(cnicBackFile!, 'back', authUser.id),
-        ]);
-        frontUrl = fUrl;
-        backUrl = bUrl;
-      } catch (uploadErr: any) {
-        console.error('CNIC Document upload error:', uploadErr);
-        setErrorMessage(uploadErr.message || 'Failed to upload CNIC identity verification images. Please try again.');
-        setLoading(false);
-        return;
+      if (cnicFrontFile || cnicBackFile) {
+        try {
+          const [fUrl, bUrl] = await Promise.all([
+            cnicFrontFile ? uploadCnicFile(cnicFrontFile, 'front', authUser.id) : Promise.resolve(null),
+            cnicBackFile ? uploadCnicFile(cnicBackFile, 'back', authUser.id) : Promise.resolve(null),
+          ]);
+          frontUrl = fUrl;
+          backUrl = bUrl;
+        } catch (uploadErr: any) {
+          console.error('CNIC Document upload error:', uploadErr);
+          setErrorMessage(uploadErr.message || 'Failed to upload CNIC identity verification images. Please try again.');
+          setLoading(false);
+          return;
+        }
       }
 
       // 4. Insert/upsert seller profile once with all seller data + persistent CNIC URLs
@@ -508,7 +524,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
           email: authUser.email || email.trim(),
           full_name: formData.fullName.trim(),
           shop_name: formData.shopName.trim(),
-          cnic: formattedCnic,
+          cnic: formattedCnic || null,
           phone: formattedPhone,
           city: formData.city.trim(),
           address: formData.address.trim(),
@@ -739,11 +755,10 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
 
                 <div>
                   <label className="font-semibold text-stone-700 block mb-1">
-                    CNIC / National ID Number <span className="text-red-600">*</span>
+                    CNIC / National ID Number <span className="text-stone-400 font-normal">(Optional)</span>
                   </label>
                   <input
                     type="text"
-                    required
                     maxLength={15}
                     placeholder="35202-XXXXXXX-X"
                     value={formData.cnic}
@@ -834,119 +849,121 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
               </div>
             </div>
 
-            {/* 3. CNIC Identity Verification */}
-            <div className="space-y-4 pt-2">
-              <h3 className="font-bold text-stone-900 uppercase tracking-wider text-xs border-b border-stone-100 pb-2 flex items-center space-x-2">
-                <ShieldCheck className="w-4 h-4 text-stone-500" />
-                <span>3. CNIC Identity Verification</span>
-              </h3>
+            {/* 3. CNIC Identity Verification (Temporarily hidden from UI via SHOW_CNIC_SECTION) */}
+            {SHOW_CNIC_SECTION && (
+              <div className="space-y-4 pt-2">
+                <h3 className="font-bold text-stone-900 uppercase tracking-wider text-xs border-b border-stone-100 pb-2 flex items-center space-x-2">
+                  <ShieldCheck className="w-4 h-4 text-stone-500" />
+                  <span>3. CNIC Identity Verification</span>
+                </h3>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* CNIC Front Image Upload */}
-                <div>
-                  <label className="font-semibold text-stone-700 block mb-1">
-                    CNIC Front Image <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="file"
-                    ref={frontInputRef}
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] || null;
-                      setCnicFrontFile(file);
-                      if (errors.cnicFront) {
-                        const err = validateField('cnicFront', file);
-                        setErrors((prev) => ({ ...prev, cnicFront: err }));
-                      }
-                    }}
-                  />
-                  {cnicFrontFile ? (
-                    <div className="w-full min-h-[42px] px-3 py-2 border border-emerald-300 bg-emerald-50/60 rounded-xs flex items-center justify-between text-xs transition-colors">
-                      <div className="flex items-center space-x-2 min-w-0 pr-2">
-                        <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="truncate font-medium text-stone-900">{cnicFrontFile.name}</span>
-                        <span className="text-stone-400 text-2xs shrink-0">({(cnicFrontFile.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* CNIC Front Image Upload */}
+                  <div>
+                    <label className="font-semibold text-stone-700 block mb-1">
+                      CNIC Front Image <span className="text-stone-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="file"
+                      ref={frontInputRef}
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setCnicFrontFile(file);
+                        if (errors.cnicFront) {
+                          const err = validateField('cnicFront', file);
+                          setErrors((prev) => ({ ...prev, cnicFront: err }));
+                        }
+                      }}
+                    />
+                    {cnicFrontFile ? (
+                      <div className="w-full min-h-[42px] px-3 py-2 border border-emerald-300 bg-emerald-50/60 rounded-xs flex items-center justify-between text-xs transition-colors">
+                        <div className="flex items-center space-x-2 min-w-0 pr-2">
+                          <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="truncate font-medium text-stone-900">{cnicFrontFile.name}</span>
+                          <span className="text-stone-400 text-2xs shrink-0">({(cnicFrontFile.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCnicFrontFile(null);
+                            if (frontInputRef.current) frontInputRef.current.value = '';
+                          }}
+                          className="text-stone-400 hover:text-red-600 p-1 rounded transition-colors shrink-0 cursor-pointer"
+                          title="Remove CNIC Front Image"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => {
-                          setCnicFrontFile(null);
-                          if (frontInputRef.current) frontInputRef.current.value = '';
-                        }}
-                        className="text-stone-400 hover:text-red-600 p-1 rounded transition-colors shrink-0 cursor-pointer"
-                        title="Remove CNIC Front Image"
+                        onClick={() => frontInputRef.current?.click()}
+                        className={`w-full min-h-[42px] px-3 py-2.5 border rounded-xs text-xs flex items-center justify-between transition-colors bg-white hover:bg-stone-50 cursor-pointer ${errors.cnicFront ? 'border-red-500 text-red-700' : 'border-stone-300 text-stone-500'
+                          }`}
                       >
-                        <X className="w-4 h-4" />
+                        <span className="truncate">Choose CNIC Front Image...</span>
+                        <Upload className="w-4 h-4 text-stone-400 shrink-0 ml-2" />
                       </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => frontInputRef.current?.click()}
-                      className={`w-full min-h-[42px] px-3 py-2.5 border rounded-xs text-xs flex items-center justify-between transition-colors bg-white hover:bg-stone-50 cursor-pointer ${errors.cnicFront ? 'border-red-500 text-red-700' : 'border-stone-300 text-stone-500'
-                        }`}
-                    >
-                      <span className="truncate">Choose CNIC Front Image...</span>
-                      <Upload className="w-4 h-4 text-stone-400 shrink-0 ml-2" />
-                    </button>
-                  )}
-                  {errors.cnicFront && <p className="text-xs text-red-600 font-medium mt-1">{errors.cnicFront}</p>}
-                </div>
+                    )}
+                    {errors.cnicFront && <p className="text-xs text-red-600 font-medium mt-1">{errors.cnicFront}</p>}
+                  </div>
 
-                {/* CNIC Back Image Upload */}
-                <div>
-                  <label className="font-semibold text-stone-700 block mb-1">
-                    CNIC Back Image <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="file"
-                    ref={backInputRef}
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] || null;
-                      setCnicBackFile(file);
-                      if (errors.cnicBack) {
-                        const err = validateField('cnicBack', file);
-                        setErrors((prev) => ({ ...prev, cnicBack: err }));
-                      }
-                    }}
-                  />
-                  {cnicBackFile ? (
-                    <div className="w-full min-h-[42px] px-3 py-2 border border-emerald-300 bg-emerald-50/60 rounded-xs flex items-center justify-between text-xs transition-colors">
-                      <div className="flex items-center space-x-2 min-w-0 pr-2">
-                        <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span className="truncate font-medium text-stone-900">{cnicBackFile.name}</span>
-                        <span className="text-stone-400 text-2xs shrink-0">({(cnicBackFile.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                  {/* CNIC Back Image Upload */}
+                  <div>
+                    <label className="font-semibold text-stone-700 block mb-1">
+                      CNIC Back Image <span className="text-stone-400 font-normal">(Optional)</span>
+                    </label>
+                    <input
+                      type="file"
+                      ref={backInputRef}
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setCnicBackFile(file);
+                        if (errors.cnicBack) {
+                          const err = validateField('cnicBack', file);
+                          setErrors((prev) => ({ ...prev, cnicBack: err }));
+                        }
+                      }}
+                    />
+                    {cnicBackFile ? (
+                      <div className="w-full min-h-[42px] px-3 py-2 border border-emerald-300 bg-emerald-50/60 rounded-xs flex items-center justify-between text-xs transition-colors">
+                        <div className="flex items-center space-x-2 min-w-0 pr-2">
+                          <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="truncate font-medium text-stone-900">{cnicBackFile.name}</span>
+                          <span className="text-stone-400 text-2xs shrink-0">({(cnicBackFile.size / (1024 * 1024)).toFixed(2)} MB)</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCnicBackFile(null);
+                            if (backInputRef.current) backInputRef.current.value = '';
+                          }}
+                          className="text-stone-400 hover:text-red-600 p-1 rounded transition-colors shrink-0 cursor-pointer"
+                          title="Remove CNIC Back Image"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => {
-                          setCnicBackFile(null);
-                          if (backInputRef.current) backInputRef.current.value = '';
-                        }}
-                        className="text-stone-400 hover:text-red-600 p-1 rounded transition-colors shrink-0 cursor-pointer"
-                        title="Remove CNIC Back Image"
+                        onClick={() => backInputRef.current?.click()}
+                        className={`w-full min-h-[42px] px-3 py-2.5 border rounded-xs text-xs flex items-center justify-between transition-colors bg-white hover:bg-stone-50 cursor-pointer ${errors.cnicBack ? 'border-red-500 text-red-700' : 'border-stone-300 text-stone-500'
+                          }`}
                       >
-                        <X className="w-4 h-4" />
+                        <span className="truncate">Choose CNIC Back Image...</span>
+                        <Upload className="w-4 h-4 text-stone-400 shrink-0 ml-2" />
                       </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => backInputRef.current?.click()}
-                      className={`w-full min-h-[42px] px-3 py-2.5 border rounded-xs text-xs flex items-center justify-between transition-colors bg-white hover:bg-stone-50 cursor-pointer ${errors.cnicBack ? 'border-red-500 text-red-700' : 'border-stone-300 text-stone-500'
-                        }`}
-                    >
-                      <span className="truncate">Choose CNIC Back Image...</span>
-                      <Upload className="w-4 h-4 text-stone-400 shrink-0 ml-2" />
-                    </button>
-                  )}
-                  {errors.cnicBack && <p className="text-xs text-red-600 font-medium mt-1">{errors.cnicBack}</p>}
+                    )}
+                    {errors.cnicBack && <p className="text-xs text-red-600 font-medium mt-1">{errors.cnicBack}</p>}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Terms Checkbox */}
             <div className="pt-2">
@@ -973,7 +990,7 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
                         const draftPayload = { email, password, formData };
                         sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
                         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftPayload));
-                      } catch (err) {}
+                      } catch (err) { }
                     }}
                     className="text-blue-600 hover:text-blue-800 font-semibold underline transition-colors"
                   >
