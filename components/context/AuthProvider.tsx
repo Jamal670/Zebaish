@@ -19,6 +19,10 @@ export interface ResellerProfile {
   store_image_url?: string | null;
   status: string;
   created_at?: string;
+  shipping_charges?: number;
+  cod?: boolean;
+  advance_pay_full?: boolean;
+  advance_pay_dc?: boolean;
 }
 
 export interface UserProfile {

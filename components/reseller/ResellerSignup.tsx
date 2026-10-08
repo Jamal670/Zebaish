@@ -318,11 +318,8 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         return '';
       }
       case 'city':
-        if (!value || !value.trim()) return 'City is required.';
         return '';
       case 'address':
-        if (!value || !value.trim()) return 'Warehouse / Shop address is required.';
-        if (value.trim().length < 5) return 'Please enter a complete address (min 5 characters).';
         return '';
       case 'cnicFront':
         if (!value) return '';
@@ -526,8 +523,8 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
           shop_name: formData.shopName.trim(),
           cnic: formattedCnic || null,
           phone: formattedPhone,
-          city: formData.city.trim(),
-          address: formData.address.trim(),
+          city: formData.city?.trim() || null,
+          address: formData.address?.trim() || null,
           cnic_img_front: frontUrl,
           cnic_img_back: backUrl,
           bank_name: null,
@@ -803,11 +800,10 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
 
                 <div>
                   <label className="font-semibold text-stone-700 block mb-1">
-                    City <span className="text-red-600">*</span>
+                    City <span className="text-stone-400 font-normal">(Optional)</span>
                   </label>
                   <input
                     type="text"
-                    required
                     placeholder="Lahore"
                     value={formData.city}
                     onChange={(e) => {
@@ -826,11 +822,10 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
 
                 <div>
                   <label className="font-semibold text-stone-700 block mb-1">
-                    Warehouse / Shop Address <span className="text-red-600">*</span>
+                    Warehouse / Shop Address <span className="text-stone-400 font-normal">(Optional)</span>
                   </label>
                   <input
                     type="text"
-                    required
                     placeholder="Shop #12, Liberty Market, Gulberg III"
                     value={formData.address}
                     onChange={(e) => {

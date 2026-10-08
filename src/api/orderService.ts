@@ -1,6 +1,12 @@
 import supabase from './client';
 import { CartItem, Order, CustomerOrderItem } from '@/types';
 
+export const PAYMENT_METHOD_DB = {
+  COD: 'COD',
+  FULL: 'Advanced_Full',
+  DC: 'Advanced_DC',
+} as const;
+
 export interface CheckoutCustomerInfo {
   fullName: string;
   email: string;
@@ -11,10 +17,18 @@ export interface CheckoutCustomerInfo {
   paymentMethod: 'Cash on Delivery' | 'JazzCash' | 'EasyPaisa' | 'Bank Card' | string;
 }
 
+export interface SellerPaymentData {
+  sellerId: string;
+  paymentMethod: 'COD' | 'FULL' | 'DC';
+  paymentProofUrl?: string | null;
+  shippingFee: number;
+}
+
 export interface PlaceOrderParams {
   userId?: string | null;
   customerInfo: CheckoutCustomerInfo;
   cartItems: CartItem[];
+  sellerPayments?: Record<string, SellerPaymentData>;
 }
 
 export interface PlaceOrderResult {
@@ -30,6 +44,75 @@ function isValidUUID(id: string): boolean {
 }
 
 /**
+ * Uploads a seller's payment screenshot proof to Supabase Storage bucket 'payment'.
+ */
+export async function uploadPaymentProof(
+  file: File,
+  sellerId: string,
+  shopName: string
+): Promise<{ url: string | null; path: string | null; error?: string }> {
+  const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+  if (!validTypes.includes(file.type.toLowerCase())) {
+    return {
+      url: null,
+      path: null,
+      error: `Payment proof for seller "${shopName}" must be a valid image file (PNG, JPG, JPEG, or WEBP).`,
+    };
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    return {
+      url: null,
+      path: null,
+      error: `Payment proof for seller "${shopName}" exceeds the maximum allowed size of 10MB.`,
+    };
+  }
+
+  const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+  const path = `proofs/${Date.now()}_${crypto.randomUUID()}_${cleanFileName}`;
+
+  try {
+    const { error: uploadError } = await supabase.storage
+      .from('payment')
+      .upload(path, file, { cacheControl: '3600', upsert: false });
+
+    if (uploadError) {
+      console.error(`Storage upload error for seller "${shopName}":`, uploadError);
+      return {
+        url: null,
+        path: null,
+        error: `Failed to upload payment proof for seller "${shopName}": ${uploadError.message}`,
+      };
+    }
+
+    const { data: pubData } = supabase.storage
+      .from('payment')
+      .getPublicUrl(path);
+
+    return { url: pubData.publicUrl, path, error: undefined };
+  } catch (err: any) {
+    console.error(`Unexpected storage upload error for seller "${shopName}":`, err);
+    return {
+      url: null,
+      path: null,
+      error: `Unexpected error uploading payment proof for seller "${shopName}": ${err.message || err}`,
+    };
+  }
+}
+
+/**
+ * Best-effort deletion of uploaded files from Supabase Storage on order rollback.
+ */
+export async function deletePaymentProofs(paths: string[]): Promise<void> {
+  if (!paths || paths.length === 0) return;
+  try {
+    await supabase.storage.from('payment').remove(paths);
+  } catch (err) {
+    console.warn('Error deleting uploaded payment proof files during rollback:', err);
+  }
+}
+
+/**
  * Places an order into Supabase database (or fallback local transaction).
  * Performs validation, stock check, price recalculation from DB,
  * atomic creation of orders, order_items, seller_orders,
@@ -39,14 +122,11 @@ export async function placeOrder({
   userId,
   customerInfo,
   cartItems,
+  sellerPayments,
 }: PlaceOrderParams): Promise<PlaceOrderResult> {
   if (!cartItems || cartItems.length === 0) {
     return { success: false, error: 'Your cart is empty. Please add items before checking out.' };
   }
-
-  // Map payment method to DB constraint ('COD' or 'Online')
-  const dbPaymentMethod =
-    customerInfo.paymentMethod === 'Cash on Delivery' ? 'COD' : 'Online';
 
   // Fallback postal code if empty to prevent NOT NULL constraint violations in DB
   const cleanPostalCode = customerInfo.postalCode?.trim() || '00000';
@@ -59,43 +139,7 @@ export async function placeOrder({
 
   // If there are valid DB product UUIDs, attempt DB order creation via RPC or fallback
   if (dbItems.length > 0) {
-    // 1. Try atomic RPC first
-    try {
-      const rpcItemsPayload = dbItems.map((item) => ({
-        product_id: item.product.id,
-        size: item.size || 'Unstitched',
-        quantity: item.quantity,
-      }));
-
-      const { data: rpcRes, error: rpcErr } = await supabase.rpc('create_checkout_order', {
-        p_order_number: orderNumber,
-        p_user_id: userId && isValidUUID(userId) ? userId : null,
-        p_customer_name: customerInfo.fullName.trim(),
-        p_customer_email: customerInfo.email.trim(),
-        p_customer_phone: customerInfo.phone.trim(),
-        p_shipping_address: customerInfo.address.trim(),
-        p_city: customerInfo.city.trim(),
-        p_postal_code: cleanPostalCode,
-        p_payment_method: dbPaymentMethod,
-        p_payment_status: 'Pending',
-        p_order_status: 'Pending',
-        p_items: rpcItemsPayload,
-      });
-
-      if (!rpcErr && rpcRes && rpcRes.success) {
-        return {
-          success: true,
-          orderId: rpcRes.order_id,
-          orderNumber: rpcRes.order_number,
-        };
-      } else if (rpcErr && rpcErr.message && (rpcErr.message.includes('Insufficient stock') || rpcErr.message.includes('left for'))) {
-        return { success: false, error: rpcErr.message };
-      }
-    } catch (err: any) {
-      console.warn('RPC create_checkout_order not available, proceeding to client-side atomic transaction fallback...', err);
-    }
-
-    // 2. Client-side fallback transaction with safety rollback
+    // Client-side transaction with safety rollback
     try {
       const productIds = dbItems.map((i) => i.product.id);
 
@@ -179,7 +223,7 @@ export async function placeOrder({
 
       // Step 2: Calculate pricing using original_retail_price as THE primary price
       const sellerSubtotals = new Map<string, number>();
-      let totalAmount = 0;
+      let itemsSubtotalSum = 0;
 
       const preparedOrderItems: any[] = [];
 
@@ -187,7 +231,7 @@ export async function placeOrder({
         const dbProd = prodMap.get(item.product.id)!;
         const actualPrice = Number(dbProd.original_retail_price || dbProd.surplus_selling_price) || item.product.price;
         const subtotal = actualPrice * item.quantity;
-        totalAmount += subtotal;
+        itemsSubtotalSum += subtotal;
 
         const sId = dbProd.seller_id;
         const currSellerTotal = sellerSubtotals.get(sId) || 0;
@@ -205,7 +249,15 @@ export async function placeOrder({
         });
       }
 
-      // Insert Main Order Record
+      // Calculate total shipping amount across all sellers
+      const totalShippingAmount = Array.from(sellerSubtotals.keys()).reduce((sum, sId) => {
+        const pData = sellerPayments?.[sId];
+        return sum + (pData?.shippingFee ?? 150);
+      }, 0);
+
+      const grandTotalAmount = itemsSubtotalSum + totalShippingAmount;
+
+      // Insert Main Order Record (orders.payment_method is NOT inserted)
       const { data: orderData, error: orderErr } = await supabase
         .from('orders')
         .insert({
@@ -217,8 +269,8 @@ export async function placeOrder({
           shipping_address: customerInfo.address.trim(),
           city: customerInfo.city.trim(),
           postal_code: cleanPostalCode,
-          total_amount: totalAmount,
-          payment_method: dbPaymentMethod,
+          shipping_amount: totalShippingAmount,
+          total_amount: grandTotalAmount,
           payment_status: 'Pending',
           order_status: 'Pending',
         })
@@ -272,14 +324,35 @@ export async function placeOrder({
         };
       }
 
-      // Step 3: Insert Seller Orders
-      const sellerOrdersToInsert = Array.from(sellerSubtotals.entries()).map(([sId, sTotal]) => ({
-        order_id: orderId,
-        seller_id: sId,
-        seller_total: sTotal,
-        status: 'Pending',
-        payment_status: 'Pending',
-      }));
+      // Step 3: Insert Seller Orders with per-seller payment fields
+      const sellerOrdersToInsert = Array.from(sellerSubtotals.entries()).map(([sId, sTotal]) => {
+        const pData = sellerPayments?.[sId];
+        const rawMethod = pData?.paymentMethod || 'COD';
+
+        const dbMethod =
+          rawMethod === 'COD'
+            ? PAYMENT_METHOD_DB.COD
+            : rawMethod === 'FULL'
+              ? PAYMENT_METHOD_DB.FULL
+              : PAYMENT_METHOD_DB.DC;
+
+        const isAdvance = rawMethod === 'FULL' || rawMethod === 'DC';
+        const sellerShipping = pData?.shippingFee ?? 150;
+        const proofUrl = isAdvance ? (pData?.paymentProofUrl || null) : null;
+        const shippingPaymentStatus = isAdvance ? 'Pending' : null;
+
+        return {
+          order_id: orderId,
+          seller_id: sId,
+          seller_total: sTotal,
+          shipping_amount: sellerShipping,
+          payment_method: dbMethod,
+          payment_proof_url: proofUrl,
+          shipping_payment_status: shippingPaymentStatus,
+          status: 'Pending',
+          payment_status: 'Pending',
+        };
+      });
 
       const { error: sellerOrdersErr } = await supabase
         .from('seller_orders')
@@ -469,6 +542,25 @@ export async function fetchOrderByIdOrNumber(orderIdOrNumber: string): Promise<F
       };
     });
 
+    const { data: sellerOrdersData } = await supabase
+      .from('seller_orders')
+      .select('payment_method')
+      .eq('order_id', orderData.id);
+
+    let displayPaymentMethod = 'Cash on Delivery';
+    if (sellerOrdersData && sellerOrdersData.length > 0) {
+      const methods = sellerOrdersData.map((so: any) => so.payment_method);
+      if (methods.every((m: string) => m === 'COD')) {
+        displayPaymentMethod = 'Cash on Delivery';
+      } else if (methods.every((m: string) => m === 'Advanced_Full')) {
+        displayPaymentMethod = 'Advance Full Payment';
+      } else if (methods.every((m: string) => m === 'Advanced_DC')) {
+        displayPaymentMethod = 'Advance Delivery Charges';
+      } else {
+        displayPaymentMethod = 'Multi-Seller Payment Plan';
+      }
+    }
+
     return {
       id: orderData.id,
       orderNumber: orderData.order_number || orderIdOrNumber,
@@ -480,7 +572,7 @@ export async function fetchOrderByIdOrNumber(orderIdOrNumber: string): Promise<F
       city: orderData.city || '',
       postalCode: orderData.postal_code || '',
       totalAmount: Number(orderData.total_amount) || 0,
-      paymentMethod: orderData.payment_method === 'COD' ? 'Cash on Delivery' : (orderData.payment_method || 'Cash on Delivery'),
+      paymentMethod: displayPaymentMethod,
       paymentStatus: orderData.payment_status || 'Pending',
       orderStatus: orderData.order_status || 'Pending',
       items: mappedItems,
@@ -539,7 +631,7 @@ export async function trackOrderByNumber(orderNumberInput: string): Promise<{ da
   }
 
   try {
-    // Relational query joining orders -> order_items -> products -> product_images in a single request shape
+    // Relational query joining orders -> seller_orders & order_items -> products -> product_images
     const { data: orderData, error: dbError } = await supabase
       .from('orders')
       .select(`
@@ -548,8 +640,10 @@ export async function trackOrderByNumber(orderNumberInput: string): Promise<{ da
         order_status,
         created_at,
         total_amount,
-        payment_method,
         payment_status,
+        seller_orders (
+          payment_method
+        ),
         order_items (
           product_id,
           product_title,
@@ -607,8 +701,20 @@ export async function trackOrderByNumber(orderNumberInput: string): Promise<{ da
 
     const mappedStatus = mapOrderStatus(orderData.order_status);
 
-    const formattedPaymentMethod =
-      orderData.payment_method === 'COD' ? 'Cash on Delivery' : (orderData.payment_method || 'Cash on Delivery');
+    let formattedPaymentMethod = 'Cash on Delivery';
+    const selOrders: any[] = Array.isArray(orderData.seller_orders) ? orderData.seller_orders : [];
+    if (selOrders.length > 0) {
+      const methods = selOrders.map((so: any) => so.payment_method);
+      if (methods.every((m: string) => m === 'COD')) {
+        formattedPaymentMethod = 'Cash on Delivery';
+      } else if (methods.every((m: string) => m === 'Advanced_Full')) {
+        formattedPaymentMethod = 'Advance Full Payment';
+      } else if (methods.every((m: string) => m === 'Advanced_DC')) {
+        formattedPaymentMethod = 'Advance Delivery Charges';
+      } else {
+        formattedPaymentMethod = 'Multi-Seller Payment Plan';
+      }
+    }
 
     return {
       data: {

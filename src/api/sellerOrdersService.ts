@@ -65,6 +65,7 @@ export async function fetchSellerOrders({
         refund_image,
         refund_note,
         refund_status,
+        payment_method,
         created_at,
         updated_at,
         orders!fk_seller_orders_order (
@@ -76,7 +77,6 @@ export async function fetchSellerOrders({
           shipping_address,
           city,
           postal_code,
-          payment_method,
           payment_status,
           created_at
         )

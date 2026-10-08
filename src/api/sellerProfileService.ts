@@ -2,14 +2,24 @@ import supabase from './client';
 import { ResellerProfile } from '@/components/context/AuthProvider';
 
 export interface StoreOverviewStats {
-  totalProducts: number;
-  activeProducts: number;
-  soldOutProducts: number;
-  totalOrders: number;
-  totalRevenue: number;
-  averageRating: number;
-  memberSince: string;
+  totalProducts?: number;
+  activeProducts?: number;
+  soldOutProducts?: number;
+  totalOrders?: number;
+  totalRevenue?: number;
+  averageRating?: number;
+  memberSince?: string;
   shippingCharges: number;
+}
+
+export interface SellerShippingPaymentConfig {
+  shipping_charges: number;
+  cod: boolean;
+  advance_pay_full: boolean;
+  advance_pay_dc: boolean;
+  bank_name?: string;
+  account_title?: string;
+  iban?: string;
 }
 
 function isValidUUID(id: string): boolean {
@@ -27,16 +37,17 @@ function formatDate(dateStr?: string): string {
 }
 
 /**
- * Fetches full seller profile from sellers table + store performance overview stats
+ * Fetches seller profile and shipping/payment settings from sellers table.
+ * Selects only specific required columns (no select('*')).
  */
 export async function fetchSellerFullProfile(sellerId: string): Promise<{
-  profile: ResellerProfile & { avatar_url?: string; store_image_url?: string; shipping_charges?: number };
-  stats: StoreOverviewStats;
+  profile: ResellerProfile;
+  stats?: StoreOverviewStats;
 }> {
   const isUuid = isValidUUID(sellerId);
 
   // Fallback defaults for demo/mock IDs
-  const defaultProfile: ResellerProfile & { avatar_url?: string; store_image_url?: string; shipping_charges?: number } = {
+  const defaultProfile: ResellerProfile = {
     id: sellerId,
     email: 'reseller@zebaish.pk',
     full_name: 'Ayesha Khan',
@@ -53,28 +64,20 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
     avatar_url: 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
     store_image_url: 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
     shipping_charges: 150,
-  };
-
-  const defaultStats: StoreOverviewStats = {
-    totalProducts: 24,
-    activeProducts: 18,
-    soldOutProducts: 6,
-    totalOrders: 142,
-    totalRevenue: 1525000,
-    averageRating: 4.9,
-    memberSince: 'Jan 2024',
-    shippingCharges: 150,
+    cod: true,
+    advance_pay_full: false,
+    advance_pay_dc: false,
   };
 
   if (!isUuid) {
-    return { profile: defaultProfile, stats: defaultStats };
+    return { profile: defaultProfile };
   }
 
   try {
-    // 1. Fetch Profile from `sellers` table
+    // 1. Fetch Profile from `sellers` table selecting specific columns only (no select('*'))
     const { data: rawSeller, error: sellerErr } = await supabase
       .from('sellers')
-      .select('*')
+      .select('id, email, full_name, shop_name, cnic, phone, city, address, bank_name, account_title, iban, status, created_at, avatar_url, store_image_url, logo_url, shipping_charges, cod, advance_pay_full, advance_pay_dc')
       .eq('id', sellerId)
       .maybeSingle();
 
@@ -82,7 +85,10 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
       console.warn('Error fetching seller profile:', sellerErr.message);
     }
 
-    const profile: ResellerProfile & { avatar_url?: string; store_image_url?: string; shipping_charges?: number } = {
+    const rawShippingCharges = Number(rawSeller?.shipping_charges);
+    const validShipping = isNaN(rawShippingCharges) ? 150 : Math.max(0, Math.min(500, rawShippingCharges));
+
+    const profile: ResellerProfile = {
       id: rawSeller?.id || sellerId,
       email: rawSeller?.email || defaultProfile.email,
       full_name: rawSeller?.full_name || defaultProfile.full_name,
@@ -91,81 +97,23 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
       phone: rawSeller?.phone || defaultProfile.phone,
       city: rawSeller?.city || defaultProfile.city,
       address: rawSeller?.address || defaultProfile.address,
-      bank_name: rawSeller?.bank_name || defaultProfile.bank_name,
-      account_title: rawSeller?.account_title || defaultProfile.account_title,
-      iban: rawSeller?.iban || defaultProfile.iban,
+      bank_name: rawSeller?.bank_name ?? defaultProfile.bank_name,
+      account_title: rawSeller?.account_title ?? defaultProfile.account_title,
+      iban: rawSeller?.iban ?? defaultProfile.iban,
       status: rawSeller?.status || 'Active',
       created_at: rawSeller?.created_at || defaultProfile.created_at,
       avatar_url: rawSeller?.avatar_url || rawSeller?.store_image_url || rawSeller?.logo_url || defaultProfile.avatar_url,
       store_image_url: rawSeller?.store_image_url || rawSeller?.avatar_url || rawSeller?.logo_url || defaultProfile.store_image_url,
-      shipping_charges: Number(rawSeller?.shipping_charges ?? 150),
+      shipping_charges: validShipping,
+      cod: rawSeller?.cod !== undefined && rawSeller?.cod !== null ? Boolean(rawSeller.cod) : defaultProfile.cod,
+      advance_pay_full: rawSeller?.advance_pay_full !== undefined && rawSeller?.advance_pay_full !== null ? Boolean(rawSeller.advance_pay_full) : defaultProfile.advance_pay_full,
+      advance_pay_dc: rawSeller?.advance_pay_dc !== undefined && rawSeller?.advance_pay_dc !== null ? Boolean(rawSeller.advance_pay_dc) : defaultProfile.advance_pay_dc,
     };
 
-    // 2. Batch fetch Products & Orders & Reviews stats for Store Information tab
-    const [productsRes, ordersRes] = await Promise.all([
-      supabase.from('products').select('id, status').eq('seller_id', sellerId),
-      supabase.from('seller_orders').select('id, order_id, seller_total, status').eq('seller_id', sellerId),
-    ]);
-
-    const prods = productsRes.data || [];
-    const ords = ordersRes.data || [];
-
-    const totalProducts = prods.length;
-    const activeProducts = prods.filter((p: any) => (p.status || '').toLowerCase() === 'active').length;
-
-    // Calculate unique sold-out products count
-    const soldOutProductSet = new Set<string>();
-    prods.forEach((p: any) => {
-      if ((p.status || '').toLowerCase() === 'sold out') {
-        soldOutProductSet.add(p.id);
-      }
-    });
-
-    const shippedOrDeliveredOrders = ords.filter((o: any) => {
-      const st = (o.status || '').toLowerCase();
-      return st === 'shipped' || st === 'delivered';
-    });
-
-    // Calculate total lifetime revenue exclusively from Shipped or Delivered orders
-    const totalRevenue = shippedOrDeliveredOrders.reduce(
-      (sum: number, o: any) => sum + (Number(o.seller_total) || 0),
-      0
-    );
-
-    const totalOrders = ords.length;
-
-    // Fetch reviews average
-    const productIds = prods.map((p: any) => p.id);
-    let avgRating = 4.9;
-    if (productIds.length > 0) {
-      const { data: revs } = await supabase
-        .from('reviews')
-        .select('rating')
-        .in('product_id', productIds);
-      if (revs && revs.length > 0) {
-        const sumR = revs.reduce((acc: number, r: any) => acc + (Number(r.rating) || 5), 0);
-        avgRating = Math.round((sumR / revs.length) * 10) / 10;
-      }
-    }
-
-    const rawShippingCharges = Number(rawSeller?.shipping_charges);
-    const validShipping = isNaN(rawShippingCharges) ? 150 : Math.max(0, Math.min(500, rawShippingCharges));
-
-    const stats: StoreOverviewStats = {
-      totalProducts: totalProducts,
-      activeProducts: activeProducts,
-      soldOutProducts: soldOutProductSet.size,
-      totalOrders: totalOrders,
-      totalRevenue: totalRevenue,
-      averageRating: avgRating,
-      memberSince: formatDate(profile.created_at),
-      shippingCharges: validShipping,
-    };
-
-    return { profile, stats };
+    return { profile };
   } catch (err) {
     console.error('Error fetching seller full profile:', err);
-    return { profile: defaultProfile, stats: defaultStats };
+    return { profile: defaultProfile };
   }
 }
 
@@ -293,16 +241,42 @@ export async function updateSellerPassword(
 }
 
 /**
- * Updates seller shipping charges in sellers table (Range 0 - 500 PKR)
+ * Updates seller shipping charges, payment options, and bank details in sellers table.
+ * Enforces server-side validation for:
+ * 1. Shipping charges range (0 <= shipping_charges <= 500)
+ * 2. Mutual exclusivity of advance payment options (advance_pay_full and advance_pay_dc cannot both be true)
+ * 3. At least one payment option must be enabled
+ * 4. Conditional requirement: Bank details (bank_name, account_title, iban) are REQUIRED when advance_pay_full or advance_pay_dc is true
  */
-export async function updateSellerShippingCharges(
+export async function updateSellerShippingAndPaymentConfig(
   sellerId: string,
-  shippingCharges: number
+  config: SellerShippingPaymentConfig
 ): Promise<{ success: boolean; error?: string }> {
   if (!sellerId) return { success: false, error: 'Invalid seller ID' };
 
-  if (shippingCharges < 0 || shippingCharges > 500) {
+  if (config.shipping_charges < 0 || config.shipping_charges > 500) {
     return { success: false, error: 'Shipping charges must be between 0 and 500 PKR.' };
+  }
+
+  if (config.advance_pay_full && config.advance_pay_dc) {
+    return { success: false, error: 'Both Advance Payment Full and Advance Payment Only DC cannot be selected simultaneously.' };
+  }
+
+  if (!config.cod && !config.advance_pay_full && !config.advance_pay_dc) {
+    return { success: false, error: 'At least one payment option (COD, Advance Payment Full, or Advance Payment Only DC) must be selected.' };
+  }
+
+  // Server-side conditional validation for Bank Details when Advance Payment option is active
+  if (config.advance_pay_full || config.advance_pay_dc) {
+    if (!config.bank_name?.trim()) {
+      return { success: false, error: 'Bank Name is required when Advance Payment options are enabled.' };
+    }
+    if (!config.account_title?.trim()) {
+      return { success: false, error: 'Account Title is required when Advance Payment options are enabled.' };
+    }
+    if (!config.iban?.trim()) {
+      return { success: false, error: 'IBAN Number is required when Advance Payment options are enabled.' };
+    }
   }
 
   if (!isValidUUID(sellerId)) {
@@ -310,23 +284,46 @@ export async function updateSellerShippingCharges(
   }
 
   try {
+    const updatePayload: Record<string, any> = {
+      shipping_charges: config.shipping_charges,
+      cod: config.cod,
+      advance_pay_full: config.advance_pay_full,
+      advance_pay_dc: config.advance_pay_dc,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (config.bank_name !== undefined) updatePayload.bank_name = config.bank_name.trim();
+    if (config.account_title !== undefined) updatePayload.account_title = config.account_title.trim();
+    if (config.iban !== undefined) updatePayload.iban = config.iban.trim();
+
     const { error } = await supabase
       .from('sellers')
-      .update({
-        shipping_charges: shippingCharges,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', sellerId);
 
     if (error) {
-      console.error('Error updating shipping charges:', error);
+      console.error('Error updating seller shipping and payment config:', error);
       return { success: false, error: error.message };
     }
 
     return { success: true };
   } catch (err: any) {
-    console.error('Unexpected error updating shipping charges:', err);
-    return { success: false, error: err?.message || 'Failed to save shipping charges.' };
+    console.error('Unexpected error updating seller shipping and payment config:', err);
+    return { success: false, error: err?.message || 'Failed to save shipping & payment configuration.' };
   }
 }
 
+/**
+ * Backwards compatible alias for updateSellerShippingAndPaymentConfig
+ */
+export async function updateSellerShippingCharges(
+  sellerId: string,
+  shippingCharges: number
+): Promise<{ success: boolean; error?: string }> {
+  return updateSellerShippingAndPaymentConfig(sellerId, {
+    shipping_charges: shippingCharges,
+    cod: true,
+    advance_pay_full: false,
+    advance_pay_dc: false,
+  });
+}

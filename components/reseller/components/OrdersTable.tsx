@@ -339,6 +339,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4 text-center">Items</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4 text-right">Amount</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Payment</th>
+                <th className="py-3 px-3 sm:py-3.5 sm:px-4">profit</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4 text-center">Status</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Arrival Date</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Updated Date</th>

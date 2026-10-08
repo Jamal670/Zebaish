@@ -38,6 +38,14 @@
   .font-script {
     font-family: var(--font-script);
   }
+
+  .font-urdu,
+  .font-nastaliq {
+    font-family: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Urdu Typesetting', serif;
+    line-height: 2.2;
+    direction: rtl;
+    text-align: right;
+  }
 }
 
 /* Custom scrollbar styling for horizontal carousels */

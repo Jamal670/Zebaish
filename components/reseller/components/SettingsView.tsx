@@ -1,18 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/src/hooks/useAuth';
+
 import {
   fetchSellerFullProfile,
   updateSellerProfile,
   uploadSellerAvatar,
   updateSellerPassword,
-  updateSellerShippingCharges,
-  StoreOverviewStats,
+  updateSellerShippingAndPaymentConfig,
 } from '@/src/api/sellerProfileService';
-import { format$ } from '../data/mockWalletData';
 import {
   User,
   ShieldCheck,
-  Store,
+  Settings,
   Lock,
   Eye,
   EyeOff,
@@ -20,10 +19,6 @@ import {
   AlertCircle,
   Loader2,
   Save,
-  Package,
-  ShoppingBag,
-  TrendingUp,
-  Star,
   Calendar,
   MapPin,
   Phone,
@@ -34,9 +29,12 @@ import {
   X,
   Truck,
   Copy,
+  CreditCard,
+  Banknote,
+  Building2,
 } from 'lucide-react';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export interface SettingsViewProps {
   storeSettings?: any;
@@ -48,6 +46,7 @@ export type ActiveProfileTab = 'profile' | 'security' | 'store';
 export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) => {
   const { user, resellerProfile, refetchProfile } = useAuth();
   const sellerId = user?.id || resellerProfile?.id || '';
+  const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<ActiveProfileTab>('profile');
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
@@ -65,15 +64,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
   const [updatingPassword, setUpdatingPassword] = useState<boolean>(false);
   const [savingShipping, setSavingShipping] = useState<boolean>(false);
 
-  // TanStack Query for seller profile & stats
+  // TanStack Query for seller profile & settings
   const { data: profileQueryData, isLoading: loading } = useQuery({
     queryKey: ['sellerFullProfile', sellerId],
     queryFn: () => fetchSellerFullProfile(sellerId),
     enabled: Boolean(sellerId),
     staleTime: 60 * 1000,
   });
-
-  const stats = profileQueryData?.stats || null;
 
   const [originalData, setOriginalData] = useState<any>(null);
   const [formData, setFormData] = useState({
@@ -108,10 +105,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     confirm: false,
   });
 
-  // Shipping Charges State for Store Overview Tab
+  // Shipping & Payment Configuration State for Store Tab
   const [shippingChargesInput, setShippingChargesInput] = useState<string>('150');
-  const [originalShippingCharges, setOriginalShippingCharges] = useState<number>(150);
+  const [cod, setCod] = useState<boolean>(true);
+  const [advancePayFull, setAdvancePayFull] = useState<boolean>(false);
+  const [advancePayDc, setAdvancePayDc] = useState<boolean>(false);
+
+  // Bank Details State for Store Shipping Tab
+  const [bankNameInput, setBankNameInput] = useState<string>('');
+  const [accountTitleInput, setAccountTitleInput] = useState<string>('');
+  const [ibanInput, setIbanInput] = useState<string>('');
+
+  const [originalShippingConfig, setOriginalShippingConfig] = useState<{
+    shipping_charges: number;
+    cod: boolean;
+    advance_pay_full: boolean;
+    advance_pay_dc: boolean;
+    bank_name: string;
+    account_title: string;
+    iban: string;
+  } | null>(null);
+
   const [shippingError, setShippingError] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [bankErrors, setBankErrors] = useState<Record<string, string>>({});
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [passErrors, setPassErrors] = useState<Record<string, string>>({});
@@ -125,9 +142,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
   };
 
   useEffect(() => {
-    if (profileQueryData?.profile) {
-      const profile = profileQueryData.profile;
-      const stats = profileQueryData.stats;
+    const profile = profileQueryData?.profile || resellerProfile;
+    if (profile) {
       const initial = {
         full_name: profile.full_name || '',
         email: profile.email || user?.email || '',
@@ -155,11 +171,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
       setOriginalData(initial);
       setAvatarPreview(initial.store_image_url || initial.avatar_url);
 
-      const initialShipping = stats?.shippingCharges ?? (profile.shipping_charges || 150);
+      const initialShipping = profile.shipping_charges ?? 150;
+      const initialCod = profile.cod ?? true;
+      const initialFull = profile.advance_pay_full ?? false;
+      const initialDc = profile.advance_pay_dc ?? false;
+      const initialBankName = profile.bank_name || '';
+      const initialAccountTitle = profile.account_title || '';
+      const initialIban = profile.iban || '';
+
       setShippingChargesInput(String(initialShipping));
-      setOriginalShippingCharges(initialShipping);
+      setCod(initialCod);
+      setAdvancePayFull(initialFull);
+      setAdvancePayDc(initialDc);
+      setBankNameInput(initialBankName);
+      setAccountTitleInput(initialAccountTitle);
+      setIbanInput(initialIban);
+
+      setOriginalShippingConfig({
+        shipping_charges: initialShipping,
+        cod: initialCod,
+        advance_pay_full: initialFull,
+        advance_pay_dc: initialDc,
+        bank_name: initialBankName,
+        account_title: initialAccountTitle,
+        iban: initialIban,
+      });
     }
-  }, [profileQueryData, user?.email]);
+  }, [profileQueryData, resellerProfile, user?.email]);
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -232,12 +270,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
   }, [passData]);
 
   const isStoreChanged = useMemo(() => {
-    if (shippingError) return false;
+    if (shippingError || paymentError || Object.keys(bankErrors).length > 0) return false;
     const num = Number(shippingChargesInput);
     if (isNaN(num) || shippingChargesInput.trim() === '') return false;
     if (num < 0 || num > 500) return false;
-    return num !== originalShippingCharges;
-  }, [shippingChargesInput, originalShippingCharges, shippingError]);
+    if (!cod && !advancePayFull && !advancePayDc) return false;
+    if (!originalShippingConfig) return false;
+
+    return (
+      num !== originalShippingConfig.shipping_charges ||
+      cod !== originalShippingConfig.cod ||
+      advancePayFull !== originalShippingConfig.advance_pay_full ||
+      advancePayDc !== originalShippingConfig.advance_pay_dc ||
+      bankNameInput.trim() !== originalShippingConfig.bank_name.trim() ||
+      accountTitleInput.trim() !== originalShippingConfig.account_title.trim() ||
+      ibanInput.trim() !== originalShippingConfig.iban.trim()
+    );
+  }, [
+    shippingChargesInput,
+    cod,
+    advancePayFull,
+    advancePayDc,
+    bankNameInput,
+    accountTitleInput,
+    ibanInput,
+    originalShippingConfig,
+    shippingError,
+    paymentError,
+    bankErrors,
+  ]);
 
   const validateProfileForm = (): boolean => {
     const errs: Record<string, string> = {};
@@ -380,7 +441,58 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     setShippingError(null);
   };
 
-  const handleSaveShipping = async (e: React.FormEvent) => {
+  // Payment Option Mutual Exclusivity UI Logic
+  const handleCodToggle = () => {
+    const nextCod = !cod;
+    setCod(nextCod);
+
+    // Validate Section B: At least one option must remain checked
+    if (!nextCod && !advancePayFull && !advancePayDc) {
+      setPaymentError('At least one payment option must be selected.');
+    } else {
+      setPaymentError(null);
+    }
+  };
+
+  const handleAdvancePayFullToggle = () => {
+    const nextFull = !advancePayFull;
+    setAdvancePayFull(nextFull);
+    // Mutually exclusive: checking Full auto-unchecks DC
+    if (nextFull) {
+      setAdvancePayDc(false);
+      setPaymentError(null);
+    } else if (!cod && !advancePayDc) {
+      setPaymentError('At least one payment option must be selected.');
+    }
+  };
+
+  const handleAdvancePayDcToggle = () => {
+    const nextDc = !advancePayDc;
+    setAdvancePayDc(nextDc);
+    // Mutually exclusive: checking DC auto-unchecks Full
+    if (nextDc) {
+      setAdvancePayFull(false);
+      setPaymentError(null);
+    } else if (!cod && !advancePayFull) {
+      setPaymentError('At least one payment option must be selected.');
+    }
+  };
+
+  const validateBankDetails = (): boolean => {
+    if (!advancePayFull && !advancePayDc) {
+      setBankErrors({});
+      return true;
+    }
+    const errs: Record<string, string> = {};
+    if (!bankNameInput.trim()) errs.bank_name = 'Bank Name is required.';
+    if (!accountTitleInput.trim()) errs.account_title = 'Account Title is required.';
+    if (!ibanInput.trim()) errs.iban = 'IBAN Number is required.';
+
+    setBankErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSaveShippingAndPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     const num = Number(shippingChargesInput);
     if (isNaN(num) || num < 0 || num > 500) {
@@ -388,21 +500,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
       return;
     }
 
+    if (!cod && !advancePayFull && !advancePayDc) {
+      setPaymentError('At least one payment option must be selected.');
+      showToast('Please select at least one payment option.', 'error');
+      return;
+    }
+
+    if (advancePayFull && advancePayDc) {
+      setPaymentError('Both Advance Payment Full and Advance Payment Only DC cannot be selected.');
+      showToast('Both Advance Payment options cannot be selected simultaneously.', 'error');
+      return;
+    }
+
+    // Validate bank details if either advance payment option is selected
+    if ((advancePayFull || advancePayDc) && !validateBankDetails()) {
+      showToast('Bank Name, Account Title, and IBAN are required for Advance Payment options.', 'error');
+      return;
+    }
+
     setSavingShipping(true);
     try {
-      const res = await updateSellerShippingCharges(sellerId, num);
+      const res = await updateSellerShippingAndPaymentConfig(sellerId, {
+        shipping_charges: num,
+        cod,
+        advance_pay_full: advancePayFull,
+        advance_pay_dc: advancePayDc,
+        bank_name: bankNameInput,
+        account_title: accountTitleInput,
+        iban: ibanInput,
+      });
+
       if (!res.success) {
-        showToast(res.error || 'Failed to update shipping charges.', 'error');
+        showToast(res.error || 'Failed to update shipping & payment configuration.', 'error');
         setSavingShipping(false);
         return;
       }
 
-      setOriginalShippingCharges(num);
+      setOriginalShippingConfig({
+        shipping_charges: num,
+        cod,
+        advance_pay_full: advancePayFull,
+        advance_pay_dc: advancePayDc,
+        bank_name: bankNameInput,
+        account_title: accountTitleInput,
+        iban: ibanInput,
+      });
       setSavingShipping(false);
-      showToast('Shipping Charges updated successfully!');
+      
+      // Targeted cache invalidation & profile refetch
+      queryClient.invalidateQueries({ queryKey: ['sellerFullProfile', sellerId] });
+      refetchProfile();
+
+      showToast('Store Shipping & Payment Configuration updated successfully!');
     } catch (err: any) {
-      console.error('Error saving shipping charges:', err);
-      showToast(err?.message || 'Failed to update shipping charges.', 'error');
+      console.error('Error saving shipping configuration:', err);
+      showToast(err?.message || 'Failed to update configuration.', 'error');
       setSavingShipping(false);
     }
   };
@@ -473,8 +625,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
           <div className="space-y-2 text-center sm:text-left flex-1">
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              
-
               {/* Status Display: Active Seller / Inactive Seller / Suspended Seller */}
               <span
                 className={`text-2xs font-extrabold px-2.5 py-0.5 rounded-full uppercase border ${statusBadge.style}`}
@@ -566,8 +716,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
               : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
             }`}
         >
-          <Store className="w-4 h-4 shrink-0" />
-          <span>Store Overview</span>
+          <Settings className="w-4 h-4 shrink-0 text-amber-400" />
+          <span>Store Setting</span>
         </button>
       </div>
 
@@ -885,25 +1035,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
             </div>
           )}
 
-          {/* TAB 3: STORE OVERVIEW */}
+          {/* TAB 3: STORE SHIPPING & PAYMENT CONFIGURATION */}
           {activeTab === 'store' && (
             <div className="space-y-6">
-              {/* EDITABLE SHIPPING CHARGES CARD */}
-              <form onSubmit={handleSaveShipping} className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xs space-y-5">
+              <form onSubmit={handleSaveShippingAndPayment} className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xs space-y-6">
                 <div className="border-b border-stone-200 pb-3 flex items-center justify-between">
                   <div>
                     <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-stone-900 flex items-center space-x-2">
                       <Truck className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>Store Shipping Configuration</span>
+                      <span>Store Shipping & Payment Configuration</span>
                     </h3>
                     <p className="text-[11px] text-stone-500 mt-0.5">
-                      Set flat-rate shipping charges applied to customer orders (0 to 500 PKR)
+                      Configure delivery charges and accepted payment methods for customer checkouts
                     </p>
                   </div>
                 </div>
 
-                <div className="max-w-xl space-y-4">
-                  <div>
+                <div className="max-w-4xl space-y-6">
+                  {/* Section 1: Shipping Charges */}
+                  <div className="max-w-xl">
                     <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs sm:text-sm flex items-center justify-between">
                       <span>Shipping Charges (PKR) <span className="text-red-600">*</span></span>
                       <span className="text-[11px] font-normal text-stone-400">Allowed range: 0 - 500 PKR</span>
@@ -937,11 +1087,222 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                     )}
                   </div>
 
-                  <div className="pt-1 flex items-center justify-start">
+                  {/* Section 2: Choose Your Payment Options (Single Responsive Row Layout) */}
+                  <div className="pt-3 border-t border-stone-100">
+                    <div className="mb-3">
+                      <label className="font-bold text-stone-900 block uppercase tracking-wide text-xs sm:text-sm flex items-center space-x-2">
+                        <CreditCard className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Choose Your Payment Options</span>
+                      </label>
+                      <p className="text-[11px] text-stone-500 mt-0.5">
+                        Select payment methods available to buyers at checkout. Full & Only DC advance payment options are mutually exclusive.
+                      </p>
+                    </div>
+
+                    {paymentError && (
+                      <div className="p-3 mb-4 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 font-semibold flex items-center space-x-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                        <span>{paymentError}</span>
+                      </div>
+                    )}
+
+                    {/* Single Row Grid Layout for Payment Checkboxes */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Checkbox 1: Cash on Delivery (COD) */}
+                      <label
+                        className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${cod
+                            ? 'bg-amber-50/40 border-amber-300 shadow-2xs'
+                            : 'bg-white border-stone-200 hover:border-stone-300'
+                          }`}
+                      >
+                        <div className="flex items-center h-4 mt-0.5">
+                          <input
+                            type="checkbox"
+                            checked={cod}
+                            onChange={handleCodToggle}
+                            className="w-3.5 h-3.5 text-amber-600 border-stone-300 rounded focus:ring-amber-500 cursor-pointer accent-amber-600"
+                          />
+                        </div>
+                        <div className="ml-2.5 flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-bold text-stone-900 truncate flex items-center space-x-1">
+                              <Banknote className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>COD</span>
+                            </span>
+
+                          </div>
+                          <p className="text-[10px] text-stone-500 mt-1 leading-tight line-clamp-2">
+                            Pay cash in hand upon delivery.
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* Checkbox 2: Advance Payment Full */}
+                      <label
+                        className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${advancePayFull
+                            ? 'bg-amber-50/40 border-amber-300 shadow-2xs'
+                            : 'bg-white border-stone-200 hover:border-stone-300'
+                          }`}
+                      >
+                        <div className="flex items-center h-4 mt-0.5">
+                          <input
+                            type="checkbox"
+                            checked={advancePayFull}
+                            onChange={handleAdvancePayFullToggle}
+                            className="w-3.5 h-3.5 text-amber-600 border-stone-300 rounded focus:ring-amber-500 cursor-pointer accent-amber-600"
+                          />
+                        </div>
+                        <div className="ml-2.5 flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-bold text-stone-900 truncate flex items-center space-x-1">
+                              <CreditCard className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>Advance Full</span>
+                            </span>
+                            
+                          </div>
+                          <p className="text-[10px] text-stone-500 mt-1 leading-tight line-clamp-2">
+                            Pay 100% order total before dispatch.
+                          </p>
+                        </div>
+                      </label>
+
+                      {/* Checkbox 3: Advance Payment Only DC */}
+                      <label
+                        className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${advancePayDc
+                            ? 'bg-amber-50/40 border-amber-300 shadow-2xs'
+                            : 'bg-white border-stone-200 hover:border-stone-300'
+                          }`}
+                      >
+                        <div className="flex items-center h-4 mt-0.5">
+                          <input
+                            type="checkbox"
+                            checked={advancePayDc}
+                            onChange={handleAdvancePayDcToggle}
+                            className="w-3.5 h-3.5 text-amber-600 border-stone-300 rounded focus:ring-amber-500 cursor-pointer accent-amber-600"
+                          />
+                        </div>
+                        <div className="ml-2.5 flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-bold text-stone-900 truncate flex items-center space-x-1">
+                              <Truck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span>Advance Only DC</span>
+                            </span>
+                          
+                          </div>
+                          <p className="text-[10px] text-stone-500 mt-1 leading-tight line-clamp-2">
+                            Pay delivery charges upfront; rest COD.
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Conditional Bank Details Sub-section */}
+                  {(advancePayFull || advancePayDc) && (
+                    <div className="pt-4 border-t border-stone-200 space-y-4 animate-fade-in">
+                      <div className="flex items-center space-x-2">
+                        <Building2 className="w-4 h-4 text-amber-600 shrink-0" />
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-stone-900">
+                            Enter your bank details
+                          </h4>
+                          <p className="text-[11px] text-stone-500">
+                            Bank account details for customers to transfer advance payments.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Bank Name */}
+                        <div>
+                          <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
+                            Bank Name <span className="text-red-600">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Meezan Bank, HBL"
+                            value={bankNameInput}
+                            onChange={(e) => {
+                              setBankNameInput(e.target.value);
+                              if (e.target.value.trim()) {
+                                setBankErrors((prev) => ({ ...prev, bank_name: '' }));
+                              }
+                            }}
+                            className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
+                              bankErrors.bank_name
+                                ? 'border-red-400 focus:border-red-600 bg-red-50/20'
+                                : 'border-stone-300 focus:border-stone-900 bg-white'
+                            }`}
+                          />
+                          {bankErrors.bank_name && (
+                            <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.bank_name}</p>
+                          )}
+                        </div>
+
+                        {/* Account Title */}
+                        <div>
+                          <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
+                            Account Title <span className="text-red-600">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Ayesha Khan"
+                            value={accountTitleInput}
+                            onChange={(e) => {
+                              setAccountTitleInput(e.target.value);
+                              if (e.target.value.trim()) {
+                                setBankErrors((prev) => ({ ...prev, account_title: '' }));
+                              }
+                            }}
+                            className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
+                              bankErrors.account_title
+                                ? 'border-red-400 focus:border-red-600 bg-red-50/20'
+                                : 'border-stone-300 focus:border-stone-900 bg-white'
+                            }`}
+                          />
+                          {bankErrors.account_title && (
+                            <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.account_title}</p>
+                          )}
+                        </div>
+
+                        {/* IBAN */}
+                        <div>
+                          <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
+                            IBAN Number <span className="text-red-600">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="PK80MEZN0038020113013132"
+                            value={ibanInput}
+                            onChange={(e) => {
+                              setIbanInput(e.target.value);
+                              if (e.target.value.trim()) {
+                                setBankErrors((prev) => ({ ...prev, iban: '' }));
+                              }
+                            }}
+                            className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-mono font-medium ${
+                              bankErrors.iban
+                                ? 'border-red-400 focus:border-red-600 bg-red-50/20'
+                                : 'border-stone-300 focus:border-stone-900 bg-white'
+                            }`}
+                          />
+                          {bankErrors.iban && (
+                            <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.iban}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions Row */}
+                  <div className="pt-3 flex items-center justify-start border-t border-stone-100">
                     <button
                       type="submit"
-                      disabled={savingShipping || !isStoreChanged || !!shippingError}
-                      className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${savingShipping || !isStoreChanged || !!shippingError
+                      disabled={savingShipping || !isStoreChanged || !!shippingError || !!paymentError}
+                      className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${savingShipping || !isStoreChanged || !!shippingError || !!paymentError
                           ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
                           : 'cursor-pointer hover:bg-black text-white'
                         }`}
@@ -949,7 +1310,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                       {savingShipping ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                          <span>Saving Shipping...</span>
+                          <span>Saving Configuration...</span>
                         </>
                       ) : (
                         <>
@@ -961,105 +1322,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   </div>
                 </div>
               </form>
-
-              {/* DYNAMIC STORE PERFORMANCE OVERVIEW */}
-              <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xs space-y-6">
-                <div className="border-b border-stone-200 pb-3 flex items-center justify-between">
-                  <div>
-                    <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-stone-900 flex items-center space-x-2">
-                      <Store className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>Store Performance Overview</span>
-                    </h3>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
-                  {/* Metric 1: Total Products */}
-                  <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-stone-500">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Total Products</span>
-                      <Package className="w-4 h-4 text-stone-700 shrink-0" />
-                    </div>
-                    <div className="text-xl sm:text-2xl font-extrabold font-mono text-stone-900">
-                      {stats?.totalProducts ?? 0}
-                    </div>
-                    <span className="text-xs text-stone-500 block">Catalog items</span>
-                  </div>
-
-                  {/* Metric 2: Active Products */}
-                  <div className="bg-emerald-50/60 border border-emerald-200 p-4 sm:p-5 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-emerald-800">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Active Products</span>
-                      <Check className="w-4 h-4 text-emerald-700 shrink-0" />
-                    </div>
-                    <div className="text-xl sm:text-2xl font-extrabold font-mono text-emerald-950">
-                      {stats?.activeProducts ?? 0}
-                    </div>
-                    <span className="text-xs text-emerald-700 block font-medium">Live on storefront</span>
-                  </div>
-
-                  {/* Metric 3: Sold Out Products */}
-                  <div className="bg-amber-50/60 border border-amber-200 p-4 sm:p-5 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-amber-900">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Sold Out Products</span>
-                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
-                    </div>
-                    <div className="text-xl sm:text-2xl font-extrabold font-mono text-amber-950">
-                      {stats?.soldOutProducts ?? 0}
-                    </div>
-                    <span className="text-xs text-amber-800 block font-medium">Out of stock items</span>
-                  </div>
-
-                  {/* Metric 4: Total Orders */}
-                  <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-stone-500">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Total Orders</span>
-                      <ShoppingBag className="w-4 h-4 text-stone-700 shrink-0" />
-                    </div>
-                    <div className="text-xl sm:text-2xl font-extrabold font-mono text-stone-900">
-                      {stats?.totalOrders ?? 0}
-                    </div>
-                    <span className="text-xs text-stone-500 block">Lifetime customer orders</span>
-                  </div>
-
-                  {/* Metric 5: Total Lifetime Revenue */}
-                  <div className="bg-stone-900 text-white p-4 sm:p-5 rounded-xl space-y-2 col-span-1 sm:col-span-2">
-                    <div className="flex justify-between items-center text-stone-300">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Total Lifetime Revenue</span>
-                      <TrendingUp className="w-4 h-4 text-amber-400 shrink-0" />
-                    </div>
-                    <div className="text-2xl sm:text-3xl font-extrabold font-mono text-white">
-                      {format$(stats?.totalRevenue ?? 0)}
-                    </div>
-                    <span className="text-xs text-stone-400 block font-medium">Shipped & Delivered order gross revenue</span>
-                  </div>
-
-                  {/* Metric 6: Average Rating */}
-                  <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-amber-600">
-                      <span className="text-[10px] sm:text-xs font-bold text-stone-500 uppercase tracking-wider">Average Rating</span>
-                      <Star className="w-4 h-4 fill-amber-400 text-amber-400 shrink-0" />
-                    </div>
-                    <div className="text-xl sm:text-2xl font-extrabold font-mono text-stone-900 flex items-baseline space-x-1">
-                      <span>{stats?.averageRating ? stats.averageRating.toFixed(1) : '5.0'}</span>
-                      <span className="text-xs text-stone-400 font-normal">/ 5.0</span>
-                    </div>
-                    <span className="text-xs text-stone-500 block">Customer review score</span>
-                  </div>
-
-                  {/* Metric 7: Member Since */}
-                  <div className="bg-stone-50 border border-stone-200 p-4 sm:p-5 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-stone-500">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Member Since</span>
-                      <Calendar className="w-4 h-4 text-stone-700 shrink-0" />
-                    </div>
-                    <div className="text-base sm:text-lg font-bold font-mono text-stone-900 truncate">
-                      {stats?.memberSince || 'Jan 2024'}
-                    </div>
-                    <span className="text-xs text-stone-500 block font-medium">Registration date</span>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </>
