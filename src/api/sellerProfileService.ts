@@ -85,32 +85,36 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
       console.warn('Error fetching seller profile:', sellerErr.message);
     }
 
-    const rawShippingCharges = Number(rawSeller?.shipping_charges);
-    const validShipping = isNaN(rawShippingCharges) ? 150 : Math.max(0, Math.min(500, rawShippingCharges));
+    if (rawSeller) {
+      const rawShippingCharges = Number(rawSeller.shipping_charges);
+      const validShipping = isNaN(rawShippingCharges) ? 150 : Math.max(0, Math.min(500, rawShippingCharges));
 
-    const profile: ResellerProfile = {
-      id: rawSeller?.id || sellerId,
-      email: rawSeller?.email || defaultProfile.email,
-      full_name: rawSeller?.full_name || defaultProfile.full_name,
-      shop_name: rawSeller?.shop_name || defaultProfile.shop_name,
-      cnic: rawSeller?.cnic || defaultProfile.cnic,
-      phone: rawSeller?.phone || defaultProfile.phone,
-      city: rawSeller?.city || defaultProfile.city,
-      address: rawSeller?.address || defaultProfile.address,
-      bank_name: rawSeller?.bank_name ?? defaultProfile.bank_name,
-      account_title: rawSeller?.account_title ?? defaultProfile.account_title,
-      iban: rawSeller?.iban ?? defaultProfile.iban,
-      status: rawSeller?.status || 'Active',
-      created_at: rawSeller?.created_at || defaultProfile.created_at,
-      avatar_url: rawSeller?.avatar_url || rawSeller?.store_image_url || rawSeller?.logo_url || defaultProfile.avatar_url,
-      store_image_url: rawSeller?.store_image_url || rawSeller?.avatar_url || rawSeller?.logo_url || defaultProfile.store_image_url,
-      shipping_charges: validShipping,
-      cod: rawSeller?.cod !== undefined && rawSeller?.cod !== null ? Boolean(rawSeller.cod) : defaultProfile.cod,
-      advance_pay_full: rawSeller?.advance_pay_full !== undefined && rawSeller?.advance_pay_full !== null ? Boolean(rawSeller.advance_pay_full) : defaultProfile.advance_pay_full,
-      advance_pay_dc: rawSeller?.advance_pay_dc !== undefined && rawSeller?.advance_pay_dc !== null ? Boolean(rawSeller.advance_pay_dc) : defaultProfile.advance_pay_dc,
-    };
+      const profile: ResellerProfile = {
+        id: rawSeller.id || sellerId,
+        email: rawSeller.email || '',
+        full_name: rawSeller.full_name || '',
+        shop_name: rawSeller.shop_name || '',
+        cnic: rawSeller.cnic || '',
+        phone: rawSeller.phone || '',
+        city: rawSeller.city || '',
+        address: rawSeller.address || '',
+        bank_name: rawSeller.bank_name ?? '',
+        account_title: rawSeller.account_title ?? '',
+        iban: rawSeller.iban ?? '',
+        status: rawSeller.status || 'Active',
+        created_at: rawSeller.created_at || '',
+        avatar_url: rawSeller.avatar_url || rawSeller.store_image_url || rawSeller.logo_url || defaultProfile.avatar_url,
+        store_image_url: rawSeller.store_image_url || rawSeller.avatar_url || rawSeller.logo_url || defaultProfile.store_image_url,
+        shipping_charges: validShipping,
+        cod: rawSeller.cod !== undefined && rawSeller.cod !== null ? Boolean(rawSeller.cod) : true,
+        advance_pay_full: rawSeller.advance_pay_full !== undefined && rawSeller.advance_pay_full !== null ? Boolean(rawSeller.advance_pay_full) : false,
+        advance_pay_dc: rawSeller.advance_pay_dc !== undefined && rawSeller.advance_pay_dc !== null ? Boolean(rawSeller.advance_pay_dc) : false,
+      };
 
-    return { profile };
+      return { profile };
+    }
+
+    return { profile: defaultProfile };
   } catch (err) {
     console.error('Error fetching seller full profile:', err);
     return { profile: defaultProfile };
@@ -123,16 +127,14 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
 export async function updateSellerProfile(
   sellerId: string,
   editableData: {
-    full_name: string;
-    phone: string;
-    city: string;
-    address: string;
-    shop_name: string;
-    bank_name: string;
-    account_title: string;
-    iban: string;
+    full_name?: string;
+    city?: string;
+    address?: string;
     avatar_url?: string;
     store_image_url?: string;
+    // Backwards compatibility if passed, but shop_name is excluded from payload
+    shop_name?: string;
+    phone?: string;
   }
 ): Promise<{ success: boolean; error?: string }> {
   if (!sellerId) return { success: false, error: 'Invalid seller ID' };
@@ -143,16 +145,18 @@ export async function updateSellerProfile(
 
   try {
     const updatePayload: Record<string, any> = {
-      full_name: editableData.full_name.trim(),
-      phone: editableData.phone.trim(),
-      city: editableData.city.trim(),
-      address: editableData.address.trim(),
-      shop_name: editableData.shop_name.trim(),
-      bank_name: editableData.bank_name.trim(),
-      account_title: editableData.account_title.trim(),
-      iban: editableData.iban.trim(),
       updated_at: new Date().toISOString(),
     };
+
+    if (editableData.full_name !== undefined) {
+      updatePayload.full_name = editableData.full_name.trim();
+    }
+    if (editableData.city !== undefined) {
+      updatePayload.city = editableData.city.trim();
+    }
+    if (editableData.address !== undefined) {
+      updatePayload.address = editableData.address.trim();
+    }
 
     const imgUrl = editableData.store_image_url || editableData.avatar_url;
     if (imgUrl) {
