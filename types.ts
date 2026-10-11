@@ -11,6 +11,8 @@ export interface Product {
   brand: string;
   price: number;
   originalPrice?: number;
+  surplus_selling_price?: number;
+  original_retail_price?: number;
   currency: string;
   image: string | any;
   hoverImage?: string | any;

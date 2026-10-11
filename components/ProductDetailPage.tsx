@@ -508,11 +508,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             {/* Price Box with Strikethrough & Discount Pill */}
             <div className="flex items-baseline space-x-3 mb-4">
               <span className="text-2xl font-extrabold text-stone-900">
-                Rs. {product?.price?.toLocaleString()}
+                Rs. {product?.originalPrice?.toLocaleString()}
               </span>
               {product?.originalPrice && (
                 <span className="text-sm text-stone-400 line-through">
-                  Rs. {product?.originalPrice?.toLocaleString()}
+                  Rs. {product?.price?.toLocaleString()}
                 </span>
               )}
             </div>

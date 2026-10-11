@@ -32,14 +32,29 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
     }
   };
 
-  const hasDiscount = Boolean(product.originalPrice && product.originalPrice > product.price);
+  const surplusPrice =
+    product.surplus_selling_price ??
+    (product.originalPrice !== undefined && product.originalPrice < product.price
+      ? product.originalPrice
+      : product.price);
+
+  const retailPrice =
+    product.original_retail_price ??
+    (product.originalPrice !== undefined && product.originalPrice > product.price
+      ? product.originalPrice
+      : product.price);
+
+  const hasDiscount = Boolean(
+    (product.discountPercentage && product.discountPercentage > 0) ||
+    (retailPrice > surplusPrice)
+  );
 
   // Compute clean single badge logic to prevent cluttered overlapping badges
   const getCleanBadge = () => {
     if (hasDiscount) {
       const percentage = product.discountPercentage
         ? product.discountPercentage
-        : Math.round(((product.originalPrice! - product.price) / product.originalPrice!) * 100);
+        : Math.round(((retailPrice - surplusPrice) / retailPrice) * 100);
       return {
         label: `${percentage}% OFF`,
         isDiscount: true,
@@ -197,11 +212,11 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         <div className="mt-2 pt-2 border-t border-stone-100 flex flex-col space-y-1">
           <div className="flex items-baseline space-x-1.5">
             <p className="text-xs sm:text-sm font-bold text-stone-900 tracking-tight">
-              {product.currency} {product.price.toLocaleString()}
+              {product.currency} {surplusPrice.toLocaleString()}
             </p>
             {hasDiscount && (
               <p className="text-[10px] sm:text-[11px] text-stone-400 font-normal line-through">
-                {product.currency} {product.originalPrice?.toLocaleString()}
+                {product.currency} {retailPrice.toLocaleString()}
               </p>
             )}
           </div>

@@ -770,19 +770,21 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                   )}
                 </div>
               </div>
-              <div className="flex justify-center w-full mt-5">
-              <button
-                  type="button"
-                  onClick={() => setIsMultiPayModalOpen(true)}
-                  className="w-full p-4 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-amber-950 text-xs sm:text-sm font-bold transition-all flex items-center justify-between cursor-pointer shadow-2xs"
-                >
-                  <div className="flex items-center space-x-2">
-                    <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
-                    <span>How to Pay Charges</span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-amber-700 shrink-0" />
-                </button>
+              {uniqueSellerIds.length >= 2 && (
+                <div className="flex justify-center w-full mt-5">
+                  <button
+                    type="button"
+                    onClick={() => setIsMultiPayModalOpen(true)}
+                    className="w-full p-4 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-amber-950 text-xs sm:text-sm font-bold transition-all flex items-center justify-between cursor-pointer shadow-2xs"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span>How to Pay Charges</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-amber-700 shrink-0" />
+                  </button>
                 </div>
+              )}
             </div>
           </div>
 
