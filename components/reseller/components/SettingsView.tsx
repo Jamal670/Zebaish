@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react';
+import supabase from '@/src/api/client';
 import { useAuth } from '@/src/hooks/useAuth';
 import { ResellerProfile } from '@/components/context/AuthProvider';
 import {
@@ -410,8 +411,25 @@ export function PersonalBusinessInfoForm({
 // Child component: mounts once per loaded seller; NO naive useEffect sync;
 // background refetches do not wipe user inputs (Section E).
 // =========================================================================
-interface StoreShippingConfigFormProps {
-  seller: ResellerProfile;
+export interface SellerShippingPaymentRecord {
+  bank_name?: string | null;
+  account_title?: string | null;
+  iban?: string | null;
+  cod?: boolean | null;
+  advance_pay_full?: boolean | null;
+  advance_pay_dc?: boolean | null;
+  shipping_charges?: number | string | null;
+}
+
+export interface StoreShippingConfigFormProps {
+  seller?: ResellerProfile | null;
+  sellerId: string;
+  showToast: (msg: string, type?: 'success' | 'error') => void;
+  refetchProfile: () => void;
+}
+
+interface StoreShippingConfigFormContentProps {
+  initialData: SellerShippingPaymentRecord | null;
   sellerId: string;
   showToast: (msg: string, type?: 'success' | 'error') => void;
   refetchProfile: () => void;
@@ -423,16 +441,86 @@ export function StoreShippingConfigForm({
   showToast,
   refetchProfile,
 }: StoreShippingConfigFormProps) {
+  const effectiveSellerId = sellerId || seller?.id || '';
+
+  const {
+    data: configData,
+    isLoading: loadingConfig,
+    isError: isConfigError,
+    refetch: refetchConfig,
+  } = useQuery({
+    queryKey: ['sellerShippingAndPaymentConfig', effectiveSellerId],
+    queryFn: async () => {
+      if (!effectiveSellerId) return null;
+      const { data, error } = await supabase
+        .from('sellers')
+        .select('bank_name, account_title, iban, cod, advance_pay_full, advance_pay_dc, shipping_charges')
+        .eq('id', effectiveSellerId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching seller shipping and payment config:', error);
+        throw error;
+      }
+      return data;
+    },
+    enabled: Boolean(effectiveSellerId),
+    staleTime: 60 * 1000,
+  });
+
+  if (loadingConfig && !configData) {
+    return <SectionSkeleton />;
+  }
+
+  if (isConfigError) {
+    return <SectionError onRetry={() => refetchConfig()} />;
+  }
+
+  const resolvedData: SellerShippingPaymentRecord | null =
+    configData ??
+    (seller
+      ? {
+          bank_name: seller.bank_name,
+          account_title: seller.account_title,
+          iban: seller.iban,
+          cod: seller.cod,
+          advance_pay_full: seller.advance_pay_full,
+          advance_pay_dc: seller.advance_pay_dc,
+          shipping_charges: seller.shipping_charges,
+        }
+      : null);
+
+  return (
+    <StoreShippingConfigFormContent
+      key={`${effectiveSellerId}-${resolvedData?.bank_name ?? ''}-${resolvedData?.account_title ?? ''}-${resolvedData?.iban ?? ''}-${resolvedData?.shipping_charges ?? ''}-${resolvedData?.cod}-${resolvedData?.advance_pay_full}-${resolvedData?.advance_pay_dc}`}
+      initialData={resolvedData}
+      sellerId={effectiveSellerId}
+      showToast={showToast}
+      refetchProfile={refetchProfile}
+    />
+  );
+}
+
+function StoreShippingConfigFormContent({
+  initialData,
+  sellerId,
+  showToast,
+  refetchProfile,
+}: StoreShippingConfigFormContentProps) {
   const queryClient = useQueryClient();
 
-  const initialShipping = Number(seller.shipping_charges ?? 150);
+  const initialShipping =
+    initialData?.shipping_charges !== null && initialData?.shipping_charges !== undefined
+      ? Number(initialData.shipping_charges)
+      : 150;
   const validShipping = isNaN(initialShipping) ? 150 : Math.max(0, Math.min(500, initialShipping));
-  const initialCod = seller.cod ?? true;
-  const initialFull = seller.advance_pay_full ?? false;
-  const initialDc = seller.advance_pay_dc ?? false;
-  const initialBankName = seller.bank_name ?? '';
-  const initialAccountTitle = seller.account_title ?? '';
-  const initialIban = seller.iban ?? '';
+  const initialCod =
+    initialData?.cod !== null && initialData?.cod !== undefined ? Boolean(initialData.cod) : true;
+  const initialFull = Boolean(initialData?.advance_pay_full);
+  const initialDc = Boolean(initialData?.advance_pay_dc);
+  const initialBankName = initialData?.bank_name ?? '';
+  const initialAccountTitle = initialData?.account_title ?? '';
+  const initialIban = initialData?.iban ?? '';
 
   const [shippingChargesInput, setShippingChargesInput] = useState<string>(String(validShipping));
   const [cod, setCod] = useState<boolean>(initialCod);
@@ -457,8 +545,12 @@ export function StoreShippingConfigForm({
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [bankErrors, setBankErrors] = useState<Record<string, string>>({});
 
+  const hasBankErrors = useMemo(() => {
+    return Object.values(bankErrors).some((err) => Boolean(err && err.trim()));
+  }, [bankErrors]);
+
   const isStoreChanged = useMemo(() => {
-    if (shippingError || paymentError || Object.keys(bankErrors).length > 0) return false;
+    if (shippingError || paymentError || hasBankErrors) return false;
     const num = Number(shippingChargesInput);
     if (isNaN(num) || shippingChargesInput.trim() === '') return false;
     if (num < 0 || num > 500) return false;
@@ -469,9 +561,9 @@ export function StoreShippingConfigForm({
       cod !== originalShippingConfig.cod ||
       advancePayFull !== originalShippingConfig.advance_pay_full ||
       advancePayDc !== originalShippingConfig.advance_pay_dc ||
-      bankNameInput.trim() !== originalShippingConfig.bank_name.trim() ||
-      accountTitleInput.trim() !== originalShippingConfig.account_title.trim() ||
-      ibanInput.trim() !== originalShippingConfig.iban.trim()
+      bankNameInput.trim() !== (originalShippingConfig.bank_name || '').trim() ||
+      accountTitleInput.trim() !== (originalShippingConfig.account_title || '').trim() ||
+      ibanInput.trim() !== (originalShippingConfig.iban || '').trim()
     );
   }, [
     shippingChargesInput,
@@ -484,7 +576,7 @@ export function StoreShippingConfigForm({
     originalShippingConfig,
     shippingError,
     paymentError,
-    bankErrors,
+    hasBankErrors,
   ]);
 
   const handleShippingChange = (val: string) => {
@@ -576,16 +668,26 @@ export function StoreShippingConfigForm({
       return;
     }
 
+    const effectiveSellerId = sellerId;
+    if (!effectiveSellerId) {
+      showToast('Unable to determine seller ID. Please reload the page.', 'error');
+      return;
+    }
+
     setSavingShipping(true);
     try {
-      const res = await updateSellerShippingAndPaymentConfig(sellerId, {
+      const trimmedBankName = bankNameInput.trim();
+      const trimmedAccountTitle = accountTitleInput.trim();
+      const trimmedIban = ibanInput.trim();
+
+      const res = await updateSellerShippingAndPaymentConfig(effectiveSellerId, {
         shipping_charges: num,
         cod,
         advance_pay_full: advancePayFull,
         advance_pay_dc: advancePayDc,
-        bank_name: bankNameInput,
-        account_title: accountTitleInput,
-        iban: ibanInput,
+        bank_name: trimmedBankName,
+        account_title: trimmedAccountTitle,
+        iban: trimmedIban,
       });
 
       if (!res.success) {
@@ -594,17 +696,33 @@ export function StoreShippingConfigForm({
         return;
       }
 
-      setOriginalShippingConfig({
+      const updatedPayload = {
         shipping_charges: num,
         cod,
         advance_pay_full: advancePayFull,
         advance_pay_dc: advancePayDc,
-        bank_name: bankNameInput,
-        account_title: accountTitleInput,
-        iban: ibanInput,
-      });
+        bank_name: trimmedBankName,
+        account_title: trimmedAccountTitle,
+        iban: trimmedIban,
+      };
+
+      setOriginalShippingConfig(updatedPayload);
       setSavingShipping(false);
 
+      // Keep TanStack Query cache in sync with the saved bank details immediately
+      queryClient.setQueryData(['sellerShippingAndPaymentConfig', sellerId], updatedPayload);
+      queryClient.setQueryData(['sellerFullProfile', sellerId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          profile: {
+            ...old.profile,
+            ...updatedPayload,
+          },
+        };
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['sellerShippingAndPaymentConfig', sellerId] });
       queryClient.invalidateQueries({ queryKey: ['sellerFullProfile', sellerId] });
       refetchProfile();
 
@@ -771,110 +889,117 @@ export function StoreShippingConfigForm({
             </div>
           </div>
 
-          {/* Section 3: Conditional Bank Details Sub-section */}
-          {(advancePayFull || advancePayDc) && (
-            <div className="pt-4 border-t border-stone-200 space-y-4 animate-fade-in">
-              <div className="flex items-center space-x-2">
-                <Building2 className="w-4 h-4 text-amber-600 shrink-0" />
-                <div>
-                  <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-stone-900">
-                    Enter your bank details
-                  </h4>
-                  <p className="text-[11px] text-stone-500">
-                    Bank account details for customers to transfer advance payments.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
-                    Bank Name <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Meezan Bank, HBL"
-                    value={bankNameInput}
-                    onChange={(e) => {
-                      setBankNameInput(e.target.value);
-                      if (e.target.value.trim()) {
-                        setBankErrors((prev) => ({ ...prev, bank_name: '' }));
-                      }
-                    }}
-                    className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
-                      bankErrors.bank_name
-                        ? 'border-red-400 focus:border-red-600 bg-red-50/20'
-                        : 'border-stone-300 focus:border-stone-900 bg-white'
-                    }`}
-                  />
-                  {bankErrors.bank_name && (
-                    <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.bank_name}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
-                    Account Title <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Ayesha Khan"
-                    value={accountTitleInput}
-                    onChange={(e) => {
-                      setAccountTitleInput(e.target.value);
-                      if (e.target.value.trim()) {
-                        setBankErrors((prev) => ({ ...prev, account_title: '' }));
-                      }
-                    }}
-                    className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
-                      bankErrors.account_title
-                        ? 'border-red-400 focus:border-red-600 bg-red-50/20'
-                        : 'border-stone-300 focus:border-stone-900 bg-white'
-                    }`}
-                  />
-                  {bankErrors.account_title && (
-                    <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.account_title}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
-                    IBAN Number <span className="text-red-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="PK80MEZN0038020113013132"
-                    value={ibanInput}
-                    onChange={(e) => {
-                      setIbanInput(e.target.value);
-                      if (e.target.value.trim()) {
-                        setBankErrors((prev) => ({ ...prev, iban: '' }));
-                      }
-                    }}
-                    className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-mono font-medium ${
-                      bankErrors.iban
-                        ? 'border-red-400 focus:border-red-600 bg-red-50/20'
-                        : 'border-stone-300 focus:border-stone-900 bg-white'
-                    }`}
-                  />
-                  {bankErrors.iban && (
-                    <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.iban}</p>
-                  )}
-                </div>
+          {/* Section 3: Bank Details Sub-section */}
+          <div className="pt-4 border-t border-stone-200 space-y-4 animate-fade-in">
+            <div className="flex items-center space-x-2">
+              <Building2 className="w-4 h-4 text-amber-600 shrink-0" />
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold uppercase tracking-wide text-stone-900">
+                  Enter your bank details
+                </h4>
+                <p className="text-[11px] text-stone-500">
+                  Bank account details for customer advance payments and store payouts.
+                </p>
               </div>
             </div>
-          )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
+                  Bank Name {(advancePayFull || advancePayDc) && <span className="text-red-600">*</span>}
+                </label>
+                <input
+                  type="text"
+                  required={advancePayFull || advancePayDc}
+                  placeholder="e.g. Meezan Bank, HBL"
+                  value={bankNameInput}
+                  onChange={(e) => {
+                    setBankNameInput(e.target.value);
+                    setBankErrors((prev) => {
+                      if (!prev.bank_name) return prev;
+                      const next = { ...prev };
+                      delete next.bank_name;
+                      return next;
+                    });
+                  }}
+                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
+                    bankErrors.bank_name
+                      ? 'border-red-400 focus:border-red-600 bg-red-50/20'
+                      : 'border-stone-300 focus:border-stone-900 bg-white'
+                  }`}
+                />
+                {bankErrors.bank_name && (
+                  <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.bank_name}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
+                  Account Title {(advancePayFull || advancePayDc) && <span className="text-red-600">*</span>}
+                </label>
+                <input
+                  type="text"
+                  required={advancePayFull || advancePayDc}
+                  placeholder="e.g. Ayesha Khan"
+                  value={accountTitleInput}
+                  onChange={(e) => {
+                    setAccountTitleInput(e.target.value);
+                    setBankErrors((prev) => {
+                      if (!prev.account_title) return prev;
+                      const next = { ...prev };
+                      delete next.account_title;
+                      return next;
+                    });
+                  }}
+                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
+                    bankErrors.account_title
+                      ? 'border-red-400 focus:border-red-600 bg-red-50/20'
+                      : 'border-stone-300 focus:border-stone-900 bg-white'
+                  }`}
+                />
+                {bankErrors.account_title && (
+                  <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.account_title}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide text-xs">
+                  IBAN Number {(advancePayFull || advancePayDc) && <span className="text-red-600">*</span>}
+                </label>
+                <input
+                  type="text"
+                  required={advancePayFull || advancePayDc}
+                  placeholder="PK80MEZN0038020113013132"
+                  value={ibanInput}
+                  onChange={(e) => {
+                    setIbanInput(e.target.value);
+                    setBankErrors((prev) => {
+                      if (!prev.iban) return prev;
+                      const next = { ...prev };
+                      delete next.iban;
+                      return next;
+                    });
+                  }}
+                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-mono font-medium ${
+                    bankErrors.iban
+                      ? 'border-red-400 focus:border-red-600 bg-red-50/20'
+                      : 'border-stone-300 focus:border-stone-900 bg-white'
+                  }`}
+                />
+                {bankErrors.iban && (
+                  <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.iban}</p>
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* Actions Row */}
           <div className="pt-3 flex items-center justify-start border-t border-stone-100">
             <button
               type="submit"
-              disabled={savingShipping || !isStoreChanged || !!shippingError || !!paymentError}
+              disabled={savingShipping || !isStoreChanged || !!shippingError || !!paymentError || hasBankErrors}
               className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${
-                savingShipping || !isStoreChanged || !!shippingError || !!paymentError
+                savingShipping || !isStoreChanged || !!shippingError || !!paymentError || hasBankErrors
                   ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
                   : 'cursor-pointer hover:bg-black text-white'
               }`}
@@ -1376,19 +1501,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
       {/* TAB 3: STORE SHIPPING & PAYMENT CONFIGURATION */}
       {activeTab === 'store' && (
-        loading && !seller ? (
-          <SectionSkeleton />
-        ) : isError || !seller ? (
-          <SectionError onRetry={() => refetch()} />
-        ) : (
-          <StoreShippingConfigForm
-            key={seller.id}
-            seller={seller}
-            sellerId={sellerId}
-            showToast={showToast}
-            refetchProfile={refetchProfile}
-          />
-        )
+        <StoreShippingConfigForm
+          seller={seller}
+          sellerId={sellerId || seller?.id || ''}
+          showToast={showToast}
+          refetchProfile={refetchProfile}
+        />
       )}
     </div>
   );
