@@ -171,6 +171,20 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
 
   const { seller, products: resellerProducts } = storefrontData;
 
+  const sellerRatingRaw = Number(seller?.rating);
+  const sellerRating = Number.isFinite(sellerRatingRaw)
+    ? Math.min(Math.max(sellerRatingRaw, 0), 5)
+    : 0;
+
+  const sellerReviewCountRaw = Number(seller?.reviewCount);
+  const sellerReviewCount = Number.isFinite(sellerReviewCountRaw) && sellerReviewCountRaw > 0
+    ? Math.floor(sellerReviewCountRaw)
+    : 0;
+
+  const formattedRatingText = `${sellerRating.toFixed(1)} / 5.0 (${sellerReviewCount} ${
+    sellerReviewCount === 1 ? 'Review' : 'Reviews'
+  })`;
+
   const sortedProducts = [...resellerProducts].sort((a, b) => {
     if (sortBy === 'price-low') return a.price - b.price;
     if (sortBy === 'price-high') return b.price - a.price;
@@ -179,7 +193,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   });
 
   return (
-    <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in">
+    <div className="bg-stone-50 min-h-screen text-stone-900 pb-20">
       {/* Breadcrumb */}
 
 
@@ -242,10 +256,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                 {/* Rating */}
                 <div className="flex items-center gap-1 text-amber-400 font-bold shrink-0">
                   <Star className="w-3.5 h-3.5 fill-amber-400 shrink-0" />
-                  <span>
-                    {seller.rating != null ? seller.rating.toFixed(1) : '5.0'} / 5.0 (
-                    {seller.reviewCount || 0} Reviews)
-                  </span>
+                  <span>{formattedRatingText}</span>
                 </div>
 
                 {/* Member Since */}
@@ -303,10 +314,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
               <div className="pt-2 flex flex-wrap items-center gap-4 text-xs sm:text-sm">
                 <div className="flex items-center space-x-1 text-amber-400 font-bold">
                   <Star className="w-4 h-4 fill-amber-400" />
-                  <span>
-                    {seller.rating ? seller.rating.toFixed(1) : '5.0'} / 5.0 (
-                    {seller.reviewCount || 0} Reviews)
-                  </span>
+                  <span>{formattedRatingText}</span>
                 </div>
 
                 <div className="flex items-center space-x-1 text-stone-300">
@@ -325,24 +333,75 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
       </div>
 
 
-      {/* Navigation Tabs (Listings / Reviews) - Responsive Sizing */} <div className="bg-white border-b border-stone-200 sticky top-16 z-20 shadow-2xs"> <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-2 sm:gap-3 py-1.5 sm:py-0"> {/* Tabs */} <div className="flex space-x-3 sm:space-x-8 overflow-x-auto no-scrollbar min-w-0"> <button onClick={() => setActiveTab('listings')} className={`py-2 sm:py-4 text-[9px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors shrink-0 ${ activeTab === 'listings' ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-800' }`} > Listings ({sortedProducts.length}) </button> <button onClick={() => setActiveTab('reviews')} className={`py-2 sm:py-4 text-[9px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors flex items-center space-x-1 sm:space-x-2 shrink-0 ${ activeTab === 'reviews' ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500 hover:text-stone-800' }`} > <span>Reviews ({seller.reviewCount || 0})</span> </button> </div> {/* Sort */} {activeTab === 'listings' && ( <div className="flex items-center space-x-1 sm:space-x-2 shrink-0"> {/* Hidden on mobile */} <ArrowUpDown className="hidden sm:block w-3.5 h-3.5 text-stone-400" /> <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="bg-stone-50 border border-stone-200 text-stone-800 text-[8px] sm:text-xs md:text-sm font-semibold rounded-xs py-1 sm:py-1.5 px-1.5 sm:px-2.5 max-w-[105px] sm:max-w-none focus:outline-none cursor-pointer" > <option value="featured">Featured</option> <option value="newest">Newest First</option> <option value="price-low">Price (Low to High)</option> <option value="price-high">Price (High to Low)</option> </select> </div> )} </div> </div>
+      {/* Navigation Tabs (Listings / Reviews) - Responsive Sticky Bar */}
+      <div className="bg-white border-b border-stone-200 sticky top-14 sm:top-16 z-30 shadow-2xs">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-2 sm:gap-3 py-1.5 sm:py-0">
+          {/* Tabs */}
+          <div className="flex space-x-3 sm:space-x-8 overflow-x-auto no-scrollbar min-w-0">
+            <button
+              onClick={() => setActiveTab('listings')}
+              className={`py-2 sm:py-4 text-[9px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors shrink-0 ${
+                activeTab === 'listings'
+                  ? 'border-stone-900 text-stone-900'
+                  : 'border-transparent text-stone-500 hover:text-stone-800'
+              }`}
+            >
+              Listings ({sortedProducts.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('reviews')}
+              className={`py-2 sm:py-4 text-[9px] sm:text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide sm:tracking-wider border-b-2 transition-colors flex items-center space-x-1 sm:space-x-2 shrink-0 ${
+                activeTab === 'reviews'
+                  ? 'border-stone-900 text-stone-900'
+                  : 'border-transparent text-stone-500 hover:text-stone-800'
+              }`}
+            >
+              <span>Reviews ({sellerReviewCount})</span>
+            </button>
+          </div>
+
+          {/* Sort */}
+          {activeTab === 'listings' && (
+            <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
+              <ArrowUpDown className="hidden sm:block w-3.5 h-3.5 text-stone-400" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="bg-stone-50 border border-stone-200 text-stone-800 text-[8px] sm:text-xs md:text-sm font-semibold rounded-xs py-1 sm:py-1.5 px-1.5 sm:px-2.5 max-w-[105px] sm:max-w-none focus:outline-none cursor-pointer"
+              >
+                <option value="featured">Featured</option>
+                <option value="newest">Newest First</option>
+                <option value="price-low">Price (Low to High)</option>
+                <option value="price-high">Price (High to Low)</option>
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Tab Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
         {activeTab === 'listings' ? (
           sortedProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-              {sortedProducts.map((product) => (
-                <ProductCard
-                  key={product.id}
-                  product={product}
-                  onQuickView={onQuickView}
-                  onAddToCart={onAddToCart}
-                  onToggleWishlist={onToggleWishlist}
-                  isWishlisted={wishlistIds.includes(product.id)}
-                  onSelectProduct={onSelectProduct}
-                />
-              ))}
+              {sortedProducts.map((product) => {
+                const categoryStr = typeof product.category === 'string' ? product.category.trim() : '';
+                return (
+                  <ProductCard
+                    key={product.id}
+                    product={{
+                      ...product,
+                      category: categoryStr,
+                      stitchingStatus: categoryStr || undefined,
+                    }}
+                    onQuickView={onQuickView}
+                    onAddToCart={onAddToCart}
+                    onToggleWishlist={onToggleWishlist}
+                    isWishlisted={wishlistIds.includes(product.id)}
+                    onSelectProduct={onSelectProduct}
+                  />
+                );
+              })}
             </div>
           ) : (
             <div className="py-16 text-center bg-white rounded-lg border border-stone-200 p-8 max-w-md mx-auto space-y-2">

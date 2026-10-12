@@ -22,16 +22,16 @@ export default function CollectionsPage() {
       toggleDeactivate={toggleDeactivate}
       toggleSoldOut={toggleSoldOut}
       onDeleteListing={handleDeleteListing}
-      onEditListing={(listing) => {
-        setEditingListing(listing);
+      onEditListing={(listingOrId) => {
+        const listingId = typeof listingOrId === 'string' ? listingOrId : (listingOrId?.id || '');
+        setEditingListing(null);
         setFormMode('edit');
-        const listingId = listing?.id || '';
         router.push(listingId ? `/dashboard/add-collection?id=${listingId}&mode=edit` : '/dashboard/add-collection');
       }}
-      onRestockListing={(listing) => {
-        setEditingListing(listing);
+      onRestockListing={(listingOrId) => {
+        const listingId = typeof listingOrId === 'string' ? listingOrId : (listingOrId?.id || '');
+        setEditingListing(null);
         setFormMode('restock');
-        const listingId = listing?.id || '';
         router.push(listingId ? `/dashboard/add-collection?id=${listingId}&mode=restock` : '/dashboard/add-collection');
       }}
     />

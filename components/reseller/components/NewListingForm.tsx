@@ -367,6 +367,209 @@ export function buildInitialProductState(initialProduct: any) {
   };
 }
 
+/**
+ * Shared helper to extract, validate, and deduplicate colors & variants from form state
+ */
+export function extractAndValidateVariants(
+  isSizeBasedCategory: boolean,
+  selectedSizes: Record<string, number>,
+  sizeEntries: Record<string, SizeStockEntry[]>,
+  colorEntries: ColorEntry[],
+  formDataQuantity: string
+): { colors: string[]; variants: { size: string; color: string; quantity: number }[] } {
+  interface RawVariantItem {
+    size: string;
+    quantity: number;
+    rawColor: string;
+  }
+  const rawEntries: RawVariantItem[] = [];
+
+  if (isSizeBasedCategory) {
+    const allowedSizes = ['Small', 'Medium', 'Large', 'X Large'];
+    for (const [sz, qty] of Object.entries(selectedSizes)) {
+      if (!allowedSizes.includes(sz)) continue;
+      const entriesForSize = (sizeEntries[sz] || []).filter(
+        (e) => Number.isInteger(e.quantity) && e.quantity >= 0
+      );
+
+      if (entriesForSize.length > 0) {
+        for (const e of entriesForSize) {
+          const cleanedColor = typeof e.color === 'string' ? e.color.trim().slice(0, 100) : '';
+          rawEntries.push({
+            size: sz,
+            quantity: e.quantity,
+            rawColor: cleanedColor,
+          });
+        }
+      } else if (Number(qty) > 0 && Number.isInteger(Number(qty))) {
+        rawEntries.push({
+          size: sz,
+          quantity: Number(qty),
+          rawColor: '',
+        });
+      }
+    }
+  } else {
+    // Unstitched category
+    const unstitchedValidEntries = colorEntries.filter(
+      (e) => Number.isInteger(e.quantity) && e.quantity >= 0
+    );
+
+    if (unstitchedValidEntries.length > 0) {
+      for (const e of unstitchedValidEntries) {
+        const cleanedColor = typeof e.color === 'string' ? e.color.trim().slice(0, 100) : '';
+        rawEntries.push({
+          size: 'Unstitched',
+          quantity: e.quantity,
+          rawColor: cleanedColor,
+        });
+      }
+    } else {
+      const parsedQty = parseInt(formDataQuantity, 10);
+      const safeQty = Number.isInteger(parsedQty) && parsedQty >= 0 ? parsedQty : 1;
+      rawEntries.push({
+        size: 'Unstitched',
+        quantity: Math.max(1, safeQty),
+        rawColor: '',
+      });
+    }
+  }
+
+  // Colors validation: trim, non-empty, max length 100, case-insensitive uniqueness (first spelling preserved)
+  const distinctColorsMap = new Map<string, string>();
+  for (const item of rawEntries) {
+    const trimmedColor = (item.rawColor || '').trim();
+    if (trimmedColor.length > 0) {
+      const cappedColor = trimmedColor.slice(0, 100);
+      const lower = cappedColor.toLowerCase();
+      if (!distinctColorsMap.has(lower)) {
+        distinctColorsMap.set(lower, cappedColor);
+      }
+    }
+  }
+  const colors: string[] = Array.from(distinctColorsMap.values());
+
+  // Variants validation: size non-empty, quantity integer >= 0, color exists, merge duplicate (size+color)
+  interface VariantPayload {
+    size: string;
+    color: string;
+    quantity: number;
+  }
+  const variantMap = new Map<string, VariantPayload>();
+
+  for (const item of rawEntries) {
+    const trimmedSize = (item.size || '').trim();
+    if (!trimmedSize) {
+      throw new Error('Variant size is required and cannot be empty.');
+    }
+
+    const qty = Number(item.quantity);
+    if (!Number.isInteger(qty) || qty < 0) {
+      throw new Error(`Quantity for size "${trimmedSize}" must be an integer greater than or equal to 0.`);
+    }
+
+    const trimmedColor = (item.rawColor || '').trim().slice(0, 100);
+    let canonicalColor = '';
+    if (trimmedColor.length > 0) {
+      const lower = trimmedColor.toLowerCase();
+      if (!distinctColorsMap.has(lower)) {
+        throw new Error(`Variant references color "${trimmedColor}" which was not provided in product colors.`);
+      }
+      canonicalColor = distinctColorsMap.get(lower)!;
+    }
+
+    const pairKey = `${trimmedSize.toLowerCase()}:::${canonicalColor.toLowerCase()}`;
+    const existing = variantMap.get(pairKey);
+    if (existing) {
+      existing.quantity += qty;
+    } else {
+      variantMap.set(pairKey, {
+        size: trimmedSize,
+        color: canonicalColor,
+        quantity: qty,
+      });
+    }
+  }
+
+  const variants = Array.from(variantMap.values());
+  return { colors, variants };
+}
+
+/**
+ * Executes atomic colors & variants replacement (using save_product_colors_and_variants RPC,
+ * with fallback to transactional client sequence if the RPC is not deployed).
+ */
+export async function saveProductColorsAndVariantsAtomically(
+  productId: string,
+  colors: string[],
+  variants: { size: string; color: string; quantity: number }[]
+): Promise<void> {
+  const { error: rpcErr } = await supabase.rpc('save_product_colors_and_variants', {
+    p_product_id: productId,
+    p_colors: colors,
+    p_variants: variants,
+  });
+
+  if (!rpcErr) {
+    return;
+  }
+
+  // Graceful client-side fallback if RPC is not deployed in Supabase yet (PGRST202)
+  if (rpcErr.code === 'PGRST202' || rpcErr.message?.includes('Could not find the function')) {
+    // 1. Delete existing variants (reference colors)
+    const { error: delVarErr } = await supabase
+      .from('product_variants')
+      .delete()
+      .eq('product_id', productId);
+    if (delVarErr) throw new Error(`Failed to clear previous variants: ${parseSupabaseError(delVarErr)}`);
+
+    // 2. Delete existing colors
+    const { error: delColErr } = await supabase
+      .from('product_colors')
+      .delete()
+      .eq('product_id', productId);
+    if (delColErr) throw new Error(`Failed to clear previous colors: ${parseSupabaseError(delColErr)}`);
+
+    // 3. Insert distinct colors
+    const colorIdMap = new Map<string, string>();
+    if (colors.length > 0) {
+      const colorRows = colors.map((c) => ({
+        product_id: productId,
+        color_name: c,
+      }));
+      const { data: insertedColors, error: colErr } = await supabase
+        .from('product_colors')
+        .insert(colorRows)
+        .select('id, color_name');
+      if (colErr) throw new Error(`Failed to save product colors: ${parseSupabaseError(colErr)}`);
+      if (insertedColors && Array.isArray(insertedColors)) {
+        for (const c of insertedColors) {
+          if (c.color_name && c.id) colorIdMap.set(c.color_name.toLowerCase(), c.id);
+        }
+      }
+    }
+
+    // 4. Insert variants with color_id linkage
+    const variantRows = variants.map((v) => ({
+      product_id: productId,
+      size: v.size,
+      quantity: v.quantity,
+      color_id: v.color ? colorIdMap.get(v.color.toLowerCase()) || null : null,
+    }));
+
+    if (variantRows.length > 0) {
+      const { error: varErr } = await supabase
+        .from('product_variants')
+        .insert(variantRows);
+      if (varErr) throw new Error(`Failed to save product variants: ${parseSupabaseError(varErr)}`);
+    }
+
+    return;
+  }
+
+  throw new Error(`Failed to save product colors and variants: ${parseSupabaseError(rpcErr)}`);
+}
+
 interface NewListingFormContentProps {
   initialProduct?: any;
   mode?: 'create' | 'edit' | 'restock';
@@ -1024,12 +1227,29 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
         ? Object.values(selectedSizes).reduce((sum, q) => sum + (Number(q) || 0), 0)
         : Math.max(1, parseInt(formData.quantity, 10));
 
+      // 1. Extract and validate colors & variants for both edit and create flows
+      const { colors: p_colors, variants: p_variants } = extractAndValidateVariants(
+        isSizeBasedCategory,
+        selectedSizes,
+        sizeEntries,
+        colorEntries,
+        formData.quantity
+      );
+
+      // 2. Guard against wiping data (never call replacement with empty variants)
+      if (p_variants.length === 0) {
+        throw new Error('Cannot save collection: Please specify at least one valid size and quantity.');
+      }
+
       if (isEditMode && initialProduct?.id) {
+        // 3. Atomically replace colors & variants via RPC FIRST (step 5)
+        await saveProductColorsAndVariantsAtomically(initialProduct.id, p_colors, p_variants);
+
+        // 4. Update products row with ONLY submitted fields (never overwrite ratings/reviews)
         const newStatus = (initialProduct.status === 'Sold Out' || totalStockQty > 0)
           ? 'Active'
           : (initialProduct.status || 'Active');
 
-        // Update product metadata in DB
         const { error: updateError } = await supabase
           .from('products')
           .update({
@@ -1054,7 +1274,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           throw new Error(parseSupabaseError(updateError));
         }
 
-        // Batch insert new image records using pre-uploaded URLs
+        // 5. Batch insert new image records using pre-uploaded URLs
         const newImageRecords = currentUploads
           .filter((it) => it.uploadedUrl)
           .map((it, i) => ({
@@ -1063,17 +1283,9 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
             is_thumbnail: existingImages.length === 0 && i === 0,
           }));
 
-        // Handle image records & variant updates in parallel
-        const dbTasks: Promise<any>[] = [];
-
         if (newImageRecords.length > 0) {
-          dbTasks.push(
-            Promise.resolve(
-              supabase.from('product_images').insert(newImageRecords).then(({ error }) => {
-                if (error) console.warn('Error inserting product_images:', error);
-              })
-            )
-          );
+          const { error: imgErr } = await supabase.from('product_images').insert(newImageRecords);
+          if (imgErr) console.warn('Error inserting product_images:', imgErr);
         }
 
         // Delete removed images if editing
@@ -1081,48 +1293,12 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           const remainingUrls = new Set(existingImages.map((img) => img.url));
           const removedImages = initialProduct.product_images.filter((img: any) => !remainingUrls.has(img.image_url));
 
-          removedImages.forEach((removed: any) => {
+          for (const removed of removedImages) {
             if (removed.id) {
-              dbTasks.push(Promise.resolve(supabase.from('product_images').delete().eq('id', removed.id)));
+              await supabase.from('product_images').delete().eq('id', removed.id);
             }
-          });
+          }
         }
-
-        // Update variants
-        dbTasks.push(
-          Promise.resolve(
-            supabase
-              .from('product_variants')
-              .delete()
-              .eq('product_id', initialProduct.id)
-              .then(async () => {
-                if (isSizeBasedCategory) {
-                  const variantRecords = Object.entries(selectedSizes)
-                    .filter(([_, qty]) => Number(qty) > 0)
-                    .map(([sz, qty]) => ({
-                      product_id: initialProduct.id,
-                      size: sz,
-                      quantity: Number(qty),
-                    }));
-                  if (variantRecords.length > 0) {
-                    const { error: varErr } = await supabase.from('product_variants').insert(variantRecords);
-                    if (varErr) console.warn('Error updating product_variants:', varErr);
-                  }
-                } else {
-                  const { error: varErr } = await supabase.from('product_variants').insert([
-                    {
-                      product_id: initialProduct.id,
-                      size: 'Unstitched',
-                      quantity: Math.max(1, parseInt(formData.quantity, 10)),
-                    },
-                  ]);
-                  if (varErr) console.warn('Error updating Unstitched variant:', varErr);
-                }
-              })
-          )
-        );
-
-        await Promise.all(dbTasks);
 
         // Ensure thumbnail flag is updated
         const topUrl = existingImages[0]?.url || newImageRecords[0]?.image_url;
@@ -1134,6 +1310,16 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
             .eq('product_id', initialProduct.id)
             .eq('image_url', topUrl);
         }
+
+        // 6. Invalidate query cache
+        if (sellerId) {
+          queryClient.invalidateQueries({ queryKey: ['sellerProducts', sellerId] });
+        }
+        if (initialProduct.id) {
+          queryClient.invalidateQueries({ queryKey: ['editProduct', initialProduct.id] });
+          queryClient.invalidateQueries({ queryKey: ['product', initialProduct.id] });
+        }
+        queryClient.invalidateQueries({ queryKey: ['products'] });
 
         setSubmitSuccess(
           isRestockMode ? '🎉 Collection restocked successfully!' : '🎉 Collection updated successfully!'
@@ -1167,7 +1353,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
         const createdProductId = product.id;
 
         try {
-          // 1. Build and insert image records using pre-uploaded URLs
+          // Batch insert image records using pre-uploaded URLs
           const imageRecords = currentUploads
             .filter((it) => it.uploadedUrl)
             .map((it, i) => ({
@@ -1181,124 +1367,8 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
             if (imgErr) throw new Error(parseSupabaseError(imgErr));
           }
 
-          // 2. Prepare raw entries based on category
-          interface PreparedVariantEntry {
-            size: string;
-            quantity: number;
-            rawColor: string;
-          }
-
-          const rawEntries: PreparedVariantEntry[] = [];
-
-          if (isSizeBasedCategory) {
-            // Sized categories: 'Ready to Wear', 'Formal', etc.
-            const allowedSizes = ['Small', 'Medium', 'Large', 'X Large'];
-            for (const [sz, qty] of Object.entries(selectedSizes)) {
-              if (!allowedSizes.includes(sz)) continue;
-              const entriesForSize = (sizeEntries[sz] || []).filter(
-                (e) => Number.isInteger(e.quantity) && e.quantity >= 0
-              );
-
-              if (entriesForSize.length > 0) {
-                for (const e of entriesForSize) {
-                  const cleanedColor = typeof e.color === 'string' ? e.color.trim().slice(0, 100) : '';
-                  rawEntries.push({
-                    size: sz,
-                    quantity: e.quantity,
-                    rawColor: cleanedColor,
-                  });
-                }
-              } else if (Number(qty) > 0 && Number.isInteger(Number(qty))) {
-                // If selectedSizes has quantity but no color entries were added, fallback to single entry
-                rawEntries.push({
-                  size: sz,
-                  quantity: Number(qty),
-                  rawColor: '',
-                });
-              }
-            }
-          } else {
-            // Unstitched category
-            const unstitchedValidEntries = colorEntries.filter(
-              (e) => Number.isInteger(e.quantity) && e.quantity >= 0
-            );
-
-            if (unstitchedValidEntries.length > 0) {
-              for (const e of unstitchedValidEntries) {
-                const cleanedColor = typeof e.color === 'string' ? e.color.trim().slice(0, 100) : '';
-                rawEntries.push({
-                  size: 'Unstitched',
-                  quantity: e.quantity,
-                  rawColor: cleanedColor,
-                });
-              }
-            } else {
-              // No color entries: keep current behavior exactly
-              const parsedQty = parseInt(formData.quantity, 10);
-              const safeQty = Number.isInteger(parsedQty) && parsedQty >= 0 ? parsedQty : 1;
-              rawEntries.push({
-                size: 'Unstitched',
-                quantity: Math.max(1, safeQty),
-                rawColor: '',
-              });
-            }
-          }
-
-          // 3. Deduplicate distinct non-empty colors (case-insensitive, preserve first spelling)
-          const distinctColorsMap = new Map<string, string>(); // lowerKey -> originalSpelling
-          for (const item of rawEntries) {
-            if (item.rawColor) {
-              const lower = item.rawColor.toLowerCase();
-              if (!distinctColorsMap.has(lower)) {
-                distinctColorsMap.set(lower, item.rawColor);
-              }
-            }
-          }
-
-          // 4. Batch Insert distinct colors into product_colors (if any)
-          const colorIdMap = new Map<string, string>(); // lowerColor -> colorId
-          if (distinctColorsMap.size > 0) {
-            const colorRows = Array.from(distinctColorsMap.values()).map((colorName) => ({
-              product_id: createdProductId,
-              color_name: colorName,
-              // color_code omitted (NULL)
-            }));
-
-            const { data: insertedColors, error: colorErr } = await supabase
-              .from('product_colors')
-              .insert(colorRows)
-              .select('id, color_name');
-
-            if (colorErr) {
-              throw new Error(`Failed to save product colors: ${parseSupabaseError(colorErr)}`);
-            }
-
-            if (insertedColors && Array.isArray(insertedColors)) {
-              for (const c of insertedColors) {
-                if (c.color_name && c.id) {
-                  colorIdMap.set(c.color_name.toLowerCase(), c.id);
-                }
-              }
-            }
-          }
-
-          // 5. Build and Batch Insert variant records with color_id linkage
-          const variantRecords = rawEntries.map((item) => {
-            const colorId = item.rawColor ? colorIdMap.get(item.rawColor.toLowerCase()) || null : null;
-            return {
-              product_id: createdProductId,
-              size: item.size,
-              quantity: item.quantity,
-              color_id: colorId,
-            };
-          });
-
-          if (variantRecords.length > 0) {
-            const { error: varErr } = await supabase.from('product_variants').insert(variantRecords);
-            if (varErr) {
-              throw new Error(`Failed to save stock quantity: ${parseSupabaseError(varErr)}`);
-            }
-          }
+          // Atomically save colors and variants via shared RPC helper
+          await saveProductColorsAndVariantsAtomically(createdProductId, p_colors, p_variants);
         } catch (postCreateErr: any) {
           // Rollback: delete just-created product (cascades to images, colors, variants)
           try {
@@ -1306,6 +1376,20 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           } catch (rollbackErr) {
             console.error('Failed to rollback created product:', rollbackErr);
           }
+
+          // Clean up newly uploaded images from Supabase Storage
+          try {
+            const storagePaths = currentUploads
+              .map((it) => it.storagePath)
+              .filter((p): p is string => typeof p === 'string' && p.length > 0);
+
+            if (storagePaths.length > 0) {
+              await supabase.storage.from('products').remove(storagePaths);
+            }
+          } catch (storageCleanupErr) {
+            console.warn('Failed to clean up uploaded images from storage:', storageCleanupErr);
+          }
+
           throw postCreateErr;
         }
 

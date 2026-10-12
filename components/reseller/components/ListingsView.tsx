@@ -252,8 +252,12 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
             {!item.isDeactivated && (
               <button
                 onClick={() => {
-                  if (item.isSoldOut && onRestockListing) {
-                    onRestockListing(item.rawProduct || item);
+                  if (item.isSoldOut) {
+                    if (onRestockListing) {
+                      onRestockListing(item.id);
+                    } else {
+                      router.push(`/dashboard/add-collection?id=${item.id}&mode=restock`);
+                    }
                   } else {
                     handleToggleSoldOut(item.id, item.isSoldOut);
                   }
@@ -268,7 +272,13 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
             )}
 
             <button
-              onClick={() => onEditListing && onEditListing(item.rawProduct || item)}
+              onClick={() => {
+                if (onEditListing) {
+                  onEditListing(item.id);
+                } else {
+                  router.push(`/dashboard/add-collection?id=${item.id}&mode=edit`);
+                }
+              }}
               className="p-1.5 sm:p-2 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-md transition-colors cursor-pointer shrink-0 flex items-center justify-center"
               title="Edit Collection Details & Photos"
               aria-label="Edit Collection Details"

@@ -49,16 +49,40 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     const mockSeller = MOCK_RESELLERS.find((r) => r.id === sellerId) || MOCK_RESELLERS[0];
     const mockProds = ALL_PRODUCTS.filter((p) => p.resellerId === mockSeller.id || (!p.resellerId && mockSeller.id === 'reseller-1'));
 
-    const mergedProducts: MergedProductData[] = mockProds.map((p) => ({
-      ...p,
-      totalUnitsSold: 15,
-      totalOrders: 10,
-      averageRating: 4.9,
-      reviewsCount: MOCK_REVIEWS.length,
-    }));
+    let mockTotalReviews = 0;
+    let mockWeightedSum = 0;
+    for (const p of mockProds) {
+      const count = Number(p.review_count ?? p.reviewCount ?? 0);
+      const safeCount = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+      const rating = Number(p.average_rating ?? p.averageRating ?? 0);
+      const safeRating = Number.isFinite(rating) ? Math.min(Math.max(rating, 0), 5) : 0;
+      if (safeCount > 0) {
+        mockTotalReviews += safeCount;
+        mockWeightedSum += safeRating * safeCount;
+      }
+    }
+    const mockAvgRating = mockTotalReviews > 0 ? mockWeightedSum / mockTotalReviews : (mockSeller.rating || 0);
+
+    const mergedProducts: MergedProductData[] = mockProds.map((p) => {
+      const rawCategory = typeof p.category === 'string' ? p.category.trim() : (p.category ? String(p.category).trim() : '');
+      const cleanCategory = rawCategory.length > 0 ? rawCategory : '';
+      return {
+        ...p,
+        category: cleanCategory,
+        stitchingStatus: cleanCategory || undefined,
+        totalUnitsSold: 15,
+        totalOrders: 10,
+        averageRating: 4.9,
+        reviewsCount: MOCK_REVIEWS.length,
+      };
+    });
 
     return {
-      seller: mockSeller,
+      seller: {
+        ...mockSeller,
+        rating: Math.min(Math.max(mockAvgRating, 0), 5),
+        reviewCount: mockTotalReviews > 0 ? mockTotalReviews : (mockSeller.reviewCount || 0),
+      },
       products: mergedProducts,
       reviews: MOCK_REVIEWS,
       totalUnitsSold: mockSeller.totalSales || 450,
@@ -90,6 +114,7 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     .from('products')
     .select(`
       *,
+      category,
       product_images (
         id,
         image_url,
@@ -104,11 +129,18 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     .eq('seller_id', sellerId)
     .eq('status', 'Active');
 
-  const [sellerRes, orderItemsRes, sellerOrdersRes, productsRes] = await Promise.all([
+  // 5. Query average_rating and review_count across ALL products of this seller (unfiltered by status or pagination)
+  const sellerRatingsPromise = supabase
+    .from('products')
+    .select('average_rating, review_count')
+    .eq('seller_id', sellerId);
+
+  const [sellerRes, orderItemsRes, sellerOrdersRes, productsRes, sellerRatingsRes] = await Promise.all([
     sellerPromise,
     orderItemsPromise,
     sellerOrdersPromise,
     productsPromise,
+    sellerRatingsPromise,
   ]);
 
   if (sellerRes.error) {
@@ -193,15 +225,26 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     };
   });
 
-  // Calculate overall seller metrics dynamically
-  const totalSellerReviewsCount = mappedReviews.length;
-  const rawDbRating = Number(rawSeller?.average_rating);
-  const sellerAverageRating =
-    !isNaN(rawDbRating) && rawDbRating > 0
-      ? Math.round(rawDbRating * 10) / 10
-      : totalSellerReviewsCount > 0
-      ? Math.round((mappedReviews.reduce((sum, r) => sum + r.rating, 0) / totalSellerReviewsCount) * 10) / 10
-      : 5.0;
+  // Calculate overall seller metrics: weighted average rating and total review count across all products
+  const rawRatingsList = sellerRatingsRes?.data || [];
+  let totalReviews = 0;
+  let weightedRatingSum = 0;
+
+  for (const item of rawRatingsList) {
+    const rawCount = Number(item.review_count);
+    const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.floor(rawCount) : 0;
+    const rawRating = Number(item.average_rating);
+    const rating = Number.isFinite(rawRating) ? Math.min(Math.max(rawRating, 0), 5) : 0;
+
+    if (count > 0) {
+      totalReviews += count;
+      weightedRatingSum += rating * count;
+    }
+  }
+
+  const computedSellerRating = totalReviews > 0 ? weightedRatingSum / totalReviews : 0;
+  const sellerAverageRating = Math.min(Math.max(computedSellerRating, 0), 5);
+  const totalSellerReviewsCount = totalReviews;
 
   const sellerImage =
     rawSeller?.store_image_url ||
@@ -263,6 +306,9 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     const totalVariantStock = variantsList.reduce((sum: number, v: any) => sum + (Number(v.quantity) || 0), 0);
     const effectiveQuantity = variantsList.length > 0 ? totalVariantStock : Number(p.quantity ?? 1);
 
+    const rawCategory = typeof p.category === 'string' ? p.category.trim() : (p.category ? String(p.category).trim() : '');
+    const cleanCategory = rawCategory.length > 0 ? rawCategory : '';
+
     return {
       id: p.id,
       title: p.suit_title || 'Designer Leftover Suit',
@@ -274,9 +320,9 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
       hoverImage: hoverImg,
       additionalImages: addlImgs.length > 0 ? addlImgs : [thumb],
       badge: discountPct > 0 ? `${discountPct}% OFF` : undefined,
-      category: p.category || (p.stitching_status === 'Stitched' ? 'Ready to Wear' : 'Unstitched'),
-      subcategory: p.subcategory || String(p.piece_count || ''),
-      stitchingStatus: p.stitching_status || 'Unstitched',
+      category: cleanCategory,
+      subcategory: p.subcategory || (p.piece_count ? String(p.piece_count) : undefined),
+      stitchingStatus: cleanCategory || undefined,
       pieceCount: parsePieceCount(p.piece_count),
       fabric: p.fabric || 'Lawn',
       color: p.color || 'Multi',

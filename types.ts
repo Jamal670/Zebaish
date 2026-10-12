@@ -3,6 +3,7 @@ export interface ProductVariant {
   product_id?: string;
   size: string;
   quantity: number;
+  color_id?: string | null;
 }
 
 export interface ProductColor {
