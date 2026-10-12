@@ -158,6 +158,7 @@ export async function placeOrder({
           product_variants (
             id,
             size,
+            color_id,
             quantity
           )
         `)
@@ -194,9 +195,18 @@ export async function placeOrder({
         let matchedVariant: any = null;
 
         if (variantsList.length > 0) {
-          matchedVariant = dbProd.category === 'Unstitched'
-            ? variantsList.find((v: any) => v.size === 'Unstitched')
-            : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase());
+          const itemColorId = item.color?.id;
+          if (itemColorId) {
+            matchedVariant = dbProd.category === 'Unstitched'
+              ? variantsList.find((v: any) => v.size === 'Unstitched' && v.color_id === itemColorId)
+              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase() && v.color_id === itemColorId);
+          }
+
+          if (!matchedVariant) {
+            matchedVariant = dbProd.category === 'Unstitched'
+              ? variantsList.find((v: any) => v.size === 'Unstitched')
+              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase());
+          }
 
           if (!matchedVariant && variantsList.length > 0) {
             matchedVariant = variantsList[0];
@@ -373,9 +383,20 @@ export async function placeOrder({
         const variantsList = Array.isArray(dbProd.product_variants) ? dbProd.product_variants : [];
 
         if (variantsList.length > 0) {
-          const matchedVariant = dbProd.category === 'Unstitched'
-            ? variantsList.find((v: any) => v.size === 'Unstitched')
-            : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase());
+          const itemColorId = item.color?.id;
+          let matchedVariant: any = null;
+
+          if (itemColorId) {
+            matchedVariant = dbProd.category === 'Unstitched'
+              ? variantsList.find((v: any) => v.size === 'Unstitched' && v.color_id === itemColorId)
+              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase() && v.color_id === itemColorId);
+          }
+
+          if (!matchedVariant) {
+            matchedVariant = dbProd.category === 'Unstitched'
+              ? variantsList.find((v: any) => v.size === 'Unstitched')
+              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase());
+          }
 
           const targetVariant = matchedVariant || variantsList[0];
           if (targetVariant) {

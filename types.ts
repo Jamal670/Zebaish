@@ -251,8 +251,16 @@ export interface UGCItem {
   productName?: string;
 }
 
+export interface CartItemColor {
+  id: string;
+  name: string;
+  code: string | null;
+}
+
 export interface CartItem {
   product: Product;
   quantity: number;
   size?: string;
+  color?: CartItemColor | null;
 }
+

@@ -192,6 +192,7 @@ export async function fetchCollectionProducts({
       product_variants (
         id,
         size,
+        color_id,
         quantity
       ),
       seller:sellers (
@@ -262,7 +263,12 @@ export async function fetchCollectionProducts({
         description: p.description || 'Authentic designer surplus suit from clearance inventory.',
         inStock: p.status === 'Active' && totalStock > 0,
         quantity: totalStock,
-        variants: variants.map((v: any) => ({ id: v.id, size: v.size, quantity: Number(v.quantity) || 0 })),
+        variants: variants.map((v: any) => ({
+          id: v.id,
+          size: v.size,
+          color_id: v.color_id,
+          quantity: Number(v.quantity) || 0,
+        })),
         listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',
         resellerId: p.seller_id,
         resellerName: sellerObj?.shop_name || 'Verified Reseller',
@@ -323,6 +329,7 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
         product_variants (
           id,
           size,
+          color_id,
           quantity
         ),
         product_colors (
@@ -405,7 +412,12 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
       description: p.description || 'Authentic designer surplus suit from clearance inventory.',
       inStock: p.status === 'Active' && totalStock > 0,
       quantity: totalStock,
-      variants: variants.map((v: any) => ({ id: v.id, size: v.size, quantity: Number(v.quantity) || 0 })),
+      variants: variants.map((v: any) => ({
+        id: v.id,
+        size: v.size,
+        color_id: v.color_id,
+        quantity: Number(v.quantity) || 0,
+      })),
       colors: Array.isArray(p.product_colors) ? p.product_colors : [],
       product_colors: Array.isArray(p.product_colors) ? p.product_colors : [],
       listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',

@@ -618,7 +618,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
           <div className="bg-white border border-stone-200 rounded-lg p-16 text-center my-8 shadow-2xs">
             <Loader2 className="w-8 h-8 animate-spin text-stone-800 mx-auto mb-3" />
             <p className="text-xs font-semibold uppercase tracking-wider text-stone-600">
-              Loading Leftover Suits...
+              Loading...
             </p>
           </div>
         ) : displayProducts.length === 0 ? (

@@ -1,7 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Product, CartItem } from '@/types';
+import { Product, CartItem, CartItemColor } from '@/types';
+import { getCartLineKey } from '@/src/utils/colorUtils';
 import useAuth from '@/src/hooks/useAuth';
 import {
   fetchUserWishlistIds,
@@ -13,9 +14,23 @@ import {
 interface AppContextType {
   // Cart
   cartItems: CartItem[];
-  handleAddToCart: (product: Product, size?: string, quantity?: number) => void;
-  handleUpdateQuantity: (productId: string, quantity: number) => void;
-  handleRemoveCartItem: (productId: string) => void;
+  handleAddToCart: (
+    product: Product,
+    size?: string,
+    quantity?: number,
+    color?: CartItemColor | null
+  ) => void;
+  handleUpdateQuantity: (
+    lineKeyOrProductId: string,
+    quantity: number,
+    size?: string,
+    colorId?: string | null
+  ) => void;
+  handleRemoveCartItem: (
+    lineKeyOrProductId: string,
+    size?: string,
+    colorId?: string | null
+  ) => void;
   clearCart: () => void;
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
@@ -66,24 +81,54 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Load cart from localStorage on mount (client-side only, after hydration)
+  // Load cart from localStorage on mount (client-side only, after hydration, with validation hygiene)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_CART_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          setCartItems(parsed);
+          const validItems: CartItem[] = [];
+          for (const item of parsed) {
+            if (
+              item &&
+              item.product &&
+              typeof item.product.id === 'string' &&
+              typeof item.quantity === 'number'
+            ) {
+              let validColor: CartItemColor | null = null;
+              if (
+                item.color &&
+                typeof item.color === 'object' &&
+                typeof item.color.id === 'string' &&
+                typeof item.color.name === 'string'
+              ) {
+                validColor = {
+                  id: item.color.id,
+                  name: item.color.name,
+                  code: typeof item.color.code === 'string' ? item.color.code : null,
+                };
+              }
+              validItems.push({
+                product: item.product,
+                quantity: Math.max(1, item.quantity),
+                size: typeof item.size === 'string' ? item.size : 'Unstitched',
+                color: validColor,
+              });
+            }
+          }
+          setCartItems(validItems);
         }
       }
     } catch (e) {
-      console.error('Error loading cart from localStorage:', e);
+      console.error('Error loading cart from localStorage, falling back to empty cart:', e);
+      setCartItems([]);
     } finally {
       setIsCartLoaded(true);
     }
   }, []);
 
-  // Sync cartItems state to localStorage whenever it changes (only after initial load)
+  // Sync cartItems state to localStorage whenever it changes (only after initial load, wrapped in try/catch)
   useEffect(() => {
     if (!isCartLoaded) return;
     try {
@@ -111,11 +156,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [user?.id]);
 
-  // Add to Cart / Bag Flow
-  const handleAddToCart = (product: Product, size = 'Unstitched', quantity = 1) => {
+  // Add to Cart / Bag Flow with color snapshot support
+  const handleAddToCart = (
+    product: Product,
+    size = 'Unstitched',
+    quantity = 1,
+    color?: CartItemColor | null
+  ) => {
+    const itemColor = color || null;
+    const targetKey = getCartLineKey({ productId: product.id, size, color: itemColor });
+
     setCartItems((prev) => {
       const existingIndex = prev.findIndex(
-        (item) => item.product.id === product.id && item.size === size
+        (item) => getCartLineKey(item) === targetKey
       );
 
       let updated: CartItem[];
@@ -127,10 +180,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           idx === existingIndex ? { ...item, quantity: finalQuantity } : item
         );
       } else {
-        updated = [...prev, { product, quantity, size }];
+        updated = [...prev, { product, quantity, size, color: itemColor }];
       }
 
-      // Sync to DB if user is authenticated
+      // Sync to DB if user is authenticated (DB sync doesn't touch client color)
       if (user?.id) {
         syncCartItemToDb(user.id, product.id, finalQuantity, product.price);
       }
@@ -143,20 +196,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Update Cart Quantity
-  const handleUpdateQuantity = (productId: string, quantity: number) => {
+  const handleUpdateQuantity = (
+    lineKeyOrProductId: string,
+    quantity: number,
+    size?: string,
+    colorId?: string | null
+  ) => {
     if (quantity <= 0) {
-      handleRemoveCartItem(productId);
+      handleRemoveCartItem(lineKeyOrProductId, size, colorId);
       return;
     }
 
     setCartItems((prev) => {
-      const targetItem = prev.find((i) => i.product.id === productId);
-      const updated = prev.map((item) =>
-        item.product.id === productId ? { ...item, quantity } : item
+      const targetIndex = prev.findIndex((item) => {
+        if (getCartLineKey(item) === lineKeyOrProductId) return true;
+        if (size !== undefined) {
+          const itemColorId = item.color?.id ?? null;
+          const targetColorId = colorId ?? null;
+          return (
+            item.product.id === lineKeyOrProductId &&
+            item.size === size &&
+            itemColorId === targetColorId
+          );
+        }
+        return item.product.id === lineKeyOrProductId;
+      });
+
+      if (targetIndex === -1) return prev;
+
+      const targetItem = prev[targetIndex];
+      const updated = prev.map((item, idx) =>
+        idx === targetIndex ? { ...item, quantity } : item
       );
 
       if (user?.id && targetItem) {
-        syncCartItemToDb(user.id, productId, quantity, targetItem.product.price);
+        syncCartItemToDb(user.id, targetItem.product.id, quantity, targetItem.product.price);
       }
 
       return updated;
@@ -164,11 +238,38 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Remove Cart Item
-  const handleRemoveCartItem = (productId: string) => {
+  const handleRemoveCartItem = (
+    lineKeyOrProductId: string,
+    size?: string,
+    colorId?: string | null
+  ) => {
     setCartItems((prev) => {
-      const updated = prev.filter((item) => item.product.id !== productId);
-      if (user?.id) {
-        syncCartItemToDb(user.id, productId, 0, 0);
+      let removedProductId: string | null = null;
+      const updated = prev.filter((item) => {
+        if (getCartLineKey(item) === lineKeyOrProductId) {
+          removedProductId = item.product.id;
+          return false;
+        }
+        if (size !== undefined) {
+          const itemColorId = item.color?.id ?? null;
+          const targetColorId = colorId ?? null;
+          if (
+            item.product.id === lineKeyOrProductId &&
+            item.size === size &&
+            itemColorId === targetColorId
+          ) {
+            removedProductId = item.product.id;
+            return false;
+          }
+        } else if (item.product.id === lineKeyOrProductId) {
+          removedProductId = item.product.id;
+          return false;
+        }
+        return true;
+      });
+
+      if (user?.id && removedProductId) {
+        syncCartItemToDb(user.id, removedProductId, 0, 0);
       }
       return updated;
     });

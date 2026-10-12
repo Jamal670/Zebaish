@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { ShoppingBag, Trash2, Plus, Minus, ArrowRight } from 'lucide-react';
 import { CartItem, Product } from '@/types';
 import { getItemAvailableStock } from '@/src/utils/stockUtils';
+import { getCartLineKey } from '@/src/utils/colorUtils';
+import { CartItemColor } from '@/components/CartItemColor';
 import supabase from '@/src/api/client';
 
 interface CartPageProps {
   cartItems: CartItem[];
-  onUpdateQuantity: (productId: string, quantity: number, size?: string) => void;
-  onRemoveItem: (productId: string, size?: string) => void;
+  onUpdateQuantity: (productId: string, quantity: number, size?: string, colorId?: string | null) => void;
+  onRemoveItem: (productId: string, size?: string, colorId?: string | null) => void;
   onProceedToCheckout: () => void;
   onNavigateHome: () => void;
 }
@@ -43,6 +45,7 @@ export const CartPage: React.FC<CartPageProps> = ({
             product_variants (
               id,
               size,
+              color_id,
               quantity
             )
           `)
@@ -71,17 +74,18 @@ export const CartPage: React.FC<CartPageProps> = ({
                   ? (dbProd as any).product_variants.map((v: any) => ({
                       id: v.id,
                       size: v.size,
+                      color_id: v.color_id,
                       quantity: Number(v.quantity) || 0,
                     }))
                   : item.product.variants,
               }
             : item.product;
 
-          const maxStock = getItemAvailableStock(latestProduct, item.size);
-          const itemKey = `${item.product.id}-${item.size || 'Unstitched'}`;
+          const maxStock = getItemAvailableStock(latestProduct, item.size, item.color?.id);
+          const itemKey = getCartLineKey(item);
 
           if (maxStock > 0 && item.quantity > maxStock) {
-            onUpdateQuantity(item.product.id, maxStock, item.size);
+            onUpdateQuantity(getCartLineKey(item), maxStock, item.size, item.color?.id);
             newNotices[itemKey] = `Quantity adjusted to available stock: ${maxStock}`;
           } else if (maxStock === 0 && item.quantity > 0) {
             newNotices[itemKey] = `Item is currently out of stock`;
@@ -112,6 +116,7 @@ export const CartPage: React.FC<CartPageProps> = ({
         ? (dbProd as any).product_variants.map((v: any) => ({
             id: v.id,
             size: v.size,
+            color_id: v.color_id,
             quantity: Number(v.quantity) || 0,
           }))
         : item.product.variants,
@@ -120,8 +125,8 @@ export const CartPage: React.FC<CartPageProps> = ({
 
   const handleQuantityChange = (item: CartItem, newQty: number) => {
     const latestProduct = getLatestProductForItem(item);
-    const maxStock = getItemAvailableStock(latestProduct, item.size);
-    const itemKey = `${item.product.id}-${item.size || 'Unstitched'}`;
+    const maxStock = getItemAvailableStock(latestProduct, item.size, item.color?.id);
+    const itemKey = getCartLineKey(item);
 
     if (maxStock <= 0) {
       setAdjustedNotices((prev) => ({ ...prev, [itemKey]: 'Item is currently out of stock' }));
@@ -143,7 +148,7 @@ export const CartPage: React.FC<CartPageProps> = ({
     }
 
     if (clampedQty !== item.quantity) {
-      onUpdateQuantity(item.product.id, clampedQty, item.size);
+      onUpdateQuantity(getCartLineKey(item), clampedQty, item.size, item.color?.id);
     }
   };
 
@@ -191,14 +196,14 @@ export const CartPage: React.FC<CartPageProps> = ({
             <div className="lg:col-span-8 space-y-4">
               {cartItems.map((item) => {
                 const latestProduct = getLatestProductForItem(item);
-                const maxStock = getItemAvailableStock(latestProduct, item.size);
+                const maxStock = getItemAvailableStock(latestProduct, item.size, item.color?.id);
                 const isOutOfStock = maxStock <= 0;
-                const itemKey = `${item.product.id}-${item.size || 'Unstitched'}`;
+                const itemKey = getCartLineKey(item);
                 const notice = adjustedNotices[itemKey];
 
                 return (
                   <div
-                    key={`${item.product.id}-${item.size}`}
+                    key={itemKey}
                     className="bg-white border border-stone-200 rounded-lg p-4 sm:p-5 flex gap-4 sm:gap-6 shadow-2xs transition-all hover:border-stone-300"
                   >
                     <img
@@ -223,8 +228,9 @@ export const CartPage: React.FC<CartPageProps> = ({
                           </p>
                         </div>
 
-                        <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-stone-500">
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-stone-500">
                           <span>Option: <strong className="text-stone-800">{item.size || 'Unstitched'}</strong></span>
+                          <CartItemColor color={item.color} />
                           <span>•</span>
                           <span>Seller: <strong className="text-stone-800">{item.product.resellerName || 'Verified Reseller'}</strong></span>
                         </div>
@@ -282,7 +288,7 @@ export const CartPage: React.FC<CartPageProps> = ({
                         </div>
 
                         <button
-                          onClick={() => onRemoveItem(item.product.id, item.size)}
+                          onClick={() => onRemoveItem(getCartLineKey(item), item.size, item.color?.id)}
                           className="text-stone-400 hover:text-red-600 p-1 transition-colors flex items-center space-x-1 text-xs cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />

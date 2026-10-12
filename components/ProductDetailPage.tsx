@@ -18,121 +18,30 @@ import {
   X
 } from 'lucide-react';
 import { ProductCard } from './ProductCard';
-import { Product, Review, ProductColor } from '@/types';
+import { Product, Review, ProductColor, CartItemColor } from '@/types';
 import { ALL_PRODUCTS, MOCK_REVIEWS } from '@/data/mockData';
 import supabase from '@/src/api/client';
 import { useProductQuery, useIncrementViewsMutation } from '@/src/hooks/useQueries';
 import { incrementProductViews } from '@/src/api/collectionService';
 import { getItemAvailableStock } from '@/src/utils/stockUtils';
+import { resolveSwatchColor } from '@/src/utils/colorUtils';
 import { useRouter } from 'next/navigation';
 import useAuth from '@/src/hooks/useAuth';
 const DEFAULT_STORE_IMAGE =
   'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
 
-export { getItemAvailableStock };
-
-// Rejected CSS color keywords
-const REJECTED_COLOR_KEYWORDS = new Set([
-  'transparent',
-  'inherit',
-  'initial',
-  'unset',
-  'currentcolor',
-]);
-
-// Small explicit dictionary for common fashion/fabric colors not natively recognized by CSS
-const FASHION_COLOR_MAP: Record<string, string> = {
-  maroon: '#800000',
-  mustard: '#FFDB58',
-  mehndi: '#556B2F',
-  mehendi: '#556B2F',
-  peach: '#FFE5B4',
-  'off white': '#FAF9F6',
-  'off-white': '#FAF9F6',
-  offwhite: '#FAF9F6',
-  beige: '#F5F5DC',
-  fawn: '#E5AA70',
-  zinc: '#71717A',
-  rust: '#B7410E',
-  pista: '#93C572',
-  pistachio: '#93C572',
-  lilac: '#C8A2C8',
-  lavender: '#E6E6FA',
-  mauve: '#E0B0FF',
-  plum: '#DDA0DD',
-  burgundy: '#800020',
-  teal: '#008080',
-  coral: '#FF7F50',
-  camel: '#C19A6B',
-  copper: '#B87333',
-  charcoal: '#36454F',
-};
-
-const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-
-export function resolveSwatchColor(colorCode?: string | null, colorName?: string | null): string | null {
-  // 1. Check color_code
-  if (colorCode && typeof colorCode === 'string') {
-    const trimmedCode = colorCode.trim();
-    if (trimmedCode) {
-      if (HEX_COLOR_REGEX.test(trimmedCode)) {
-        return trimmedCode;
-      }
-      if (
-        typeof CSS !== 'undefined' &&
-        typeof CSS.supports === 'function' &&
-        CSS.supports('color', trimmedCode)
-      ) {
-        const lowerCode = trimmedCode.toLowerCase();
-        if (!REJECTED_COLOR_KEYWORDS.has(lowerCode)) {
-          return trimmedCode;
-        }
-      }
-    }
-  }
-
-  // 2. Check color_name
-  if (!colorName || typeof colorName !== 'string') {
-    return null;
-  }
-
-  const trimmedName = colorName.trim().toLowerCase();
-  if (!trimmedName || REJECTED_COLOR_KEYWORDS.has(trimmedName)) {
-    return null;
-  }
-
-  // Check fashion color map first for Pakistani / multi-word fashion names
-  if (FASHION_COLOR_MAP[trimmedName]) {
-    return FASHION_COLOR_MAP[trimmedName];
-  }
-
-  // Check if valid CSS named color (e.g. red, yellow, pink, navy)
-  if (
-    typeof CSS !== 'undefined' &&
-    typeof CSS.supports === 'function' &&
-    CSS.supports('color', trimmedName)
-  ) {
-    return trimmedName;
-  }
-
-  // Safe SSR fallback for common standard CSS colors
-  const STANDARD_CSS_COLORS = new Set([
-    'black', 'white', 'red', 'blue', 'green', 'yellow', 'purple', 'pink', 'orange', 'brown', 'gray', 'grey',
-    'navy', 'cyan', 'magenta', 'silver', 'gold', 'olive', 'lime', 'aqua', 'violet', 'indigo', 'khaki', 'coral',
-    'salmon', 'turquoise', 'tan', 'crimson', 'chocolate', 'beige', 'maroon', 'plum', 'teal'
-  ]);
-  if (STANDARD_CSS_COLORS.has(trimmedName)) {
-    return trimmedName;
-  }
-
-  return null;
-}
+export { getItemAvailableStock, resolveSwatchColor };
 
 interface ProductDetailPageProps {
   productId?: string;
   product?: Product;
   reviews?: Review[];
-  onAddToCart: (product: Product, size?: string, quantity?: number) => void;
+  onAddToCart: (
+    product: Product,
+    size?: string,
+    quantity?: number,
+    color?: CartItemColor | null
+  ) => void;
   onToggleWishlist: (productId: string) => void;
   isWishlisted: boolean;
   onSelectProduct: (product: Product) => void;
@@ -200,8 +109,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const [isZoomOpen, setIsZoomOpen] = useState(false);
   const [addedToast, setAddedToast] = useState(false);
 
-  // Deduplicated available colors from product data
-  const availableColors = useMemo(() => {
+  // Deduplicated all product colors from product data
+  const allProductColors = useMemo(() => {
     const raw =
       queryData?.product?.colors ||
       queryData?.product?.product_colors ||
@@ -224,19 +133,82 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     return list;
   }, [queryData?.product, product]);
 
-  // Selected Color State
-  const [selectedColor, setSelectedColor] = useState<string | null>(null);
+  // Colors filtered by the currently selected size (or Unstitched category)
+  const availableColors = useMemo(() => {
+    if (allProductColors.length === 0) return [];
 
+    const variants = queryData?.product?.variants || product?.variants || [];
+    if (!Array.isArray(variants) || variants.length === 0) {
+      return allProductColors;
+    }
+
+    const currentSize = product.category === 'Unstitched' ? 'Unstitched' : selectedSize;
+    if (!currentSize) return allProductColors;
+
+    // Filter variants that match the current size
+    const sizeVariants = variants.filter(
+      (v) => v.size && v.size.trim().toLowerCase() === currentSize.trim().toLowerCase()
+    );
+
+    // If variants exist for this size and specify color_id / color
+    const matchingColorKeys = new Set<string>();
+    sizeVariants.forEach((v) => {
+      if (v.color_id) {
+        matchingColorKeys.add(String(v.color_id).trim().toLowerCase());
+      }
+      if ((v as any).color) {
+        matchingColorKeys.add(String((v as any).color).trim().toLowerCase());
+      }
+    });
+
+    if (matchingColorKeys.size > 0) {
+      const filtered = allProductColors.filter((c) => {
+        const idMatch = c.id && matchingColorKeys.has(String(c.id).trim().toLowerCase());
+        const nameMatch = c.color_name && matchingColorKeys.has(String(c.color_name).trim().toLowerCase());
+        return idMatch || nameMatch;
+      });
+      if (filtered.length > 0) {
+        return filtered;
+      }
+    }
+
+    return allProductColors;
+  }, [allProductColors, queryData?.product?.variants, product?.variants, product.category, selectedSize]);
+
+  // Selected Color State (Row ID of product_colors)
+  const [selectedColorId, setSelectedColorId] = useState<string | null>(null);
+  const [colorError, setColorError] = useState<string | null>(null);
+
+  // Reset selectedColorId, selectedSize, and colorError when target product changes
   useEffect(() => {
-    if (availableColors.length > 0) {
-      setSelectedColor((prev) => {
-        if (prev && availableColors.some((c) => c.color_name.toLowerCase() === prev.toLowerCase())) {
+    setSelectedColorId(null);
+    setColorError(null);
+    const vars = queryData?.product?.variants || product?.variants;
+    if (vars && Array.isArray(vars)) {
+      const avail = vars.find((v) => Number(v.quantity) > 0 && v.size !== 'Unstitched');
+      if (avail?.size) {
+        setSelectedSize(avail.size);
+        return;
+      }
+    }
+    setSelectedSize('Small');
+  }, [product?.id]);
+
+  // Preselect only if the filtered availableColors has exactly one color; require manual selection if several
+  useEffect(() => {
+    if (availableColors.length === 1) {
+      setSelectedColorId(availableColors[0].id);
+      setColorError(null);
+    } else if (availableColors.length > 1) {
+      setSelectedColorId((prev) => {
+        if (prev && availableColors.some((c) => c.id === prev)) {
           return prev;
         }
-        return availableColors[0].color_name;
+        return null;
       });
     } else {
-      setSelectedColor(null);
+      setSelectedColorId(null);
+      setColorError(null);
     }
   }, [availableColors]);
 
@@ -551,18 +523,47 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   // Real product reviews passed from 2nd query or updated locally
   const productReviews = localReviews;
 
-  // Compute available stock for current selected variant or Unstitched product
+  // Compute available stock for current selected variant or Unstitched product (taking selected color into account)
+  const chosenColor = allProductColors.find((c) => c.id === selectedColorId);
+
   const currentVariant = product.category === 'Unstitched'
-    ? product.variants?.find((v) => v.size === 'Unstitched')
-    : product.variants?.find((v) => v.size?.toLowerCase() === selectedSize?.toLowerCase());
+    ? (selectedColorId
+        ? product.variants?.find((v) => v.size === 'Unstitched' && (v.color_id === selectedColorId || (chosenColor && v.color_id?.toLowerCase() === chosenColor.color_name.toLowerCase()))) || product.variants?.find((v) => v.size === 'Unstitched')
+        : product.variants?.find((v) => v.size === 'Unstitched'))
+    : (selectedColorId
+        ? product.variants?.find((v) => v.size?.toLowerCase() === selectedSize?.toLowerCase() && (v.color_id === selectedColorId || (chosenColor && v.color_id?.toLowerCase() === chosenColor.color_name.toLowerCase()))) || product.variants?.find((v) => v.size?.toLowerCase() === selectedSize?.toLowerCase())
+        : product.variants?.find((v) => v.size?.toLowerCase() === selectedSize?.toLowerCase()));
   const availableStock = currentVariant ? Math.max(0, Number(currentVariant.quantity) || 0) : (product.quantity || 0);
   const maxSelectableQty = Math.max(1, availableStock);
 
+  // Automatically clamp quantity if current selection has less stock
+  useEffect(() => {
+    if (availableStock > 0 && quantity > availableStock) {
+      setQuantity(availableStock);
+    }
+  }, [availableStock]);
+
   const handleAddToCartClick = () => {
+    // If the product has multiple colors for the selected size and user has not picked one, require color selection
+    if (availableColors.length > 1 && !selectedColorId) {
+      setColorError('Please select a color');
+      return;
+    }
+
     const finalSize = product.category === 'Unstitched' ? 'Unstitched' : selectedSize;
     const finalQty = Math.min(maxSelectableQty, quantity);
-    const productWithColor = selectedColor ? { ...product, color: selectedColor } : product;
-    onAddToCart(productWithColor, finalSize, finalQty);
+
+    const chosen = availableColors.find((c) => c.id === selectedColorId) || chosenColor;
+    const colorSnapshot: CartItemColor | null = chosen
+      ? {
+          id: chosen.id,
+          name: chosen.color_name,
+          code: resolveSwatchColor(chosen.color_code, chosen.color_name),
+        }
+      : null;
+
+    const productWithColor = chosen ? { ...product, color: chosen.color_name } : product;
+    onAddToCart(productWithColor, finalSize, finalQty, colorSnapshot);
     setAddedToast(true);
     setTimeout(() => setAddedToast(false), 3000);
   };
@@ -759,9 +760,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {['Small', 'Medium', 'Large', 'X Large'].map((sz) => {
-                      const variantMatch = product.variants?.find((v) => v.size?.toLowerCase() === sz.toLowerCase());
-                      const stockQty = variantMatch ? Number(variantMatch.quantity) || 0 : 0;
-                      const isAvailable = stockQty > 0;
+                      const sizeVars = product.variants?.filter((v) => v.size?.toLowerCase() === sz.toLowerCase()) || [];
+                      const sizeTotalStock = sizeVars.reduce((sum, v) => sum + (Number(v.quantity) || 0), 0);
+                      const isAvailable = sizeTotalStock > 0;
+                      const stockQty = selectedSize === sz ? availableStock : sizeTotalStock;
                       const isLowStock = isAvailable && stockQty <= 3;
 
                       return (
@@ -772,8 +774,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                           onClick={() => {
                             if (isAvailable) {
                               setSelectedSize(sz);
-                              const newMax = Math.max(1, stockQty);
-                              if (quantity > newMax) setQuantity(newMax);
+                              setColorError(null);
                             }
                           }}
                           className={`px-3.5 py-2 rounded-xs border text-xs font-bold uppercase transition-all flex flex-col items-center justify-center ${selectedSize === sz && isAvailable
@@ -803,39 +804,41 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               {/* Available Color Swatches */}
               {availableColors.length > 0 && (
                 <div className="space-y-1.5">
-
-
-                  <ul
-                    role="list"
+                  <div
+                    role="radiogroup"
                     aria-label="Available colors"
                     className="flex flex-wrap items-center gap-2.5 py-0.5"
                   >
                     {availableColors.map((colorItem) => {
                       const resolvedBg = resolveSwatchColor(colorItem.color_code, colorItem.color_name);
-                      const isSelected =
-                        (selectedColor || availableColors[0]?.color_name)?.toLowerCase() ===
-                        colorItem.color_name.toLowerCase();
+                      const isSelected = selectedColorId === colorItem.id;
 
                       return (
-                        <li key={colorItem.id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedColor(colorItem.color_name)}
-                            title={colorItem.color_name}
-                            aria-label={`${colorItem.color_name}${isSelected ? ' (Selected)' : ''}`}
-                            aria-pressed={isSelected}
-                            className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full shrink-0 border border-black/15 transition-all cursor-pointer flex items-center justify-center relative ${isSelected
-                                ? 'ring-2 ring-stone-900 ring-offset-2 ring-offset-white scale-110 shadow-xs'
-                                : 'hover:scale-105 hover:border-stone-400 opacity-80 hover:opacity-100'
-                              }`}
-                            style={{ backgroundColor: resolvedBg || '#D1D5DB' }}
-                          >
-
-                          </button>
-                        </li>
+                        <button
+                          key={colorItem.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={isSelected}
+                          aria-label={colorItem.color_name}
+                          onClick={() => {
+                            setSelectedColorId(colorItem.id);
+                            setColorError(null);
+                          }}
+                          title={colorItem.color_name}
+                          className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full shrink-0 border border-black/15 transition-all cursor-pointer flex items-center justify-center relative focus:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 ${isSelected
+                              ? 'ring-2 ring-stone-900 ring-offset-2 ring-offset-white scale-110 shadow-xs'
+                              : 'hover:scale-105 hover:border-stone-400 opacity-80 hover:opacity-100'
+                            }`}
+                          style={{ backgroundColor: resolvedBg || '#D1D5DB' }}
+                        />
                       );
                     })}
-                  </ul>
+                  </div>
+                  {colorError && (
+                    <p className="text-xs text-red-600 font-medium animate-fade-in">
+                      {colorError}
+                    </p>
+                  )}
                 </div>
               )}
 

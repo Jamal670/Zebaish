@@ -34,6 +34,8 @@ import { placeOrder, uploadPaymentProof, deletePaymentProofs, SellerPaymentData 
 import supabase from '@/src/api/client';
 import { useQuery } from '@tanstack/react-query';
 import { GenericModal } from '@/components/reseller/components/wallet/GenericModal';
+import { getCartLineKey } from '@/src/utils/colorUtils';
+import { CartItemColor } from '@/components/CartItemColor';
 
 export interface CheckoutPageProps {
   cartItems: CartItem[];
@@ -988,7 +990,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                       <div className="space-y-2">
                         {sItems.map((item) => (
                           <div
-                            key={`${item.product.id}-${item.size}`}
+                            key={getCartLineKey(item)}
                             className="flex gap-2.5 text-xs bg-white p-2 rounded-md border border-stone-200/80 items-center"
                           >
                             <img
@@ -1003,9 +1005,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                               <p className="font-semibold text-stone-900 truncate text-[11px] leading-tight">
                                 {item.product.title}
                               </p>
-                              <span className="text-stone-500 text-[10px] block mt-0.5">
-                                Qty: {item.quantity} • {item.size || 'Unstitched'}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5 text-stone-500 text-[10px] mt-0.5">
+                                <span>Qty: {item.quantity} • {item.size || 'Unstitched'}</span>
+                                <CartItemColor color={item.color} />
+                              </div>
                             </div>
                             <span className="font-bold text-stone-900 text-right shrink-0 text-xs">
                               Rs. {(item.product.price * item.quantity).toLocaleString()}
