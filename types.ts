@@ -5,6 +5,12 @@ export interface ProductVariant {
   quantity: number;
 }
 
+export interface ProductColor {
+  id: string;
+  color_name: string;
+  color_code?: string | null;
+}
+
 export interface Product {
   id: string;
   title: string;
@@ -28,6 +34,8 @@ export interface Product {
   size?: string;
   quantity?: number;
   variants?: ProductVariant[];
+  colors?: ProductColor[];
+  product_colors?: ProductColor[];
   defect?: string;
   description?: string;
   inStock?: boolean;

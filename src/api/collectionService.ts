@@ -325,6 +325,11 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
           size,
           quantity
         ),
+        product_colors (
+          id,
+          color_name,
+          color_code
+        ),
         reviews (
           id,
           rating,
@@ -401,6 +406,8 @@ export async function fetchProductById(productId: string): Promise<FetchProductD
       inStock: p.status === 'Active' && totalStock > 0,
       quantity: totalStock,
       variants: variants.map((v: any) => ({ id: v.id, size: v.size, quantity: Number(v.quantity) || 0 })),
+      colors: Array.isArray(p.product_colors) ? p.product_colors : [],
+      product_colors: Array.isArray(p.product_colors) ? p.product_colors : [],
       listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',
       resellerId: p.seller_id,
       resellerName: shopName,

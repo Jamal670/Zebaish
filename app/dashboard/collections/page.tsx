@@ -25,12 +25,14 @@ export default function CollectionsPage() {
       onEditListing={(listing) => {
         setEditingListing(listing);
         setFormMode('edit');
-        router.push('/dashboard/add-collection');
+        const listingId = listing?.id || '';
+        router.push(listingId ? `/dashboard/add-collection?id=${listingId}&mode=edit` : '/dashboard/add-collection');
       }}
       onRestockListing={(listing) => {
         setEditingListing(listing);
         setFormMode('restock');
-        router.push('/dashboard/add-collection');
+        const listingId = listing?.id || '';
+        router.push(listingId ? `/dashboard/add-collection?id=${listingId}&mode=restock` : '/dashboard/add-collection');
       }}
     />
   );

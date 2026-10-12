@@ -18,7 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { ProductCard } from './ProductCard';
-import { Product, Review } from '@/types';
+import { Product, Review, ProductColor } from '@/types';
 import { ALL_PRODUCTS, MOCK_REVIEWS } from '@/data/mockData';
 import supabase from '@/src/api/client';
 import { useProductQuery, useIncrementViewsMutation } from '@/src/hooks/useQueries';
@@ -30,6 +30,103 @@ const DEFAULT_STORE_IMAGE =
   'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
 
 export { getItemAvailableStock };
+
+// Rejected CSS color keywords
+const REJECTED_COLOR_KEYWORDS = new Set([
+  'transparent',
+  'inherit',
+  'initial',
+  'unset',
+  'currentcolor',
+]);
+
+// Small explicit dictionary for common fashion/fabric colors not natively recognized by CSS
+const FASHION_COLOR_MAP: Record<string, string> = {
+  maroon: '#800000',
+  mustard: '#FFDB58',
+  mehndi: '#556B2F',
+  mehendi: '#556B2F',
+  peach: '#FFE5B4',
+  'off white': '#FAF9F6',
+  'off-white': '#FAF9F6',
+  offwhite: '#FAF9F6',
+  beige: '#F5F5DC',
+  fawn: '#E5AA70',
+  zinc: '#71717A',
+  rust: '#B7410E',
+  pista: '#93C572',
+  pistachio: '#93C572',
+  lilac: '#C8A2C8',
+  lavender: '#E6E6FA',
+  mauve: '#E0B0FF',
+  plum: '#DDA0DD',
+  burgundy: '#800020',
+  teal: '#008080',
+  coral: '#FF7F50',
+  camel: '#C19A6B',
+  copper: '#B87333',
+  charcoal: '#36454F',
+};
+
+const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+export function resolveSwatchColor(colorCode?: string | null, colorName?: string | null): string | null {
+  // 1. Check color_code
+  if (colorCode && typeof colorCode === 'string') {
+    const trimmedCode = colorCode.trim();
+    if (trimmedCode) {
+      if (HEX_COLOR_REGEX.test(trimmedCode)) {
+        return trimmedCode;
+      }
+      if (
+        typeof CSS !== 'undefined' &&
+        typeof CSS.supports === 'function' &&
+        CSS.supports('color', trimmedCode)
+      ) {
+        const lowerCode = trimmedCode.toLowerCase();
+        if (!REJECTED_COLOR_KEYWORDS.has(lowerCode)) {
+          return trimmedCode;
+        }
+      }
+    }
+  }
+
+  // 2. Check color_name
+  if (!colorName || typeof colorName !== 'string') {
+    return null;
+  }
+
+  const trimmedName = colorName.trim().toLowerCase();
+  if (!trimmedName || REJECTED_COLOR_KEYWORDS.has(trimmedName)) {
+    return null;
+  }
+
+  // Check fashion color map first for Pakistani / multi-word fashion names
+  if (FASHION_COLOR_MAP[trimmedName]) {
+    return FASHION_COLOR_MAP[trimmedName];
+  }
+
+  // Check if valid CSS named color (e.g. red, yellow, pink, navy)
+  if (
+    typeof CSS !== 'undefined' &&
+    typeof CSS.supports === 'function' &&
+    CSS.supports('color', trimmedName)
+  ) {
+    return trimmedName;
+  }
+
+  // Safe SSR fallback for common standard CSS colors
+  const STANDARD_CSS_COLORS = new Set([
+    'black', 'white', 'red', 'blue', 'green', 'yellow', 'purple', 'pink', 'orange', 'brown', 'gray', 'grey',
+    'navy', 'cyan', 'magenta', 'silver', 'gold', 'olive', 'lime', 'aqua', 'violet', 'indigo', 'khaki', 'coral',
+    'salmon', 'turquoise', 'tan', 'crimson', 'chocolate', 'beige', 'maroon', 'plum', 'teal'
+  ]);
+  if (STANDARD_CSS_COLORS.has(trimmedName)) {
+    return trimmedName;
+  }
+
+  return null;
+}
 
 interface ProductDetailPageProps {
   productId?: string;
@@ -102,6 +199,46 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const [openAccordion, setOpenAccordion] = useState<string | null>('description');
   const [isZoomOpen, setIsZoomOpen] = useState(false);
   const [addedToast, setAddedToast] = useState(false);
+
+  // Deduplicated available colors from product data
+  const availableColors = useMemo(() => {
+    const raw =
+      queryData?.product?.colors ||
+      queryData?.product?.product_colors ||
+      product?.colors ||
+      product?.product_colors ||
+      [];
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+
+    const seen = new Set<string>();
+    const list: ProductColor[] = [];
+
+    for (const c of raw) {
+      if (!c || !c.color_name) continue;
+      const key = c.color_name.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      list.push(c);
+    }
+
+    return list;
+  }, [queryData?.product, product]);
+
+  // Selected Color State
+  const [selectedColor, setSelectedColor] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (availableColors.length > 0) {
+      setSelectedColor((prev) => {
+        if (prev && availableColors.some((c) => c.color_name.toLowerCase() === prev.toLowerCase())) {
+          return prev;
+        }
+        return availableColors[0].color_name;
+      });
+    } else {
+      setSelectedColor(null);
+    }
+  }, [availableColors]);
 
   // Derive Seller Data directly from product prop (populated in single fetchProductById query)
   const sellerData = useMemo(() => {
@@ -424,7 +561,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const handleAddToCartClick = () => {
     const finalSize = product.category === 'Unstitched' ? 'Unstitched' : selectedSize;
     const finalQty = Math.min(maxSelectableQty, quantity);
-    onAddToCart(product, finalSize, finalQty);
+    const productWithColor = selectedColor ? { ...product, color: selectedColor } : product;
+    onAddToCart(productWithColor, finalSize, finalQty);
     setAddedToast(true);
     setTimeout(() => setAddedToast(false), 3000);
   };
@@ -474,9 +612,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 <span className="bg-black/90 text-white text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-xs backdrop-blur-xs">
                   {product.brand}
                 </span>
-                <span className="bg-red-600 text-white text-[11px] font-extrabold uppercase tracking-wider px-3 py-0.5 rounded-xs shadow-sm">
+                {/* <span className="bg-red-600 text-white text-[11px] font-extrabold uppercase tracking-wider px-3 py-0.5 rounded-xs shadow-sm">
                   LEFTOVER — LIMITED QUANTITY
-                </span>
+                </span> */}
               </div>
 
               {/* Zoom Button */}
@@ -661,6 +799,45 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
             {/* Quantity Stepper & Add to Bag Row */}
             <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8">
+
+              {/* Available Color Swatches */}
+              {availableColors.length > 0 && (
+                <div className="space-y-1.5">
+
+
+                  <ul
+                    role="list"
+                    aria-label="Available colors"
+                    className="flex flex-wrap items-center gap-2.5 py-0.5"
+                  >
+                    {availableColors.map((colorItem) => {
+                      const resolvedBg = resolveSwatchColor(colorItem.color_code, colorItem.color_name);
+                      const isSelected =
+                        (selectedColor || availableColors[0]?.color_name)?.toLowerCase() ===
+                        colorItem.color_name.toLowerCase();
+
+                      return (
+                        <li key={colorItem.id}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedColor(colorItem.color_name)}
+                            title={colorItem.color_name}
+                            aria-label={`${colorItem.color_name}${isSelected ? ' (Selected)' : ''}`}
+                            aria-pressed={isSelected}
+                            className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full shrink-0 border border-black/15 transition-all cursor-pointer flex items-center justify-center relative ${isSelected
+                                ? 'ring-2 ring-stone-900 ring-offset-2 ring-offset-white scale-110 shadow-xs'
+                                : 'hover:scale-105 hover:border-stone-400 opacity-80 hover:opacity-100'
+                              }`}
+                            style={{ backgroundColor: resolvedBg || '#D1D5DB' }}
+                          >
+
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
 
               {/* Quantity + Add to Bag + Wishlist */}
               <div className="flex items-center gap-1.5 sm:gap-2.5 lg:gap-3 w-full">

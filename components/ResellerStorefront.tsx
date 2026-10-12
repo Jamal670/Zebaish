@@ -25,6 +25,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   onSelectProduct,
   onNavigateHome,
 }) => {
+  // Fetch seller storefront data at database level (fetches only products with status = 'Active')
   const { data: storefrontData = null, isLoading, isError, refetch: loadData } = useQuery({
     queryKey: ['sellerStorefront', resellerId],
     queryFn: () => fetchSellerStorefrontData(resellerId),

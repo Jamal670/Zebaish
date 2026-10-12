@@ -85,7 +85,7 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     .select('id, seller_total, status')
     .eq('seller_id', sellerId);
 
-  // 4. Fetch Products listed by this Seller from `products` table
+  // 4. Fetch Products listed by this Seller from `products` table (only Active status)
   const productsPromise = supabase
     .from('products')
     .select(`
@@ -101,7 +101,8 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
         quantity
       )
     `)
-    .eq('seller_id', sellerId);
+    .eq('seller_id', sellerId)
+    .eq('status', 'Active');
 
   const [sellerRes, orderItemsRes, sellerOrdersRes, productsRes] = await Promise.all([
     sellerPromise,
