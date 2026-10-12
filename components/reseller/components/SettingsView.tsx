@@ -6,6 +6,9 @@ import {
   fetchSellerFullProfile,
   updateSellerProfile,
   uploadSellerAvatar,
+  autoUploadAndSaveSellerAvatar,
+  getAvatarUrl,
+  DEFAULT_STORE_AVATAR,
   updateSellerPassword,
   updateSellerShippingAndPaymentConfig,
 } from '@/src/api/sellerProfileService';
@@ -129,13 +132,12 @@ export function PersonalBusinessInfoForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const isProfileChanged = useMemo(() => {
-    if (avatarFile !== null) return true;
     return (
       (form.full_name ?? '').trim() !== savedBaseline.full_name.trim() ||
       (form.city ?? '').trim() !== savedBaseline.city.trim() ||
       (form.address ?? '').trim() !== savedBaseline.address.trim()
     );
-  }, [form, savedBaseline, avatarFile]);
+  }, [form, savedBaseline]);
 
   const validateProfileForm = (): boolean => {
     const errs: Record<string, string> = {};
@@ -240,11 +242,10 @@ export function PersonalBusinessInfoForm({
                 setForm((prev) => ({ ...prev, full_name: e.target.value }));
                 if (errors.full_name) setErrors((prev) => ({ ...prev, full_name: '' }));
               }}
-              className={`w-full p-3 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${
-                errors.full_name
+              className={`w-full p-3 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${errors.full_name
                   ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                   : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
-              }`}
+                }`}
             />
             {errors.full_name && <p className="text-xs text-red-600 font-medium mt-1">{errors.full_name}</p>}
           </div>
@@ -323,11 +324,10 @@ export function PersonalBusinessInfoForm({
                   setForm((prev) => ({ ...prev, city: e.target.value }));
                   if (errors.city) setErrors((prev) => ({ ...prev, city: '' }));
                 }}
-                className={`w-full p-3 pl-9 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${
-                  errors.city
+                className={`w-full p-3 pl-9 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${errors.city
                     ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                     : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
-                }`}
+                  }`}
               />
               <MapPin className="w-4 h-4 text-stone-400 absolute left-3 top-3.5" />
             </div>
@@ -367,11 +367,10 @@ export function PersonalBusinessInfoForm({
                 setForm((prev) => ({ ...prev, address: e.target.value }));
                 if (errors.address) setErrors((prev) => ({ ...prev, address: '' }));
               }}
-              className={`w-full p-3 border rounded-lg focus:outline-none focus:ring-1 transition-all leading-relaxed ${
-                errors.address
+              className={`w-full p-3 border rounded-lg focus:outline-none focus:ring-1 transition-all leading-relaxed ${errors.address
                   ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                   : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
-              }`}
+                }`}
             />
             {errors.address && <p className="text-xs text-red-600 font-medium mt-1">{errors.address}</p>}
           </div>
@@ -383,11 +382,10 @@ export function PersonalBusinessInfoForm({
         <button
           type="submit"
           disabled={savingProfile || !isProfileChanged}
-          className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${
-            savingProfile || !isProfileChanged
+          className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${savingProfile || !isProfileChanged
               ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
               : 'cursor-pointer hover:bg-black text-white'
-          }`}
+            }`}
         >
           {savingProfile ? (
             <>
@@ -480,14 +478,14 @@ export function StoreShippingConfigForm({
     configData ??
     (seller
       ? {
-          bank_name: seller.bank_name,
-          account_title: seller.account_title,
-          iban: seller.iban,
-          cod: seller.cod,
-          advance_pay_full: seller.advance_pay_full,
-          advance_pay_dc: seller.advance_pay_dc,
-          shipping_charges: seller.shipping_charges,
-        }
+        bank_name: seller.bank_name,
+        account_title: seller.account_title,
+        iban: seller.iban,
+        cod: seller.cod,
+        advance_pay_full: seller.advance_pay_full,
+        advance_pay_dc: seller.advance_pay_dc,
+        shipping_charges: seller.shipping_charges,
+      }
       : null);
 
   return (
@@ -765,11 +763,10 @@ function StoreShippingConfigFormContent({
                 required
                 value={shippingChargesInput}
                 onChange={(e) => handleShippingChange(e.target.value)}
-                className={`w-full p-3 pl-9 border rounded-lg focus:outline-none focus:ring-1 transition-all text-xs sm:text-sm font-mono font-bold ${
-                  shippingError
+                className={`w-full p-3 pl-9 border rounded-lg focus:outline-none focus:ring-1 transition-all text-xs sm:text-sm font-mono font-bold ${shippingError
                     ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20 text-red-900'
                     : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white text-stone-900'
-                }`}
+                  }`}
                 placeholder="150"
               />
               <span className="absolute left-3 top-3.5 text-xs font-bold text-stone-400">Rs.</span>
@@ -808,9 +805,8 @@ function StoreShippingConfigFormContent({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {/* Checkbox 1: COD */}
               <label
-                className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${
-                  cod ? 'bg-amber-50/40 border-amber-300 shadow-2xs' : 'bg-white border-stone-200 hover:border-stone-300'
-                }`}
+                className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${cod ? 'bg-amber-50/40 border-amber-300 shadow-2xs' : 'bg-white border-stone-200 hover:border-stone-300'
+                  }`}
               >
                 <div className="flex items-center h-4 mt-0.5">
                   <input
@@ -835,9 +831,8 @@ function StoreShippingConfigFormContent({
 
               {/* Checkbox 2: Advance Payment Full */}
               <label
-                className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${
-                  advancePayFull ? 'bg-amber-50/40 border-amber-300 shadow-2xs' : 'bg-white border-stone-200 hover:border-stone-300'
-                }`}
+                className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${advancePayFull ? 'bg-amber-50/40 border-amber-300 shadow-2xs' : 'bg-white border-stone-200 hover:border-stone-300'
+                  }`}
               >
                 <div className="flex items-center h-4 mt-0.5">
                   <input
@@ -862,9 +857,8 @@ function StoreShippingConfigFormContent({
 
               {/* Checkbox 3: Advance Payment Only DC */}
               <label
-                className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${
-                  advancePayDc ? 'bg-amber-50/40 border-amber-300 shadow-2xs' : 'bg-white border-stone-200 hover:border-stone-300'
-                }`}
+                className={`flex items-start p-3 rounded-xl border transition-all cursor-pointer select-none ${advancePayDc ? 'bg-amber-50/40 border-amber-300 shadow-2xs' : 'bg-white border-stone-200 hover:border-stone-300'
+                  }`}
               >
                 <div className="flex items-center h-4 mt-0.5">
                   <input
@@ -922,11 +916,10 @@ function StoreShippingConfigFormContent({
                       return next;
                     });
                   }}
-                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
-                    bankErrors.bank_name
+                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${bankErrors.bank_name
                       ? 'border-red-400 focus:border-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 bg-white'
-                  }`}
+                    }`}
                 />
                 {bankErrors.bank_name && (
                   <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.bank_name}</p>
@@ -951,11 +944,10 @@ function StoreShippingConfigFormContent({
                       return next;
                     });
                   }}
-                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${
-                    bankErrors.account_title
+                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-medium ${bankErrors.account_title
                       ? 'border-red-400 focus:border-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 bg-white'
-                  }`}
+                    }`}
                 />
                 {bankErrors.account_title && (
                   <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.account_title}</p>
@@ -980,11 +972,10 @@ function StoreShippingConfigFormContent({
                       return next;
                     });
                   }}
-                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-mono font-medium ${
-                    bankErrors.iban
+                  className={`w-full p-2.5 border rounded-lg focus:outline-none focus:ring-1 text-xs font-mono font-medium ${bankErrors.iban
                       ? 'border-red-400 focus:border-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 bg-white'
-                  }`}
+                    }`}
                 />
                 {bankErrors.iban && (
                   <p className="text-[11px] text-red-600 font-medium mt-1">{bankErrors.iban}</p>
@@ -998,11 +989,10 @@ function StoreShippingConfigFormContent({
             <button
               type="submit"
               disabled={savingShipping || !isStoreChanged || !!shippingError || !!paymentError || hasBankErrors}
-              className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${
-                savingShipping || !isStoreChanged || !!shippingError || !!paymentError || hasBankErrors
+              className={`px-6 py-2.5 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${savingShipping || !isStoreChanged || !!shippingError || !!paymentError || hasBankErrors
                   ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
                   : 'cursor-pointer hover:bg-black text-white'
-              }`}
+                }`}
             >
               {savingShipping ? (
                 <>
@@ -1028,6 +1018,7 @@ function StoreShippingConfigFormContent({
 // Parent owns the query, renders the form only once data exists (Section A)
 // =========================================================================
 export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) => {
+  const queryClient = useQueryClient();
   const { user, resellerProfile, refetchProfile } = useAuth();
   const sellerId = user?.id || resellerProfile?.id || '';
 
@@ -1036,6 +1027,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
   const [avatarPreview, setAvatarPreview] = useState<string>('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState<boolean>(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -1093,23 +1085,98 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     );
   }, [passData]);
 
-  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      showToast('Please select a valid image file (JPG, PNG, WEBP)', 'error');
+    // Reset file input value so selecting the same file again triggers onChange
+    e.target.value = '';
+    if (avatarInputRef.current) avatarInputRef.current.value = '';
+
+    // Section 3.1: Validate on the client first: only JPEG, PNG, WebP (NO SVG), max 5MB
+    const mimeExtMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    if (!mimeExtMap[file.type]) {
+      showToast('Please select a valid image file (JPEG, PNG, or WebP). SVGs are not allowed.', 'error');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      showToast('Image size exceeds 5MB limit', 'error');
+      showToast('Image size exceeds 5MB limit.', 'error');
       return;
     }
 
+    if (!sellerId) {
+      showToast('Unable to determine seller ID. Please reload the page.', 'error');
+      return;
+    }
+
+    if (isUploadingAvatar) return;
+
+    // Instant UI preview update
+    const tempUrl = URL.createObjectURL(file);
+    const previousPreview = avatarPreview || seller?.store_image_url || '';
+    setAvatarPreview(tempUrl);
     setAvatarFile(file);
-    const url = URL.createObjectURL(file);
-    setAvatarPreview(url);
+    setIsUploadingAvatar(true);
+
+    try {
+      // Execute auto-upload and save directly to sellers table
+      const res = await autoUploadAndSaveSellerAvatar(sellerId, file, previousPreview);
+
+      if (!res.success || !res.newUrl) {
+        throw new Error(res.error || 'Failed to upload profile image.');
+      }
+
+      const uploadedUrl = res.newUrl;
+
+      // Section 4: Update Settings and Sidebar together with no refresh
+      // 1. Immediately update TanStack Query cache directly
+      queryClient.setQueryData(['sellerFullProfile', sellerId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          profile: {
+            ...old.profile,
+            store_image_url: uploadedUrl,
+          },
+        };
+      });
+
+      // 2. Immediately update ResellerContext storeSettings (which feeds ResellerSidebar!)
+      if (setStoreSettings) {
+        setStoreSettings((prev: any) => ({
+          ...prev,
+          storeImageUrl: uploadedUrl,
+          logoUrl: uploadedUrl,
+        }));
+      }
+
+      // Revoke temporary object URL
+      URL.revokeObjectURL(tempUrl);
+      setAvatarPreview(uploadedUrl);
+      setAvatarFile(null);
+
+      // Background refetch
+      refetch();
+      if (refetchProfile) {
+        refetchProfile();
+      }
+
+      showToast('Profile image updated and saved successfully!', 'success');
+    } catch (err: any) {
+      console.error('Error auto-uploading avatar:', err);
+      // Revert to previously saved image on error
+      URL.revokeObjectURL(tempUrl);
+      setAvatarPreview(previousPreview);
+      setAvatarFile(null);
+      showToast(err?.message || 'Failed to upload profile image. Please try again.', 'error');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
   };
 
   const statusBadge = useMemo(() => {
@@ -1188,14 +1255,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
       {/* Toast Notification Container */}
       {toastMessage && (
         <div
-          className={`fixed bottom-6 right-6 z-50 text-white text-xs font-semibold px-5 py-3.5 rounded-xl shadow-2xl flex items-center space-x-3 border animate-slide-up ${
-            toastType === 'error' ? 'bg-red-900 border-red-800' : 'bg-stone-900 border-stone-800'
-          }`}
+          className={`fixed bottom-6 right-6 z-50 text-white text-xs font-semibold px-5 py-3.5 rounded-xl shadow-2xl flex items-center space-x-3 border animate-slide-up ${toastType === 'error' ? 'bg-red-900 border-red-800' : 'bg-stone-900 border-stone-800'
+            }`}
         >
           <span
-            className={`p-1 rounded-full ${
-              toastType === 'error' ? 'bg-red-700 text-red-100' : 'bg-emerald-500/20 text-emerald-400'
-            }`}
+            className={`p-1 rounded-full ${toastType === 'error' ? 'bg-red-700 text-red-100' : 'bg-emerald-500/20 text-emerald-400'
+              }`}
           >
             {toastType === 'error' ? <AlertCircle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
           </span>
@@ -1215,33 +1280,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 sm:gap-6 relative z-10">
           <div className="relative group shrink-0">
-            <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-full overflow-hidden border-4 border-amber-400/40 shadow-xl bg-stone-800">
+            <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-full overflow-hidden border-4 border-amber-400/40 shadow-xl bg-stone-800 relative">
               <img
-                src={
-                  avatarPreview ||
-                  seller?.store_image_url ||
-                  seller?.avatar_url ||
-                  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/pngtree-store-icon-image_1128274.jpg'
-                }
-                alt={seller?.shop_name || 'Seller Shop'}
-                className="w-full h-full object-cover"
+                src={getAvatarUrl(
+                  avatarPreview || seller?.store_image_url || seller?.avatar_url,
+                  seller?.shop_name || seller?.full_name
+                )}
+                alt={seller?.shop_name || seller?.full_name || 'Seller Shop'}
+                className={`w-full h-full object-cover transition-opacity duration-200 ${isUploadingAvatar ? 'opacity-40' : 'opacity-100'
+                  }`}
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src =
-                    'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/pngtree-store-icon-image_1128274.jpg';
+                  (e.target as HTMLImageElement).src = getAvatarUrl(
+                    null,
+                    seller?.shop_name || seller?.full_name
+                  );
                 }}
               />
+              {isUploadingAvatar && (
+                <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center space-y-1">
+                  <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 animate-spin text-amber-400" />
+                  <span className="text-[8px] sm:text-[9px] font-bold text-amber-300 uppercase tracking-wider">
+                    Saving...
+                  </span>
+                </div>
+              )}
             </div>
             <button
               type="button"
+              disabled={isUploadingAvatar}
               onClick={() => avatarInputRef.current?.click()}
-              className="absolute bottom-0 right-0 p-2 bg-amber-400 text-stone-950 rounded-full shadow-lg hover:bg-amber-300 transition-transform transform hover:scale-110 cursor-pointer"
-              title="Upload profile picture"
+              className={`absolute bottom-0 right-0 p-2 bg-amber-400 text-stone-950 rounded-full shadow-lg transition-transform transform ${isUploadingAvatar
+                  ? 'opacity-60 cursor-not-allowed scale-95'
+                  : 'hover:bg-amber-300 hover:scale-110 cursor-pointer'
+                }`}
+              title={isUploadingAvatar ? 'Saving profile image...' : 'Upload profile picture'}
             >
-              <Upload className="w-4 h-4" />
+              {isUploadingAvatar ? (
+                <Loader2 className="w-4 h-4 animate-spin text-stone-950" />
+              ) : (
+                <Upload className="w-4 h-4" />
+              )}
             </button>
             <input
               ref={avatarInputRef}
               type="file"
+              disabled={isUploadingAvatar}
               accept="image/jpeg,image/png,image/webp"
               onChange={handleAvatarSelect}
               className="hidden"
@@ -1312,11 +1395,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
         <button
           type="button"
           onClick={() => setActiveTab('profile')}
-          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 sm:px-4 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer min-h-[40px] ${
-            activeTab === 'profile'
+          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 sm:px-4 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer min-h-[40px] ${activeTab === 'profile'
               ? 'bg-stone-900 text-white shadow-sm'
               : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
-          }`}
+            }`}
         >
           <User className="w-4 h-4 shrink-0" />
           <span>Profile Info</span>
@@ -1325,11 +1407,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
         <button
           type="button"
           onClick={() => setActiveTab('security')}
-          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 sm:px-4 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer min-h-[40px] ${
-            activeTab === 'security'
+          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 sm:px-4 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer min-h-[40px] ${activeTab === 'security'
               ? 'bg-stone-900 text-white shadow-sm'
               : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
-          }`}
+            }`}
         >
           <ShieldCheck className="w-4 h-4 shrink-0" />
           <span>Security</span>
@@ -1338,11 +1419,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
         <button
           type="button"
           onClick={() => setActiveTab('store')}
-          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 sm:px-4 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer min-h-[40px] ${
-            activeTab === 'store'
+          className={`flex-1 min-w-[130px] py-2.5 sm:py-3 px-3 sm:px-4 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer min-h-[40px] ${activeTab === 'store'
               ? 'bg-stone-900 text-white shadow-sm'
               : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
-          }`}
+            }`}
         >
           <Settings className="w-4 h-4 shrink-0 text-amber-400" />
           <span>Store Setting</span>
@@ -1393,11 +1473,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   placeholder="Enter current password"
                   value={passData.currentPassword}
                   onChange={(e) => setPassData({ ...passData, currentPassword: e.target.value })}
-                  className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${
-                    passErrors.currentPassword
+                  className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${passErrors.currentPassword
                       ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
-                  }`}
+                    }`}
                 />
                 <button
                   type="button"
@@ -1423,11 +1502,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   placeholder="Minimum 6 characters"
                   value={passData.newPassword}
                   onChange={(e) => setPassData({ ...passData, newPassword: e.target.value })}
-                  className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${
-                    passErrors.newPassword
+                  className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${passErrors.newPassword
                       ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
-                  }`}
+                    }`}
                 />
                 <button
                   type="button"
@@ -1453,11 +1531,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   placeholder="Re-enter new password"
                   value={passData.confirmPassword}
                   onChange={(e) => setPassData({ ...passData, confirmPassword: e.target.value })}
-                  className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${
-                    passErrors.confirmPassword
+                  className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${passErrors.confirmPassword
                       ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
-                  }`}
+                    }`}
                 />
                 <button
                   type="button"
@@ -1476,11 +1553,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
               <button
                 type="submit"
                 disabled={updatingPassword || !isSecurityChanged}
-                className={`w-full sm:w-auto px-6 py-3 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${
-                  updatingPassword || !isSecurityChanged
+                className={`w-full sm:w-auto px-6 py-3 bg-stone-900 text-white text-xs sm:text-sm font-bold uppercase tracking-wider rounded-lg transition-all shadow-md flex items-center justify-center space-x-2 min-h-[42px] ${updatingPassword || !isSecurityChanged
                     ? 'opacity-40 bg-stone-300 text-stone-500 cursor-not-allowed shadow-none border-0'
                     : 'cursor-pointer hover:bg-black text-white'
-                }`}
+                  }`}
               >
                 {updatingPassword ? (
                   <>

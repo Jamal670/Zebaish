@@ -5,7 +5,6 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ["lucide-react", "recharts"],
   },
   reactStrictMode: true,
-  cleanDistDir: true,
   
 };
 

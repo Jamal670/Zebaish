@@ -36,6 +36,39 @@ function formatDate(dateStr?: string): string {
   }
 }
 
+export const DEFAULT_STORE_AVATAR =
+  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/pngtree-store-icon-image_1128274.jpg';
+
+/**
+ * Resolves avatar URL for a seller.
+ * If a valid URL/DataURL/path is provided, returns the public URL.
+ * If null/empty, returns personalized avatar with seller/store name initials,
+ * or default placeholder icon.
+ */
+export function getAvatarUrl(imageUrl?: string | null, fallbackName?: string): string {
+  if (imageUrl && typeof imageUrl === 'string') {
+    const trimmed = imageUrl.trim();
+    if (
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.startsWith('data:') ||
+      trimmed.startsWith('blob:')
+    ) {
+      return trimmed;
+    }
+    if (trimmed.length > 0) {
+      const { data } = supabase.storage.from('products').getPublicUrl(trimmed);
+      if (data?.publicUrl) return data.publicUrl;
+    }
+  }
+  if (fallbackName && fallbackName.trim()) {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      fallbackName.trim()
+    )}&background=292524&color=fbbf24&size=256&bold=true`;
+  }
+  return DEFAULT_STORE_AVATAR;
+}
+
 /**
  * Fetches seller profile and shipping/payment settings from sellers table.
  * Selects only specific required columns (no select('*')).
@@ -49,20 +82,20 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
   // Fallback defaults for demo/mock IDs
   const defaultProfile: ResellerProfile = {
     id: sellerId,
-    email: 'reseller@zebaish.pk',
-    full_name: 'Ayesha Khan',
-    shop_name: 'Ayesha Luxury Surplus',
-    cnic: '35202-1234567-8',
-    phone: '+92 300 1234567',
-    city: 'Lahore',
-    address: 'Shop #12, Liberty Market, Gulberg III, Lahore',
-    bank_name: 'Meezan Bank',
-    account_title: 'Ayesha Luxury Surplus Ltd',
-    iban: 'PK80MEZN0038020113013132',
+    email: '',
+    full_name: '',
+    shop_name: '',
+    cnic: '',
+    phone: '',
+    city: '',
+    address: '',
+    bank_name: '',
+    account_title: '',
+    iban: '',
     status: 'Active',
-    created_at: '2024-01-15T10:00:00Z',
-    avatar_url: 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
-    store_image_url: 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
+    created_at: new Date().toISOString(),
+    avatar_url: null,
+    store_image_url: null,
     shipping_charges: 150,
     cod: true,
     advance_pay_full: false,
@@ -74,10 +107,11 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
   }
 
   try {
-    // 1. Fetch Profile from `sellers` table selecting specific columns only (no select('*'))
+    // 1. Fetch Profile from `sellers` table selecting specific valid columns only (no select('*'))
+    // Note: avatar_url and logo_url do not exist in sellers table; store_image_url is the canonical column.
     const { data: rawSeller, error: sellerErr } = await supabase
       .from('sellers')
-      .select('id, email, full_name, shop_name, cnic, phone, city, address, bank_name, account_title, iban, status, created_at, avatar_url, store_image_url, logo_url, shipping_charges, cod, advance_pay_full, advance_pay_dc')
+      .select('id, email, full_name, shop_name, cnic, phone, city, address, bank_name, account_title, iban, status, created_at, store_image_url, shipping_charges, cod, advance_pay_full, advance_pay_dc')
       .eq('id', sellerId)
       .maybeSingle();
 
@@ -103,8 +137,8 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
         iban: rawSeller.iban ?? '',
         status: rawSeller.status || 'Active',
         created_at: rawSeller.created_at || '',
-        avatar_url: rawSeller.avatar_url || rawSeller.store_image_url || rawSeller.logo_url || defaultProfile.avatar_url,
-        store_image_url: rawSeller.store_image_url || rawSeller.avatar_url || rawSeller.logo_url || defaultProfile.store_image_url,
+        avatar_url: rawSeller.store_image_url || null,
+        store_image_url: rawSeller.store_image_url || null,
         shipping_charges: validShipping,
         cod: rawSeller.cod !== undefined && rawSeller.cod !== null ? Boolean(rawSeller.cod) : true,
         advance_pay_full: rawSeller.advance_pay_full !== undefined && rawSeller.advance_pay_full !== null ? Boolean(rawSeller.advance_pay_full) : false,
@@ -181,28 +215,174 @@ export async function updateSellerProfile(
 }
 
 /**
- * Uploads seller avatar picture to Supabase storage bucket
+ * Helper to compress image file to high-efficiency base64 data URL
+ */
+export function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      if (typeof window === 'undefined' || !result) {
+        resolve(result || '');
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const maxDim = 400;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', 0.85));
+            return;
+          }
+        } catch {
+          // Fall back to original data URL
+        }
+        resolve(result);
+      };
+      img.onerror = () => resolve(result);
+      img.src = result;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Validates, uploads, and immediately saves a new seller avatar to database.
+ * Order:
+ * 1. Validate MIME (JPEG/PNG/WEBP only, NO SVG) & size (<=5MB)
+ * 2. Upload to storage bucket ('products') under seller folder: `${sellerId}/avatar-${Date.now()}.${ext}`
+ * 3. Update ONLY store_image_url in sellers table
+ * 4. On success: best-effort deletes previous avatar file from storage
+ * 5. On DB failure: cleans up newly uploaded file to avoid orphans
+ */
+export async function autoUploadAndSaveSellerAvatar(
+  sellerId: string,
+  file: File,
+  previousImageUrl?: string | null
+): Promise<{ success: boolean; newUrl?: string; error?: string }> {
+  if (!sellerId) {
+    return { success: false, error: 'Invalid seller ID.' };
+  }
+
+  // 1. Client MIME type validation (no SVG allowed)
+  const mimeExtMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+  };
+  const ext = mimeExtMap[file.type];
+  if (!ext) {
+    return { success: false, error: 'Only JPEG, PNG, and WebP images are allowed (no SVG).' };
+  }
+
+  // 2. Size validation (max 5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    return { success: false, error: 'Image size exceeds the 5MB limit.' };
+  }
+
+  const targetBucket = 'products';
+  const filePath = `${sellerId}/avatar-${Date.now()}.${ext}`;
+
+  let uploadedPublicUrl: string = '';
+  let uploadedPath: string = '';
+
+  // 3. Upload to storage
+  try {
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from(targetBucket)
+      .upload(filePath, file, { cacheControl: '3600', upsert: false });
+
+    if (!uploadError && (uploadData?.path || filePath)) {
+      uploadedPath = uploadData?.path || filePath;
+      const { data: urlData } = supabase.storage.from(targetBucket).getPublicUrl(uploadedPath);
+      uploadedPublicUrl = urlData?.publicUrl || '';
+    } else {
+      console.warn(`Storage upload to '${targetBucket}' failed:`, uploadError?.message);
+    }
+  } catch (err: any) {
+    console.warn('Storage upload exception:', err?.message || err);
+  }
+
+  // Fallback to optimized Data URL if bucket upload was blocked
+  if (!uploadedPublicUrl) {
+    uploadedPublicUrl = await fileToDataUrl(file);
+  }
+
+  if (!uploadedPublicUrl) {
+    return { success: false, error: 'Failed to upload image. Please try again.' };
+  }
+
+  // 4. Update ONLY the image column in sellers table
+  try {
+    const { error: dbError } = await supabase
+      .from('sellers')
+      .update({
+        store_image_url: uploadedPublicUrl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sellerId);
+
+    if (dbError) {
+      // Clean up newly uploaded orphan file if DB update failed
+      if (uploadedPath) {
+        supabase.storage.from(targetBucket).remove([uploadedPath]).catch(() => {});
+      }
+      return { success: false, error: dbError.message || 'Failed to save image in database.' };
+    }
+  } catch (dbErr: any) {
+    if (uploadedPath) {
+      supabase.storage.from(targetBucket).remove([uploadedPath]).catch(() => {});
+    }
+    return { success: false, error: dbErr?.message || 'Database update error.' };
+  }
+
+  // 5. On success: best-effort delete previous file from storage (only if in seller's folder)
+  if (previousImageUrl && typeof previousImageUrl === 'string') {
+    try {
+      const pattern = `${sellerId}/avatar-`;
+      if (previousImageUrl.includes(pattern)) {
+        const parts = previousImageUrl.split(`/${targetBucket}/`);
+        if (parts.length > 1) {
+          const oldPath = decodeURIComponent(parts[1]);
+          if (oldPath.startsWith(`${sellerId}/`)) {
+            supabase.storage.from(targetBucket).remove([oldPath]).catch(() => {});
+          }
+        }
+      }
+    } catch (cleanupErr) {
+      // Cleanup failure must not surface as an error to user
+      console.warn('Previous avatar cleanup notice:', cleanupErr);
+    }
+  }
+
+  return { success: true, newUrl: uploadedPublicUrl };
+}
+
+/**
+ * Uploads seller avatar picture to Supabase storage bucket (backward compatible)
  */
 export async function uploadSellerAvatar(sellerId: string, file: File): Promise<string> {
-  const fileExt = file.name.split('.').pop() || 'png';
-  const filePath = `avatars/${sellerId}_${Date.now()}.${fileExt}`;
-
-  try {
-    const { error: uploadError } = await supabase.storage
-      .from('seller-avatars')
-      .upload(filePath, file, { upsert: true });
-
-    if (uploadError) {
-      console.warn('Storage upload error, using object URL fallback:', uploadError);
-      return URL.createObjectURL(file);
-    }
-
-    const { data } = supabase.storage.from('seller-avatars').getPublicUrl(filePath);
-    return data?.publicUrl || URL.createObjectURL(file);
-  } catch (err) {
-    console.warn('Avatar upload fallback:', err);
-    return URL.createObjectURL(file);
-  }
+  const result = await autoUploadAndSaveSellerAvatar(sellerId, file);
+  return result.newUrl || URL.createObjectURL(file);
 }
 
 /**

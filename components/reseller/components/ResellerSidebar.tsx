@@ -20,6 +20,7 @@ import { useReseller } from '../context/ResellerContext';
 import { useAuth } from '@/src/hooks/useAuth';
 import { fetchSellerPayableAmount } from '@/src/api/sellerWalletService';
 import { format$ } from '../data/mockWalletData';
+import { getAvatarUrl } from '@/src/api/sellerProfileService';
 
 export interface ResellerSidebarProps {
   onLogout: () => void;
@@ -39,15 +40,12 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
   const [payableAmount, setPayableAmount] = useState<number | null>(null);
   const [imgError, setImgError] = useState(false);
 
-  const DEFAULT_STORE_IMAGE =
-    'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
-
-  const storeImageUrl =
+  const storeImageUrl = getAvatarUrl(
     storeSettings.storeImageUrl ||
-    (resellerProfile as any)?.store_image_url ||
-    (resellerProfile as any)?.avatar_url ||
-    storeSettings.logoUrl ||
-    DEFAULT_STORE_IMAGE;
+      (resellerProfile as any)?.store_image_url ||
+      storeSettings.logoUrl,
+    storeSettings.storeName
+  );
 
   useEffect(() => {
     setImgError(false);
@@ -155,7 +153,7 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
             <div className="flex items-center space-x-2.5 min-w-0 flex-1">
               <div className="w-9 h-9 rounded-full bg-amber-400 text-stone-950 font-extrabold flex items-center justify-center shrink-0 overflow-hidden">
                 <img
-                  src={imgError ? DEFAULT_STORE_IMAGE : (storeImageUrl || DEFAULT_STORE_IMAGE)}
+                  src={imgError ? getAvatarUrl(null, storeSettings.storeName) : storeImageUrl}
                   alt={storeSettings.storeName || 'Store Logo'}
                   className="w-full h-full object-cover"
                   onError={() => setImgError(true)}
@@ -290,7 +288,7 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
           <div className="flex items-center space-x-2 min-w-0 flex-1">
             <div className="w-7 h-7 rounded-full bg-amber-400 text-stone-950 font-bold flex items-center justify-center text-xs shrink-0 overflow-hidden">
               <img
-                src={imgError ? DEFAULT_STORE_IMAGE : (storeImageUrl || DEFAULT_STORE_IMAGE)}
+                src={imgError ? getAvatarUrl(null, storeSettings.storeName) : storeImageUrl}
                 alt={storeSettings.storeName || 'Store Logo'}
                 className="w-full h-full object-cover"
                 onError={() => setImgError(true)}

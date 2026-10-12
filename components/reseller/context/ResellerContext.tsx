@@ -79,33 +79,32 @@ export const ResellerProvider: React.FC<{ children: ReactNode }> = ({ children }
     storeName:
       (resellerProfile as any)?.shop_name ||
       (resellerProfile as any)?.shopName ||
-      'Ayesha Luxury Surplus',
+      'My Store',
     logoUrl:
       resellerProfile?.store_image_url ||
-      resellerProfile?.avatar_url ||
-      'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
+      '',
     storeImageUrl:
       resellerProfile?.store_image_url ||
-      resellerProfile?.avatar_url ||
-      'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
+      '',
     bannerUrl:
       'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=1200&q=80',
     responseTime: 'Under 1 hour',
-    warehouseAddress: resellerProfile?.address || 'Shop #12, Liberty Market, Gulberg III, Lahore',
-    iban: resellerProfile?.iban || 'PK80MEZN0038020113013132',
+    warehouseAddress: resellerProfile?.address || '',
+    iban: resellerProfile?.iban || '',
     emailNotifications: true,
     smsNotifications: true,
-    bio: 'Verified reseller of premium Pakistani designer surplus. Direct factory leftovers at 50-70% off retail.',
+    bio: '',
   });
 
   useEffect(() => {
     const shop = (resellerProfile as any)?.shop_name || (resellerProfile as any)?.shopName;
-    const storeImg = resellerProfile?.store_image_url || resellerProfile?.avatar_url;
+    const storeImg = resellerProfile?.store_image_url;
     if (resellerProfile) {
       setStoreSettings((prev) => ({
         ...prev,
         storeName: shop || prev.storeName,
-        storeImageUrl: storeImg || prev.storeImageUrl || prev.logoUrl,
+        storeImageUrl: storeImg || '',
+        logoUrl: storeImg || '',
         warehouseAddress: resellerProfile.address || prev.warehouseAddress,
         iban: resellerProfile.iban || prev.iban,
       }));
