@@ -188,13 +188,17 @@ BEGIN
       'product_id', oi.product_id,
       'product_title', oi.product_title,
       'brand', oi.brand,
+      'category', p.category,
       'quantity', oi.quantity,
       'price', oi.price,
       'subtotal', oi.subtotal,
+      'size', oi.size,
+      'color', oi.color,
       'created_at', oi.created_at
     )
   ), '[]'::jsonb) INTO v_items
   FROM public.order_items oi
+  LEFT JOIN public.products p ON p.id = oi.product_id
   WHERE oi.order_id = p_order_id AND oi.seller_id = p_seller_id;
 
   RETURN jsonb_build_object(
@@ -223,7 +227,7 @@ BEGIN
       'postal_code', v_o.postal_code
     ),
     'payment', jsonb_build_object(
-      'method', v_o.payment_method,
+      'method', COALESCE(v_so.payment_method, v_o.payment_method, 'COD'),
       'status', v_o.payment_status,
       'seller_total', v_so.seller_total
     ),

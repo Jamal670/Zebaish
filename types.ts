@@ -112,7 +112,8 @@ export interface CustomerOrderItem {
   price: number;
   quantity: number;
   image?: string | any;
-  size?: string;
+  size?: string | null;
+  color?: string | null;
   productId?: string;
   resellerId?: string;
   reviewed?: boolean;
@@ -179,9 +180,12 @@ export interface SellerOrderItemDetail {
   product_id: string;
   product_title: string;
   brand: string;
+  category?: string | null;
   quantity: number;
   price: number;
   subtotal: number;
+  size?: string | null;
+  color?: string | null;
   created_at: string;
 }
 
@@ -262,5 +266,6 @@ export interface CartItem {
   quantity: number;
   size?: string;
   color?: CartItemColor | null;
+  seller_id?: string;
 }
 

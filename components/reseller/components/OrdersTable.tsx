@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, Eye } from 'lucide-react';
 import { SellerOrderRow, SellerOrderStatus } from '@/types';
 import { fetchSellerOrders, updateSellerOrderStatus } from '@/src/api/sellerOrdersService';
 import { StatusDropdown } from './StatusDropdown';
@@ -7,9 +7,42 @@ import { OrderDetailModal } from './OrderDetailModal';
 import { CourierDetailsModal } from './CourierDetailsModal';
 import { OrderCancellationModal } from './OrderCancellationModal';
 import { OrderRefundModal } from './OrderRefundModal';
+import { PaymentReceiptModal } from './PaymentReceiptModal';
 import { isCourierModalRequired } from '@/src/constants/courierOptions';
 import { DISPLAY_FILTER_STATUSES } from '@/src/constants/orderWorkflow';
 import { CollapsibleSearchInput } from './common/CollapsibleSearchInput';
+
+/**
+ * Formats a full order number (e.g. ORD-1791823902507-4622) into a concise display string (#ORD-4622).
+ * If the value has no dash or does not match the expected pattern, returns the original value unchanged. Never throws.
+ */
+export function formatOrderNumber(full?: string | null): string {
+  if (!full || typeof full !== 'string') return full || '';
+  const lastDashIdx = full.lastIndexOf('-');
+  if (lastDashIdx === -1) {
+    return full;
+  }
+  const suffix = full.substring(lastDashIdx + 1).trim();
+  if (!suffix) return full;
+  return `#ORD-${suffix}`;
+}
+
+/**
+ * Maps the raw seller_orders.payment_method to display labels:
+ * - COD -> COD
+ * - Advanced_Full -> FULL
+ * - Advanced_DC -> DC
+ * Handles NULL, missing, or unexpected values gracefully.
+ */
+export function formatPaymentMethod(method?: string | null): string {
+  if (!method || typeof method !== 'string') return '—';
+  const clean = method.trim();
+  const lower = clean.toLowerCase();
+  if (lower === 'cod') return 'COD';
+  if (lower === 'advanced_full' || lower === 'advance_full' || lower === 'full') return 'FULL';
+  if (lower === 'advanced_dc' || lower === 'advance_dc' || lower === 'dc') return 'DC';
+  return clean || '—';
+}
 
 export interface OrdersTableProps {
   sellerId: string;
@@ -81,6 +114,12 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
     orderNumber: string;
   } | null>(null);
 
+  // Payment Receipt Modal State
+  const [selectedReceiptTarget, setSelectedReceiptTarget] = useState<{
+    sellerOrderId: string;
+    orderNumber: string;
+  } | null>(null);
+
   // Toast Notifications State
   const [toasts, setToasts] = useState<ToastState[]>([]);
 
@@ -93,16 +132,28 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
   }, []);
 
   const sortedOrders = useMemo(() => {
+    let result = orders;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (o) =>
+          o.order_number.toLowerCase().includes(q) ||
+          formatOrderNumber(o.order_number).toLowerCase().includes(q) ||
+          (o.customer_name || '').toLowerCase().includes(q) ||
+          (o.aggregated_items || '').toLowerCase().includes(q) ||
+          (o.city || '').toLowerCase().includes(q)
+      );
+    }
     if (sortBy === 'customer_name') {
-      return [...orders].sort((a, b) => {
+      return [...result].sort((a, b) => {
         const nameA = (a.customer_name || '').toLowerCase();
         const nameB = (b.customer_name || '').toLowerCase();
         if (sortOrder === 'asc') return nameA.localeCompare(nameB);
         return nameB.localeCompare(nameA);
       });
     }
-    return orders;
-  }, [orders, sortBy, sortOrder]);
+    return result;
+  }, [orders, sortBy, sortOrder, searchQuery]);
 
   // Execute status update with optional courier details
   const executeStatusUpdate = async (
@@ -190,6 +241,20 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
   const handleRefundSuccess = (sellerOrderId: string, orderNumber: string) => {
     addToast(`Refund submitted for Order #${orderNumber}`, 'success');
     loadOrders();
+  };
+
+  const handleReceiptSuccess = (sellerOrderId: string, decision: 'Accept' | 'Reject') => {
+    const formattedNum = selectedReceiptTarget ? formatOrderNumber(selectedReceiptTarget.orderNumber) : 'order';
+    addToast(
+      `Payment receipt ${decision === 'Accept' ? 'accepted' : 'rejected'} for order ${formattedNum}`,
+      'success'
+    );
+    queryClient.invalidateQueries({ queryKey: ['sellerOrders', sellerId] });
+    loadOrders();
+  };
+
+  const handleReceiptError = (errorMessage: string) => {
+    addToast(errorMessage, 'error');
   };
 
   const formatDate = (isoString?: string) => {
@@ -332,14 +397,13 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
             <thead className="bg-stone-900 text-stone-200 font-bold uppercase tracking-wider text-xs sm:text-sm border-b border-stone-800 whitespace-nowrap">
               <tr>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Order #</th>
-                <th className="py-3 px-3 sm:py-3.5 sm:px-4">Customer Name</th>
+                <th className="py-3 px-3 sm:py-3.5 sm:px-4">C Name</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Phone No</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">City</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Item Name</th>
-                <th className="py-3 px-3 sm:py-3.5 sm:px-4 text-center">Items</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4 text-right">Amount</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Payment</th>
-                <th className="py-3 px-3 sm:py-3.5 sm:px-4">profit</th>
+                <th className="py-3 px-3 sm:py-3.5 sm:px-4 text-center">Receipt</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4 text-center">Status</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Arrival Date</th>
                 <th className="py-3 px-3 sm:py-3.5 sm:px-4">Updated Date</th>
@@ -355,11 +419,11 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                     <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-sm w-24" /></td>
                     <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-sm w-16" /></td>
                     <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-sm w-36" /></td>
-                    <td className="py-3.5 px-3 sm:px-4 text-center"><div className="h-4 bg-stone-200 rounded-sm w-8 mx-auto" /></td>
                     <td className="py-3.5 px-3 sm:px-4 text-right"><div className="h-4 bg-stone-200 rounded-sm w-20 ml-auto" /></td>
-                    <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-full w-24" /></td>
+                    <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-full w-20" /></td>
+                    <td className="py-3.5 px-3 sm:px-4 text-center"><div className="h-6 w-6 bg-stone-200 rounded-md mx-auto" /></td>
                     <td className="py-3.5 px-3 sm:px-4 text-center"><div className="h-6 bg-stone-200 rounded-full w-24 mx-auto" /></td>
-                    <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-sm w-12" /></td>
+                    <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-sm w-16" /></td>
                     <td className="py-3.5 px-3 sm:px-4"><div className="h-4 bg-stone-200 rounded-sm w-16" /></td>
                     <td className="py-3.5 px-3 sm:px-4 text-center"><div className="h-7 bg-stone-200 rounded-md w-14 mx-auto" /></td>
                   </tr>
@@ -384,8 +448,11 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                 sortedOrders.map((ord) => (
                   <tr key={ord.seller_order_id} className="hover:bg-stone-50/70 transition-colors">
                     {/* 1. Order # */}
-                    <td className="py-3 px-3 sm:py-3.5 sm:px-4 font-mono font-bold text-stone-900 whitespace-nowrap text-xs sm:text-sm">
-                      #{ord.order_number}
+                    <td
+                      className="py-3 px-3 sm:py-3.5 sm:px-4 font-mono font-bold text-stone-900 whitespace-nowrap text-xs sm:text-sm cursor-help"
+                      title={ord.order_number.startsWith('#') ? ord.order_number : `#${ord.order_number}`}
+                    >
+                      {formatOrderNumber(ord.order_number)}
                     </td>
 
                     {/* 2. Customer Name */}
@@ -408,11 +475,7 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                       {ord.aggregated_items}
                     </td>
 
-                    {/* 6. Items */}
-                    <td className="py-3 px-3 sm:py-3.5 sm:px-4 text-center font-mono font-bold text-stone-900 text-xs sm:text-sm">
-                      {ord.total_items_qty}
-                    </td>
-
+                 
                     {/* 7. Amount */}
                     <td className="py-3 px-3 sm:py-3.5 sm:px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap text-xs sm:text-sm lg:text-base">
                       Rs. {ord.seller_total.toLocaleString()}
@@ -421,8 +484,27 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
                     {/* 8. Payment */}
                     <td className="py-3 px-3 sm:py-3.5 sm:px-4 whitespace-nowrap">
                       <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-2xs sm:text-xs font-bold bg-stone-100 text-stone-800 border border-stone-200">
-                        {ord.payment_method}
+                        {formatPaymentMethod(ord.payment_method)}
                       </span>
+                    </td>
+
+                    {/* Receipt Column */}
+                    <td className="py-3 px-3 sm:py-3.5 sm:px-4 text-center whitespace-nowrap">
+                      <button
+                        type="button"
+                        aria-label={`View payment receipt for order ${formatOrderNumber(ord.order_number)}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedReceiptTarget({
+                            sellerOrderId: ord.seller_order_id,
+                            orderNumber: ord.order_number,
+                          });
+                        }}
+                        className="inline-flex items-center justify-center p-1.5 sm:p-2 rounded-lg text-stone-600 hover:text-stone-950 hover:bg-stone-100 transition-colors cursor-pointer border border-stone-200 hover:border-stone-300 shadow-2xs"
+                        title="View Payment Receipt"
+                      >
+                        <Eye className="w-4 h-4 text-stone-600 hover:text-stone-900" />
+                      </button>
                     </td>
 
                     {/* 9. Status */}
@@ -543,6 +625,16 @@ export const OrdersTable: React.FC<OrdersTableProps> = ({ sellerId }) => {
         sellerId={sellerId}
         onClose={() => setPendingRefundTarget(null)}
         onSuccess={handleRefundSuccess}
+      />
+
+      {/* PAYMENT RECEIPT MODAL */}
+      <PaymentReceiptModal
+        isOpen={!!selectedReceiptTarget}
+        orderNumber={selectedReceiptTarget?.orderNumber || ''}
+        sellerOrderId={selectedReceiptTarget?.sellerOrderId || null}
+        onClose={() => setSelectedReceiptTarget(null)}
+        onSuccess={handleReceiptSuccess}
+        onError={handleReceiptError}
       />
     </div>
   );

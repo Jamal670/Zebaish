@@ -1,9 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ShoppingBag, Trash2, Plus, Minus, ArrowRight } from 'lucide-react';
 import { CartItem, Product } from '@/types';
 import { getItemAvailableStock } from '@/src/utils/stockUtils';
 import { getCartLineKey } from '@/src/utils/colorUtils';
 import { CartItemColor } from '@/components/CartItemColor';
+import {
+  calculateCartTotals,
+  getUniqueSellerIds,
+  getCartItemSellerId,
+} from '@/src/utils/cartCalculations';
+import { useQuery } from '@tanstack/react-query';
 import supabase from '@/src/api/client';
 
 interface CartPageProps {
@@ -26,6 +32,90 @@ export const CartPage: React.FC<CartPageProps> = ({
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
   const [adjustedNotices, setAdjustedNotices] = useState<Record<string, string>>({});
   const [freshProducts, setFreshProducts] = useState<Record<string, Product>>({});
+  const [fallbackSellerMap, setFallbackSellerMap] = useState<Record<string, string>>({});
+
+  // Detect items without seller_id and fetch their seller_id from products in ONE fallback query
+  useEffect(() => {
+    if (!cartItems || cartItems.length === 0) return;
+
+    const missingSellerProductIds = cartItems
+      .filter((item) => !getCartItemSellerId(item, fallbackSellerMap))
+      .map((item) => item.product.id);
+
+    const uniqueMissingIds = Array.from(new Set(missingSellerProductIds));
+    if (uniqueMissingIds.length === 0) return;
+
+    let isCancelled = false;
+    async function fetchMissingSellerIds() {
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, seller_id')
+          .in('id', uniqueMissingIds);
+
+        if (error || isCancelled || !data) return;
+
+        const newMap: Record<string, string> = {};
+        data.forEach((p: any) => {
+          if (p.seller_id) {
+            newMap[p.id] = p.seller_id;
+          }
+        });
+
+        if (Object.keys(newMap).length > 0) {
+          setFallbackSellerMap((prev) => ({ ...prev, ...newMap }));
+        }
+      } catch (err) {
+        console.error('Error fetching fallback seller IDs:', err);
+      }
+    }
+
+    fetchMissingSellerIds();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [cartItems.length]);
+
+  // Derive unique seller IDs present in the cart
+  const sellerIds = useMemo(() => {
+    return getUniqueSellerIds(cartItems, fallbackSellerMap);
+  }, [cartItems, fallbackSellerMap]);
+
+  const sellerIdsKey = sellerIds.join(',');
+
+  // Single bulk query for all unique sellers' shipping charges
+  const {
+    data: shippingMap = {},
+    isLoading: isShippingLoading,
+    isError: isShippingError,
+    refetch: refetchShipping,
+  } = useQuery<Record<string, number>>({
+    queryKey: ['seller-shipping', sellerIdsKey],
+    queryFn: async () => {
+      if (sellerIds.length === 0) return {};
+      const { data, error } = await supabase
+        .from('sellers')
+        .select('id, shipping_charges')
+        .in('id', sellerIds);
+
+      if (error) {
+        console.error('Error fetching seller shipping charges:', error);
+        throw error;
+      }
+
+      const map: Record<string, number> = {};
+      if (data) {
+        data.forEach((s: any) => {
+          const raw = Number(s.shipping_charges);
+          map[s.id] = isNaN(raw) ? 0 : Math.max(0, raw);
+        });
+      }
+      return map;
+    },
+    enabled: sellerIds.length > 0,
+    staleTime: 3 * 60 * 1000,
+  });
 
   // Re-validate cart items against fresh DB stock whenever cart items change
   useEffect(() => {
@@ -126,15 +216,13 @@ export const CartPage: React.FC<CartPageProps> = ({
   const handleQuantityChange = (item: CartItem, newQty: number) => {
     const latestProduct = getLatestProductForItem(item);
     const maxStock = getItemAvailableStock(latestProduct, item.size, item.color?.id);
+    const hasFresh = Boolean(freshProducts[item.product.id]);
     const itemKey = getCartLineKey(item);
 
-    if (maxStock <= 0) {
-      setAdjustedNotices((prev) => ({ ...prev, [itemKey]: 'Item is currently out of stock' }));
-      return;
-    }
+    const maxAllowed = hasFresh && maxStock > 0 ? maxStock : 999;
+    const clampedQty = Math.max(1, Math.min(maxAllowed, newQty));
 
-    const clampedQty = Math.max(1, Math.min(maxStock, newQty));
-    if (newQty > maxStock) {
+    if (hasFresh && maxStock > 0 && newQty > maxStock) {
       setAdjustedNotices((prev) => ({
         ...prev,
         [itemKey]: `Only ${maxStock} item${maxStock > 1 ? 's' : ''} available in stock`,
@@ -152,9 +240,10 @@ export const CartPage: React.FC<CartPageProps> = ({
     }
   };
 
-  const subtotal = cartItems.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const shippingFee = subtotal > 150 ? 0 : 15;
-  const grandTotal = Math.max(0, subtotal - discountAmount + shippingFee);
+  // Derived totals via shared calculation helper
+  const { subtotal, shippingTotal, grandTotal } = useMemo(() => {
+    return calculateCartTotals(cartItems, shippingMap, fallbackSellerMap, discountAmount);
+  }, [cartItems, shippingMap, fallbackSellerMap, discountAmount]);
 
   const handleApplyPromo = (e: React.FormEvent) => {
     e.preventDefault();
@@ -248,8 +337,8 @@ export const CartPage: React.FC<CartPageProps> = ({
                           <button
                             type="button"
                             onClick={() => handleQuantityChange(item, item.quantity - 1)}
-                            disabled={item.quantity <= 1 || isOutOfStock}
-                            className="p-1.5 text-stone-600 hover:text-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            disabled={item.quantity <= 1}
+                            className="p-1.5 text-stone-600 hover:text-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                             title="Decrease quantity"
                           >
                             <Minus className="w-3.5 h-3.5" />
@@ -257,9 +346,8 @@ export const CartPage: React.FC<CartPageProps> = ({
                           <input
                             type="number"
                             min={1}
-                            max={maxStock || 1}
+                            max={maxStock > 0 ? maxStock : 999}
                             value={item.quantity}
-                            disabled={isOutOfStock}
                             onChange={(e) => {
                               const val = parseInt(e.target.value, 10);
                               if (!isNaN(val)) {
@@ -270,7 +358,7 @@ export const CartPage: React.FC<CartPageProps> = ({
                               const val = parseInt(e.target.value, 10);
                               if (isNaN(val) || val < 1) {
                                 handleQuantityChange(item, 1);
-                              } else if (val > maxStock && maxStock > 0) {
+                              } else if (maxStock > 0 && val > maxStock) {
                                 handleQuantityChange(item, maxStock);
                               }
                             }}
@@ -279,9 +367,9 @@ export const CartPage: React.FC<CartPageProps> = ({
                           <button
                             type="button"
                             onClick={() => handleQuantityChange(item, item.quantity + 1)}
-                            disabled={item.quantity >= maxStock || isOutOfStock}
-                            className="p-1.5 text-stone-600 hover:text-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                            title={item.quantity >= maxStock ? `Maximum stock reached (${maxStock})` : 'Increase quantity'}
+                            disabled={Boolean(freshProducts[item.product.id]) && maxStock > 0 && item.quantity >= maxStock}
+                            className="p-1.5 text-stone-600 hover:text-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                            title={maxStock > 0 && item.quantity >= maxStock ? `Maximum stock reached (${maxStock})` : 'Increase quantity'}
                           >
                             <Plus className="w-3.5 h-3.5" />
                           </button>
@@ -349,9 +437,37 @@ export const CartPage: React.FC<CartPageProps> = ({
                       <span>- Rs. {discountAmount.toLocaleString()}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-stone-600">
-                    <span>Shipping Fee</span>
-                    <span>{shippingFee === 0 ? <strong className="text-emerald-700">FREE</strong> : `Rs. ${shippingFee}`}</span>
+                  <div className="flex justify-between items-center text-stone-600">
+                    <span>
+                      Shipping Fee
+                      {sellerIds.length > 1 && (
+                        <span className="text-[10px] text-stone-500 font-normal ml-1">
+                          ({sellerIds.length} sellers)
+                        </span>
+                      )}
+                    </span>
+                    {isShippingLoading ? (
+                      <span className="inline-block w-14 h-3.5 bg-stone-200 animate-pulse rounded-xs" />
+                    ) : isShippingError ? (
+                      <span className="text-amber-700 text-[11px] flex items-center gap-1 font-medium">
+                        <span>Failed to load</span>
+                        <button
+                          type="button"
+                          onClick={() => refetchShipping()}
+                          className="underline hover:text-stone-900 cursor-pointer ml-0.5"
+                        >
+                          Retry
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-stone-900">
+                        {shippingTotal === 0 ? (
+                          <strong className="text-emerald-700">FREE</strong>
+                        ) : (
+                          `Rs. ${shippingTotal.toLocaleString()}`
+                        )}
+                      </span>
+                    )}
                   </div>
                 </div>
 

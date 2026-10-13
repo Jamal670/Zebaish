@@ -111,7 +111,7 @@ export async function fetchSellerOrders({
     // Step B: Query order_items filtered by BOTH order_id IN (orderIds) AND seller_id = authenticatedSellerId
     const { data: rawOrderItems, error: itemsError } = await supabase
       .from('order_items')
-      .select('id, order_id, product_id, product_title, brand, quantity, price, subtotal')
+      .select('id, order_id, product_id, product_title, brand, quantity, price, subtotal, size, color')
       .eq('seller_id', sellerId)
       .in('order_id', orderIds);
 
@@ -150,7 +150,7 @@ export async function fetchSellerOrders({
         aggregated_items: aggregated || 'No items listed',
         total_items_qty: totalQty,
         seller_total: Number(r.seller_total) || 0,
-        payment_method: parentOrder?.payment_method || 'COD',
+        payment_method: r.payment_method || parentOrder?.payment_method || 'COD',
         payment_status: parentOrder?.payment_status || 'Pending',
         seller_order_status: normalizedStatus,
         courier_name: r.courier_name || null,
@@ -215,8 +215,56 @@ export async function fetchSellerOrderDetail(
       });
 
       if (!error && data) {
+        let items = Array.isArray(data.items) ? data.items : [];
+        // Ensure size and color are populated if missing from RPC response
+        const missingFields = items.some(
+          (it: any) => it.size === undefined || it.color === undefined
+        );
+        if (missingFields && items.length > 0) {
+          const { data: itemRows } = await supabase
+            .from('order_items')
+            .select('id, size, color')
+            .eq('order_id', orderId)
+            .eq('seller_id', sellerId);
+
+          if (itemRows && itemRows.length > 0) {
+            const itemMap = new Map(itemRows.map((r: any) => [r.id, r]));
+            items = items.map((it: any) => {
+              const row = itemMap.get(it.id);
+              return {
+                ...it,
+                size: it.size ?? row?.size ?? null,
+                color: it.color ?? row?.color ?? null,
+              };
+            });
+          }
+        } else {
+          items = items.map((it: any) => ({
+            ...it,
+            size: it.size ?? null,
+            color: it.color ?? null,
+          }));
+        }
+
+        // Ensure category is populated for size display in order details
+        const productIds = Array.from(new Set(items.map((it: any) => it.product_id).filter(Boolean)));
+        if (productIds.length > 0 && items.some((it: any) => it.category === undefined)) {
+          const { data: prodRows } = await supabase
+            .from('products')
+            .select('id, category')
+            .in('id', productIds);
+          if (prodRows) {
+            const catMap = new Map(prodRows.map((p: any) => [p.id, p.category]));
+            items = items.map((it: any) => ({
+              ...it,
+              category: it.category ?? catMap.get(it.product_id) ?? null,
+            }));
+          }
+        }
+
         return {
           ...data,
+          items,
           status: normalizeOrderStatus(data.status) as SellerOrderStatus,
         } as SellerOrderDetail;
       }
@@ -243,7 +291,7 @@ export async function fetchSellerOrderDetail(
 
       const { data: items } = await supabase
         .from('order_items')
-        .select('*')
+        .select('*, products(category)')
         .eq('order_id', orderId)
         .eq('seller_id', sellerId);
 
@@ -269,20 +317,28 @@ export async function fetchSellerOrderDetail(
           postal_code: order?.postal_code || '00000',
         },
         payment: {
-          method: order?.payment_method || 'COD',
+          method: sellerOrder.payment_method || order?.payment_method || 'COD',
           status: order?.payment_status || 'Pending',
           seller_total: Number(sellerOrder.seller_total),
         },
-        items: (items || []).map((item: any) => ({
-          id: item.id,
-          product_id: item.product_id,
-          product_title: item.product_title,
-          brand: item.brand,
-          quantity: Number(item.quantity),
-          price: Number(item.price),
-          subtotal: Number(item.subtotal),
-          created_at: item.created_at,
-        })),
+        items: (items || []).map((item: any) => {
+          const prodCategory = Array.isArray(item.products)
+            ? item.products[0]?.category
+            : item.products?.category;
+          return {
+            id: item.id,
+            product_id: item.product_id,
+            product_title: item.product_title,
+            brand: item.brand,
+            category: prodCategory || item.category || null,
+            quantity: Number(item.quantity),
+            price: Number(item.price),
+            subtotal: Number(item.subtotal),
+            size: item.size ?? null,
+            color: item.color ?? null,
+            created_at: item.created_at,
+          };
+        }),
       };
     }
   } catch (err) {

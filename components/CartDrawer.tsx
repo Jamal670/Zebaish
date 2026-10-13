@@ -124,11 +124,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       }
       : item.product;
 
-    const maxStock = getItemAvailableStock(latestProduct, item.size, item.color?.id);
-    if (maxStock <= 0) return;
+    const hasFresh = Boolean(freshProducts[item.product.id]);
+    const stock = getItemAvailableStock(latestProduct, item.size, item.color?.id);
+    const maxAllowed = hasFresh && stock > 0 ? stock : 999;
 
-    // Clamp value between 1 and maxStock
-    const clampedQty = Math.max(1, Math.min(maxStock, newQty));
+    // Clamp value between 1 and maxAllowed
+    const clampedQty = Math.max(1, Math.min(maxAllowed, newQty));
     if (clampedQty !== item.quantity) {
       onUpdateQuantity(getCartLineKey(item), clampedQty, item.size, item.color?.id);
     }
@@ -263,8 +264,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           type="button"
                           onClick={() => handleQuantityChange(item, item.quantity - 1)}
-                          disabled={item.quantity <= 1 || isOutOfStock}
-                          className="p-1 hover:bg-stone-100 text-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          disabled={item.quantity <= 1}
+                          className="p-1 hover:bg-stone-100 text-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
                           title="Decrease quantity"
                         >
                           <Minus className="w-3 h-3" />
@@ -273,9 +274,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <input
                           type="number"
                           min={1}
-                          max={maxStock || 1}
+                          max={maxStock > 0 ? maxStock : 999}
                           value={item.quantity}
-                          disabled={isOutOfStock}
                           onChange={(e) => {
                             const val = parseInt(e.target.value, 10);
                             if (!isNaN(val)) {
@@ -286,7 +286,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             const val = parseInt(e.target.value, 10);
                             if (isNaN(val) || val < 1) {
                               handleQuantityChange(item, 1);
-                            } else if (val > maxStock && maxStock > 0) {
+                            } else if (maxStock > 0 && val > maxStock) {
                               handleQuantityChange(item, maxStock);
                             }
                           }}
@@ -296,9 +296,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <button
                           type="button"
                           onClick={() => handleQuantityChange(item, item.quantity + 1)}
-                          disabled={item.quantity >= maxStock || isOutOfStock}
-                          className="p-1 hover:bg-stone-100 text-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                          title={item.quantity >= maxStock ? `Maximum stock reached (${maxStock})` : 'Increase quantity'}
+                          disabled={Boolean(freshProducts[item.product.id]) && maxStock > 0 && item.quantity >= maxStock}
+                          className="p-1 hover:bg-stone-100 text-stone-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                          title={maxStock > 0 && item.quantity >= maxStock ? `Maximum stock reached (${maxStock})` : 'Increase quantity'}
                         >
                           <Plus className="w-3 h-3" />
                         </button>

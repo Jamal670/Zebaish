@@ -114,6 +114,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 quantity: Math.max(1, item.quantity),
                 size: typeof item.size === 'string' ? item.size : 'Unstitched',
                 color: validColor,
+                seller_id:
+                  item.seller_id ||
+                  item.product.resellerId ||
+                  (item.product as any).seller_id ||
+                  (item.product.seller as any)?.id ||
+                  undefined,
               });
             }
           }
@@ -164,6 +170,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     color?: CartItemColor | null
   ) => {
     const itemColor = color || null;
+    const sellerId =
+      product.resellerId ||
+      (product as any).seller_id ||
+      (product as any).sellerId ||
+      (product.seller as any)?.id ||
+      undefined;
     const targetKey = getCartLineKey({ productId: product.id, size, color: itemColor });
 
     setCartItems((prev) => {
@@ -177,10 +189,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (existingIndex > -1) {
         finalQuantity = prev[existingIndex].quantity + quantity;
         updated = prev.map((item, idx) =>
-          idx === existingIndex ? { ...item, quantity: finalQuantity } : item
+          idx === existingIndex
+            ? { ...item, quantity: finalQuantity, seller_id: item.seller_id || sellerId }
+            : item
         );
       } else {
-        updated = [...prev, { product, quantity, size, color: itemColor }];
+        updated = [...prev, { product, quantity, size, color: itemColor, seller_id: sellerId }];
       }
 
       // Sync to DB if user is authenticated (DB sync doesn't touch client color)
@@ -213,13 +227,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (size !== undefined) {
           const itemColorId = item.color?.id ?? null;
           const targetColorId = colorId ?? null;
+          const itemSize = (item.size && item.size.trim()) || 'Unstitched';
+          const targetSize = (size && size.trim()) || 'Unstitched';
           return (
             item.product.id === lineKeyOrProductId &&
-            item.size === size &&
+            itemSize === targetSize &&
             itemColorId === targetColorId
           );
         }
-        return item.product.id === lineKeyOrProductId;
+        return item.product.id === lineKeyOrProductId && !lineKeyOrProductId.includes(':');
       });
 
       if (targetIndex === -1) return prev;
@@ -253,15 +269,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (size !== undefined) {
           const itemColorId = item.color?.id ?? null;
           const targetColorId = colorId ?? null;
+          const itemSize = (item.size && item.size.trim()) || 'Unstitched';
+          const targetSize = (size && size.trim()) || 'Unstitched';
           if (
             item.product.id === lineKeyOrProductId &&
-            item.size === size &&
+            itemSize === targetSize &&
             itemColorId === targetColorId
           ) {
             removedProductId = item.product.id;
             return false;
           }
-        } else if (item.product.id === lineKeyOrProductId) {
+        } else if (item.product.id === lineKeyOrProductId && !lineKeyOrProductId.includes(':')) {
           removedProductId = item.product.id;
           return false;
         }

@@ -120,7 +120,7 @@ export function getCartLineKey(
     'product' in item && item.product?.id
       ? item.product.id
       : (item as CartLineKeyParams).productId ?? '';
-  const size = item.size ?? '';
+  const size = (item.size && item.size.trim()) || 'Unstitched';
   const colorId = item.color?.id ?? '';
   return `${pId}:${size}:${colorId}`;
 }

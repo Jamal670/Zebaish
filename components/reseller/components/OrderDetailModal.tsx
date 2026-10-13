@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { SellerOrderDetail, SellerOrderStatus } from '@/types';
 import { fetchSellerOrderDetail } from '@/src/api/sellerOrdersService';
 import { StatusDropdown } from './StatusDropdown';
+import { formatPaymentMethod } from './OrdersTable';
 
 export interface OrderDetailModalProps {
   isOpen: boolean;
@@ -250,30 +251,41 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs sm:text-sm min-w-[500px] sm:min-w-0">
+                  <table className="w-full text-left text-xs sm:text-sm min-w-[650px]">
                     <thead className="bg-stone-100/70 border-b border-stone-200 text-stone-600 font-bold uppercase tracking-wider text-2xs sm:text-xs whitespace-nowrap">
                       <tr>
                         <th className="py-2.5 px-3 sm:py-3 sm:px-4">Product Title</th>
                         <th className="py-2.5 px-3 sm:py-3 sm:px-4">Brand</th>
+                        <th className="py-2.5 px-3 sm:py-3 sm:px-4">Size</th>
+                        <th className="py-2.5 px-3 sm:py-3 sm:px-4">Color</th>
                         <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-center">Qty</th>
                         <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-right">Unit Price</th>
                         <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-right">Subtotal</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-100 text-xs sm:text-sm lg:text-base">
-                      {detail.items.map((item) => (
-                        <tr key={item.id} className="hover:bg-stone-50/50">
-                          <td className="py-2.5 px-3 sm:py-3 sm:px-4 font-semibold text-stone-900">{item.product_title}</td>
-                          <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-500">{item.brand}</td>
-                          <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-center font-mono font-bold text-stone-800">{item.quantity}</td>
-                          <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono text-stone-700 whitespace-nowrap">Rs. {item.price.toLocaleString()}</td>
-                          <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">Rs. {item.subtotal.toLocaleString()}</td>
-                        </tr>
-                      ))}
+                      {detail.items.map((item) => {
+                        const isUnstitched =
+                          (item.category || '').trim().toLowerCase() === 'unstitched' ||
+                          (item.size || '').trim().toLowerCase() === 'unstitched';
+                        const displaySize = isUnstitched ? '—' : (item.size?.trim() || '—');
+
+                        return (
+                          <tr key={item.id} className="hover:bg-stone-50/50">
+                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 font-semibold text-stone-900">{item.product_title}</td>
+                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-500">{item.brand}</td>
+                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-600 whitespace-nowrap">{displaySize}</td>
+                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-600 whitespace-nowrap">{item.color?.trim() || '—'}</td>
+                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-center font-mono font-bold text-stone-800">{item.quantity}</td>
+                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono text-stone-700 whitespace-nowrap">Rs. {item.price.toLocaleString()}</td>
+                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">Rs. {item.subtotal.toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot className="bg-stone-50 border-t border-stone-200 font-bold text-xs sm:text-sm">
                       <tr>
-                        <td colSpan={4} className="py-2.5 px-3 sm:py-3 sm:px-4 text-right uppercase tracking-wider text-stone-600">
+                        <td colSpan={6} className="py-2.5 px-3 sm:py-3 sm:px-4 text-right uppercase tracking-wider text-stone-600">
                           Seller Share Subtotal:
                         </td>
                         <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono text-xs sm:text-sm lg:text-base text-stone-900 whitespace-nowrap">
@@ -290,7 +302,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 <div className="space-y-1">
                   <h3 className="text-xs sm:text-sm font-bold text-stone-900 uppercase tracking-wider">Payment Information</h3>
                   <div className="flex items-center space-x-2 sm:space-x-3 text-xs sm:text-sm">
-                    <span className="text-stone-500">Method: <strong className="text-stone-900">{detail.payment.method}</strong></span>
+                    <span className="text-stone-500">Method: <strong className="text-stone-900">{formatPaymentMethod(detail.payment.method)}</strong></span>
                     <span>&bull;</span>
                     <span className="text-stone-500">
                       Status:{' '}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   ShieldCheck,
   Truck,
@@ -36,6 +36,7 @@ import { useQuery } from '@tanstack/react-query';
 import { GenericModal } from '@/components/reseller/components/wallet/GenericModal';
 import { getCartLineKey } from '@/src/utils/colorUtils';
 import { CartItemColor } from '@/components/CartItemColor';
+import { calculateCartTotals } from '@/src/utils/cartCalculations';
 
 export interface CheckoutPageProps {
   cartItems: CartItem[];
@@ -76,9 +77,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     fullName: '',
     email: '',
     phone: '',
-    city: 'Lahore',
+    city: '',
     address: '',
-    postalCode: '54000',
+    postalCode: '',
   });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -90,7 +91,83 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   const [isMultiPayModalOpen, setIsMultiPayModalOpen] = useState(false);
   const [previewImageModalUrl, setPreviewImageModalUrl] = useState<string | null>(null);
   const [copiedIbanSellerId, setCopiedIbanSellerId] = useState<string | null>(null);
-  const [isPlayingAudioDemo, setIsPlayingAudioDemo] = useState(false);
+
+  // Audio Playback State & Ref
+  const [playingAudioModal, setPlayingAudioModal] = useState<'single' | 'multi' | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  const isPlayingSingleAudio = playingAudioModal === 'single';
+  const isPlayingMultiAudio = playingAudioModal === 'multi';
+
+  const stopAudioPlayback = useCallback(() => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+    }
+    setPlayingAudioModal(null);
+  }, []);
+
+  const toggleAudioPlayback = useCallback((modalType: 'single' | 'multi') => {
+    if (typeof window === 'undefined') return;
+
+    // If currently playing audio for this modal, pause it
+    if (playingAudioModal === modalType && audioPlayerRef.current && !audioPlayerRef.current.paused) {
+      audioPlayerRef.current.pause();
+      setPlayingAudioModal(null);
+      return;
+    }
+
+    // Stop any existing audio
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+    }
+
+    const audioSrc = modalType === 'single' ? '/assets/audio/one.mp3' : '/assets/audio/multi.mp3';
+    const audio = new Audio(audioSrc);
+    audioPlayerRef.current = audio;
+
+    audio.onended = () => {
+      setPlayingAudioModal(null);
+    };
+
+    audio.onerror = (e) => {
+      console.error(`Audio playback error for ${modalType} modal:`, e);
+      setPlayingAudioModal(null);
+    };
+
+    audio
+      .play()
+      .then(() => {
+        setPlayingAudioModal(modalType);
+      })
+      .catch((err) => {
+        console.error('Audio play request failed or was interrupted:', err);
+        setPlayingAudioModal(null);
+      });
+  }, [playingAudioModal]);
+
+  // Stop audio whenever modals are closed
+  useEffect(() => {
+    if (!isSinglePayModalOpen && playingAudioModal === 'single') {
+      stopAudioPlayback();
+    }
+  }, [isSinglePayModalOpen, playingAudioModal, stopAudioPlayback]);
+
+  useEffect(() => {
+    if (!isMultiPayModalOpen && playingAudioModal === 'multi') {
+      stopAudioPlayback();
+    }
+  }, [isMultiPayModalOpen, playingAudioModal, stopAudioPlayback]);
+
+  // Clean up on component unmount
+  useEffect(() => {
+    return () => {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+      }
+    };
+  }, []);
 
   // Hidden File Input Ref for Screenshot Attachment
   const fileInputRefMap = useRef<Record<string, HTMLInputElement | null>>({});
@@ -327,18 +404,22 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     return calcs;
   }, [cartItemsBySeller, uniqueSellerIds, sellersMap, sellerStateMap]);
 
-  const totalCartSubtotal = useMemo(() => {
-    return cartItems.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  }, [cartItems]);
-
-  const totalShippingFee = useMemo(() => {
-    return uniqueSellerIds.reduce(
-      (sum, sId) => sum + (sellersMap[sId]?.shipping_charges ?? 150),
-      0
-    );
+  const shippingChargesMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    uniqueSellerIds.forEach((sId) => {
+      const raw = Number(sellersMap[sId]?.shipping_charges);
+      map[sId] = isNaN(raw) ? 0 : Math.max(0, raw);
+    });
+    return map;
   }, [uniqueSellerIds, sellersMap]);
 
-  const grandTotal = totalCartSubtotal + totalShippingFee;
+  const {
+    subtotal: totalCartSubtotal,
+    shippingTotal: totalShippingFee,
+    grandTotal,
+  } = useMemo(() => {
+    return calculateCartTotals(cartItems, shippingChargesMap);
+  }, [cartItems, shippingChargesMap]);
 
   // Single Seller helper shorthand
   const singleSellerId = uniqueSellerIds[0] || 'default-seller';
@@ -524,18 +605,33 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       const generatedId = result.orderId || result.orderNumber || `ORD-${Date.now()}`;
       const orderNum = result.orderNumber || generatedId;
 
+      // Map returned order item details (exact size & color saved in order_items)
+      const createdItemMap = new Map<string, { size: string | null; color: string | null }>();
+      if (result.orderItems) {
+        result.orderItems.forEach((oi) => {
+          createdItemMap.set(oi.product_id, { size: oi.size, color: oi.color });
+        });
+      }
+
       // Build seller-grouped orders array for Order Success Page
       const newOrders: Order[] = uniqueSellerIds.map((resId, index) => {
-        const items = (cartItemsBySeller[resId] || []).map((item) => ({
-          title: item.product.title,
-          brand: item.product.brand,
-          price: item.product.price,
-          quantity: item.quantity,
-          image: item.product.image,
-          size: item.size || 'Unstitched',
-          productId: item.product.id,
-          resellerId: resId,
-        }));
+        const items = (cartItemsBySeller[resId] || []).map((item) => {
+          const dbItemInfo = createdItemMap.get(item.product.id);
+          const finalSize = dbItemInfo !== undefined ? dbItemInfo.size : (item.size || null);
+          const finalColor = dbItemInfo !== undefined ? dbItemInfo.color : (item.color?.name || null);
+
+          return {
+            title: item.product.title,
+            brand: item.product.brand,
+            price: item.product.price,
+            quantity: item.quantity,
+            image: item.product.image,
+            size: finalSize,
+            color: finalColor,
+            productId: item.product.id,
+            resellerId: resId,
+          };
+        });
 
         const calc = sellerCalculations[resId] || { itemSubtotal: 0, shippingFee: 0, totalAmount: 0 };
         const sellerInfo = sellersMap[resId];
@@ -695,28 +791,23 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                   <label className="font-semibold text-stone-700 block mb-1">
                     City <span className="text-red-500">*</span>
                   </label>
-                  <select
+
+                  <input
+                    type="text"
                     value={formData.city}
                     onChange={(e) => {
                       setFormData({ ...formData, city: e.target.value });
-                      if (fieldErrors.city) setFieldErrors({ ...fieldErrors, city: '' });
+                      if (fieldErrors.city) {
+                        setFieldErrors({ ...fieldErrors, city: '' });
+                      }
                     }}
+                    placeholder="Lahore"
                     className={`w-full p-2.5 border rounded-xs focus:outline-none bg-white ${fieldErrors.city
-                      ? 'border-red-500 bg-red-50/20'
-                      : 'border-stone-300 focus:border-stone-900'
+                        ? 'border-red-500 bg-red-50/20'
+                        : 'border-stone-300 focus:border-stone-900'
                       }`}
-                  >
-                    <option value="">Select City</option>
-                    <option value="Lahore">Lahore</option>
-                    <option value="Karachi">Karachi</option>
-                    <option value="Islamabad">Islamabad</option>
-                    <option value="Rawalpindi">Rawalpindi</option>
-                    <option value="Faisalabad">Faisalabad</option>
-                    <option value="Peshawar">Peshawar</option>
-                    <option value="Quetta">Quetta</option>
-                    <option value="Multan">Multan</option>
-                    <option value="Sialkot">Sialkot</option>
-                  </select>
+                  />
+
                   {fieldErrors.city && (
                     <span className="text-red-600 text-[11px] mt-1 font-medium block">
                       {fieldErrors.city}
@@ -1245,7 +1336,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       {/* MODAL 1: SINGLE-SELLER "HOW TO PAY CHARGES" MODAL */}
       <GenericModal
         isOpen={isSinglePayModalOpen}
-        onClose={() => setIsSinglePayModalOpen(false)}
+        onClose={() => {
+          stopAudioPlayback();
+          setIsSinglePayModalOpen(false);
+        }}
         title="How to Pay Charges"
         subtitle="Bank details & payment instructions for advance transfer"
         maxWidth="max-w-xl"
@@ -1325,22 +1419,23 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
             <div className="flex items-center space-x-2.5">
               <button
                 type="button"
-                onClick={() => setIsPlayingAudioDemo(!isPlayingAudioDemo)}
+                onClick={() => toggleAudioPlayback('single')}
                 className="w-7 h-7 rounded-full bg-amber-500 hover:bg-amber-400 text-stone-950 flex items-center justify-center transition-all shadow-2xs shrink-0 cursor-pointer"
+                title={isPlayingSingleAudio ? 'Pause Voice Instructions' : 'Play Voice Instructions'}
               >
-                {isPlayingAudioDemo ? (
+                {isPlayingSingleAudio ? (
                   <Pause className="w-3.5 h-3.5" />
                 ) : (
                   <Play className="w-3.5 h-3.5 ml-0.5" />
                 )}
               </button>
               <span className="text-xs font-bold text-stone-900">
-                {isPlayingAudioDemo
-                  ? 'Playing Voice Instructions (0:30)...'
+                {isPlayingSingleAudio
+                  ? 'Playing Voice Instructions...'
                   : 'Listen to Voice Guide (Urdu/English)'}
               </span>
             </div>
-            <Volume2 className="w-4 h-4 text-stone-400 shrink-0" />
+            <Volume2 className={`w-4 h-4 shrink-0 transition-colors ${isPlayingSingleAudio ? 'text-amber-600 animate-pulse' : 'text-stone-400'}`} />
           </div>
 
           {/* Detailed Bilingual Step-by-Step Instructions */}
@@ -1475,7 +1570,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           <div className="flex justify-end pt-2 border-t border-stone-200">
             <button
               type="button"
-              onClick={() => setIsSinglePayModalOpen(false)}
+              onClick={() => {
+                stopAudioPlayback();
+                setIsSinglePayModalOpen(false);
+              }}
               className="px-5 py-2 bg-stone-900 hover:bg-black text-white font-bold text-xs uppercase tracking-wider rounded-md transition-colors cursor-pointer"
             >
               Close
@@ -1487,36 +1585,51 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       {/* MODAL 2: MULTI-SELLER "HOW TO PAY YOUR CHARGES" MODAL */}
       <GenericModal
         isOpen={isMultiPayModalOpen}
-        onClose={() => setIsMultiPayModalOpen(false)}
+        onClose={() => {
+          stopAudioPlayback();
+          setIsMultiPayModalOpen(false);
+        }}
         title="How to Pay Your Charges"
         subtitle="Bank details & payment instructions for advance transfer"
         maxWidth="max-w-xl"
       >
         <div className="space-y-4 text-xs sm:text-sm">
-          {/* Audio / Voice Instruction UI Placeholder */}
+          {/* Audio / Voice Instruction UI */}
           <div className="p-3 bg-gradient-to-r from-amber-50 to-stone-50 border border-amber-200 rounded-xl flex items-center justify-between shadow-2xs">
             <div className="flex items-center space-x-3">
               <div className="w-9 h-9 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center shrink-0 shadow-2xs">
-                <Volume2 className="w-5 h-5" />
+                <Volume2 className={`w-5 h-5 ${isPlayingMultiAudio ? 'animate-pulse text-stone-950' : ''}`} />
               </div>
               <div>
-                <span className="text-xs font-bold text-stone-900 block flex items-center space-x-1">
+                <span className="text-xs font-bold text-stone-900 flex items-center space-x-1">
                   <span>Voice Payment Guide</span>
                   <span className="text-[9px] uppercase font-extrabold bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-full">
-                    Audio Placeholder
+                    {isPlayingMultiAudio ? 'Playing' : 'Audio Guide'}
                   </span>
                 </span>
                 <span className="text-[11px] text-stone-500 block">
-                  Click to play voice instructions for payment & upload steps
+                  {isPlayingMultiAudio
+                    ? 'Playing voice instructions for payment & upload steps...'
+                    : 'Click to play voice instructions for payment & upload steps'}
                 </span>
               </div>
             </div>
             <button
               type="button"
+              onClick={() => toggleAudioPlayback('multi')}
               className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-bold rounded-lg transition-all flex items-center space-x-1 shrink-0 cursor-pointer shadow-2xs"
             >
-              <Play className="w-3.5 h-3.5 ml-0.5 fill-current" />
-              <span>Listen</span>
+              {isPlayingMultiAudio ? (
+                <>
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>Pause</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 ml-0.5 fill-current" />
+                  <span>Listen</span>
+                </>
+              )}
             </button>
           </div>
 
@@ -1579,7 +1692,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           <div className="flex justify-end pt-2 border-t border-stone-200">
             <button
               type="button"
-              onClick={() => setIsMultiPayModalOpen(false)}
+              onClick={() => {
+                stopAudioPlayback();
+                setIsMultiPayModalOpen(false);
+              }}
               className="px-5 py-2 bg-stone-900 hover:bg-black text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-colors cursor-pointer"
             >
               Close

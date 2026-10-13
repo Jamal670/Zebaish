@@ -64,8 +64,8 @@ export const OrderSuccessPage: React.FC = () => {
   const displayStatus = orderSummary?.orderStatus || 'Pending';
   const itemsCount = orderSummary?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
   const subtotal = orderSummary?.items?.reduce((sum, item) => sum + item.subtotal, 0) || orderSummary?.totalAmount || 0;
-  const shippingFee = subtotal > 150 ? 0 : (subtotal > 0 ? 15 : 0);
-  const grandTotal = orderSummary?.totalAmount || (subtotal + shippingFee);
+  const grandTotal = orderSummary?.totalAmount || subtotal;
+  const shippingFee = Math.max(0, grandTotal - subtotal);
 
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in">
@@ -170,7 +170,6 @@ export const OrderSuccessPage: React.FC = () => {
                     </div>
 
                     <div className="text-right shrink-0">
-                      <span className="text-[11px] text-stone-500 block">Rs. {item.price.toLocaleString()} each</span>
                       <span className="font-extrabold text-stone-900 text-xs sm:text-sm">
                         Rs. {item.subtotal.toLocaleString()}
                       </span>
@@ -186,8 +185,8 @@ export const OrderSuccessPage: React.FC = () => {
                   <span className="font-semibold text-stone-900">Rs. {subtotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-stone-600">
-                  <span>Standard Shipping & Delivery</span>
-                  <span>{shippingFee === 0 ? <strong className="text-emerald-700">FREE</strong> : `Rs. ${shippingFee}`}</span>
+                  <span>Shipping Charges</span>
+                  <span>{shippingFee === 0 ? <strong className="text-emerald-700">FREE</strong> : `Rs. ${shippingFee.toLocaleString()}`}</span>
                 </div>
                 <div className="flex justify-between text-stone-900 font-extrabold text-sm border-t border-stone-200 pt-2 mt-2">
                   <span>Total Amount</span>
@@ -220,10 +219,6 @@ export const OrderSuccessPage: React.FC = () => {
                 <div className="flex justify-between text-stone-700">
                   <span>Payment Status:</span>
                   <strong className="text-amber-700">{orderSummary.paymentStatus}</strong>
-                </div>
-                <div className="flex justify-between text-stone-700">
-                  <span>Est. Delivery:</span>
-                  <strong className="text-stone-900">3-4 Business Days (TCS Express)</strong>
                 </div>
               </div>
             </div>

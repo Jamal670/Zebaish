@@ -37,10 +37,129 @@ export interface PlaceOrderResult {
   orderNumber?: string;
   createdOrders?: Order[];
   error?: string;
+  orderItems?: {
+    product_id: string;
+    size: string | null;
+    color: string | null;
+  }[];
 }
 
 function isValidUUID(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+/**
+ * Helper to extract the relative storage path inside the 'payment' bucket (e.g. 'proofs/filename.ext')
+ * from any legacy format (full public URL, full signed URL, full storage path with bucket name, or raw path).
+ */
+export function extractPaymentProofPath(urlOrPath: string | null | undefined): string | null {
+  if (!urlOrPath || typeof urlOrPath !== 'string') return null;
+  const trimmed = urlOrPath.trim();
+  if (!trimmed) return null;
+
+  // If it's already a clean path starting with proofs/
+  if (trimmed.startsWith('proofs/')) {
+    return trimmed;
+  }
+
+  // If it starts with payment/proofs/
+  if (trimmed.startsWith('payment/proofs/')) {
+    return trimmed.replace(/^payment\//, '');
+  }
+
+  // If it's a full URL containing /storage/v1/object/...
+  // e.g. https://.../storage/v1/object/public/payment/proofs/123.jpg
+  // or https://.../storage/v1/object/sign/payment/proofs/123.jpg?token=...
+  const storageMatch = trimmed.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/payment\/(.+?)(?:\?.*)?$/);
+  if (storageMatch && storageMatch[1]) {
+    return decodeURIComponent(storageMatch[1]);
+  }
+
+  // If it's another URL or string with /payment/proofs/
+  const paymentProofsMarker = '/payment/proofs/';
+  if (trimmed.includes(paymentProofsMarker)) {
+    const suffix = trimmed.split(paymentProofsMarker)[1]?.split('?')[0];
+    return suffix ? `proofs/${decodeURIComponent(suffix)}` : null;
+  }
+
+  // If it's a relative path with /payment/
+  const paymentMarker = '/payment/';
+  if (trimmed.includes(paymentMarker)) {
+    const suffix = trimmed.split(paymentMarker)[1]?.split('?')[0];
+    return suffix ? decodeURIComponent(suffix) : null;
+  }
+
+  // If it's just a filename
+  if (!trimmed.includes('/') && !trimmed.startsWith('http')) {
+    return `proofs/${trimmed}`;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const proofsIdx = parsed.pathname.indexOf('proofs/');
+    if (proofsIdx !== -1) {
+      return decodeURIComponent(parsed.pathname.substring(proofsIdx));
+    }
+  } catch {
+    // Not a valid URL, return trimmed fallback
+  }
+
+  return trimmed;
+}
+
+/**
+ * Resolves a payment receipt URL or storage path to an accessible display URL.
+ * Handles:
+ * 1. Pre-signed URLs with active tokens (returns as-is)
+ * 2. Data URLs (returns as-is)
+ * 3. Calls createSignedUrl with an expiration (24 hours) on private buckets
+ * 4. Fallback to getPublicUrl if createSignedUrl fails or bucket is public
+ */
+export async function getPaymentProofDisplayUrl(urlOrPath: string | null | undefined): Promise<string | null> {
+  if (!urlOrPath || typeof urlOrPath !== 'string') return null;
+  const trimmed = urlOrPath.trim();
+  if (!trimmed) return null;
+
+  // Data URLs or blob URLs can be displayed directly
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+    return trimmed;
+  }
+
+  // Already a signed URL with active token query param
+  if (trimmed.includes('/object/sign/') && trimmed.includes('token=')) {
+    return trimmed;
+  }
+
+  const storagePath = extractPaymentProofPath(trimmed);
+  if (!storagePath) return trimmed;
+
+  try {
+    // First try to generate a signed URL (for private bucket configuration)
+    const { data: signData, error: signError } = await supabase.storage
+      .from('payment')
+      .createSignedUrl(storagePath, 60 * 60 * 24); // 24 hours
+
+    if (!signError && signData?.signedUrl) {
+      return signData.signedUrl;
+    }
+  } catch (err) {
+    console.warn('Failed to generate signed URL for payment proof:', err);
+  }
+
+  // Fallback to getPublicUrl if signed URL generation fails (e.g. public bucket)
+  try {
+    const { data: pubData } = supabase.storage
+      .from('payment')
+      .getPublicUrl(storagePath);
+
+    if (pubData?.publicUrl) {
+      return pubData.publicUrl;
+    }
+  } catch (err) {
+    console.warn('Failed to get public URL for payment proof:', err);
+  }
+
+  return trimmed;
 }
 
 /**
@@ -85,11 +204,28 @@ export async function uploadPaymentProof(
       };
     }
 
-    const { data: pubData } = supabase.storage
-      .from('payment')
-      .getPublicUrl(path);
+    // Attempt to generate a signed URL first (supports private buckets), fallback to getPublicUrl
+    let resolvedUrl: string | null = null;
+    try {
+      const { data: signData, error: signError } = await supabase.storage
+        .from('payment')
+        .createSignedUrl(path, 60 * 60 * 24 * 365); // 1 year signed URL
 
-    return { url: pubData.publicUrl, path, error: undefined };
+      if (!signError && signData?.signedUrl) {
+        resolvedUrl = signData.signedUrl;
+      }
+    } catch {
+      // Ignore signing error and fallback to public URL
+    }
+
+    if (!resolvedUrl) {
+      const { data: pubData } = supabase.storage
+        .from('payment')
+        .getPublicUrl(path);
+      resolvedUrl = pubData?.publicUrl || null;
+    }
+
+    return { url: resolvedUrl, path, error: undefined };
   } catch (err: any) {
     console.error(`Unexpected storage upload error for seller "${shopName}":`, err);
     return {
@@ -106,10 +242,156 @@ export async function uploadPaymentProof(
 export async function deletePaymentProofs(paths: string[]): Promise<void> {
   if (!paths || paths.length === 0) return;
   try {
-    await supabase.storage.from('payment').remove(paths);
+    const cleanPaths = paths
+      .map((p) => extractPaymentProofPath(p))
+      .filter((p): p is string => Boolean(p));
+
+    if (cleanPaths.length > 0) {
+      await supabase.storage.from('payment').remove(cleanPaths);
+    }
   } catch (err) {
     console.warn('Error deleting uploaded payment proof files during rollback:', err);
   }
+}
+
+export interface ResolvedVariantAndColor {
+  size: string | null;
+  color: string | null;
+  matchedVariant: any | null;
+}
+
+/**
+ * Resolves the selected product's size and color using:
+ * - product_variants.product_id identifies the associated product
+ * - product_variants.size provides the selected size
+ * - product_variants.color_id references product_colors.id
+ * - product_colors.color_name provides the selected color name
+ * - product_colors.product_id identifies the product associated with that color
+ *
+ * Rules:
+ * - If a product has no selected size, save size: null
+ * - If a product has no selected color or no matching color record, save color: null
+ * - If neither value is available, save both fields as null
+ * - Do not invent default sizes or colors, and do not fail checkout solely because optional info is missing
+ * - Do not select an arbitrary variant or color when multiple options exist
+ */
+export function resolveOrderItemVariantAndColor(
+  item: CartItem,
+  dbProd: any
+): ResolvedVariantAndColor {
+  const variants: any[] = Array.isArray(dbProd?.product_variants)
+    ? dbProd.product_variants.filter((v: any) => !v.product_id || v.product_id === dbProd.id)
+    : [];
+
+  const colors: any[] = Array.isArray(dbProd?.product_colors)
+    ? dbProd.product_colors.filter((c: any) => !c.product_id || c.product_id === dbProd.id)
+    : [];
+
+  // Extract selected size from cart item
+  const rawSize =
+    typeof item.size === 'string' && item.size.trim().length > 0
+      ? item.size.trim()
+      : null;
+
+  // Extract selected color identifier / name from cart item
+  let selectedColorId: string | null = null;
+  let selectedColorName: string | null = null;
+
+  if (item.color) {
+    if (typeof item.color === 'object') {
+      if (item.color.id && typeof item.color.id === 'string' && item.color.id.trim().length > 0) {
+        selectedColorId = item.color.id.trim();
+      }
+      if (item.color.name && typeof item.color.name === 'string' && item.color.name.trim().length > 0) {
+        selectedColorName = item.color.name.trim();
+      }
+    } else if (typeof item.color === 'string' && (item.color as string).trim().length > 0) {
+      selectedColorName = (item.color as string).trim();
+    }
+  }
+
+  // 1. Resolve matching color record from product_colors (must belong to this product)
+  let matchedColorRecord: any = null;
+  if (selectedColorId) {
+    matchedColorRecord = colors.find((c: any) => c.id === selectedColorId) || null;
+  }
+  if (!matchedColorRecord && selectedColorName) {
+    matchedColorRecord =
+      colors.find(
+        (c: any) =>
+          c.color_name &&
+          c.color_name.trim().toLowerCase() === selectedColorName!.toLowerCase()
+      ) || null;
+  }
+
+  const resolvedColorName: string | null = matchedColorRecord?.color_name || null;
+
+  // 2. Resolve matching variant from product_variants
+  let matchedVariant: any = null;
+  let resolvedSize: string | null = null;
+
+  if (rawSize) {
+    // Find all variants of this product matching the given size (case-insensitive)
+    const sizeMatches = variants.filter(
+      (v: any) => v.size && v.size.trim().toLowerCase() === rawSize.toLowerCase()
+    );
+
+    if (sizeMatches.length > 0) {
+      if (matchedColorRecord) {
+        // Find exact match with color_id
+        const exactMatch = sizeMatches.find((v: any) => v.color_id === matchedColorRecord.id);
+        if (exactMatch) {
+          matchedVariant = exactMatch;
+        } else {
+          matchedVariant = sizeMatches.find((v: any) => !v.color_id) || sizeMatches[0];
+        }
+      } else {
+        // User did NOT select a color or color was not matched.
+        // If multiple variants exist for this size with different colors, pick one with stock for stock deduction,
+        // but do NOT invent a color name (resolvedColorName remains null).
+        matchedVariant =
+          sizeMatches.find((v: any) => (Number(v.quantity) || 0) >= item.quantity) ||
+          sizeMatches[0];
+      }
+      resolvedSize = matchedVariant.size; // directly from product_variants.size
+    } else {
+      // The provided size didn't match any variant in product_variants
+      // (e.g. rawSize was 'Unstitched' fallback but product variants are 'Small', 'Medium', 'Large')
+      resolvedSize = null;
+
+      if (matchedColorRecord) {
+        const colorMatches = variants.filter((v: any) => v.color_id === matchedColorRecord.id);
+        matchedVariant =
+          colorMatches.find((v: any) => (Number(v.quantity) || 0) >= item.quantity) ||
+          colorMatches[0] ||
+          null;
+      }
+    }
+  } else {
+    // No size was selected by the user
+    resolvedSize = null;
+
+    if (matchedColorRecord) {
+      const colorMatches = variants.filter((v: any) => v.color_id === matchedColorRecord.id);
+      matchedVariant =
+        colorMatches.find((v: any) => (Number(v.quantity) || 0) >= item.quantity) ||
+        colorMatches[0] ||
+        null;
+    }
+  }
+
+  // Fallback variant for stock deduction only (when product has variants)
+  if (!matchedVariant && variants.length > 0) {
+    matchedVariant =
+      variants.find((v: any) => (Number(v.quantity) || 0) >= item.quantity) ||
+      variants[0];
+  }
+
+  return {
+    size: resolvedSize,
+    color: resolvedColorName,
+    matchedVariant,
+  };
 }
 
 /**
@@ -143,7 +425,7 @@ export async function placeOrder({
     try {
       const productIds = dbItems.map((i) => i.product.id);
 
-      // Re-fetch latest product stock, variants & original_retail_price directly from DB
+      // Re-fetch latest product stock, variants, colors & original_retail_price directly from DB
       const { data: dbProducts, error: prodErr } = await supabase
         .from('products')
         .select(`
@@ -157,9 +439,16 @@ export async function placeOrder({
           category,
           product_variants (
             id,
+            product_id,
             size,
             color_id,
             quantity
+          ),
+          product_colors (
+            id,
+            product_id,
+            color_name,
+            color_code
           )
         `)
         .in('id', productIds);
@@ -177,6 +466,15 @@ export async function placeOrder({
 
       // Step 1: Stock verification against variant stock or product stock
       const stockErrors: string[] = [];
+      const variantQtyTracker = new Map<string, number>();
+
+      dbProducts.forEach((p) => {
+        if (Array.isArray(p.product_variants)) {
+          p.product_variants.forEach((v: any) => {
+            variantQtyTracker.set(v.id, Number(v.quantity) || 0);
+          });
+        }
+      });
 
       for (const item of dbItems) {
         const dbProd = prodMap.get(item.product.id);
@@ -191,36 +489,27 @@ export async function placeOrder({
         }
 
         const variantsList = Array.isArray(dbProd.product_variants) ? dbProd.product_variants : [];
-        let availableStock = 0;
-        let matchedVariant: any = null;
 
         if (variantsList.length > 0) {
-          const itemColorId = item.color?.id;
-          if (itemColorId) {
-            matchedVariant = dbProd.category === 'Unstitched'
-              ? variantsList.find((v: any) => v.size === 'Unstitched' && v.color_id === itemColorId)
-              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase() && v.color_id === itemColorId);
-          }
-
-          if (!matchedVariant) {
-            matchedVariant = dbProd.category === 'Unstitched'
-              ? variantsList.find((v: any) => v.size === 'Unstitched')
-              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase());
-          }
-
-          if (!matchedVariant && variantsList.length > 0) {
-            matchedVariant = variantsList[0];
-          }
+          const { size: resolvedSize, matchedVariant } = resolveOrderItemVariantAndColor(item, dbProd);
+          let availableStock = 0;
 
           if (matchedVariant) {
-            availableStock = Math.max(0, Number(matchedVariant.quantity) || 0);
-          }
-        }
+            const currentStock = variantQtyTracker.get(matchedVariant.id) ?? Number(matchedVariant.quantity) ?? 0;
+            availableStock = currentStock;
 
-        if (availableStock < item.quantity) {
-          stockErrors.push(
-            `Only ${availableStock} left for "${dbProd.suit_title}" (${item.size || 'Unstitched'}), but you requested ${item.quantity}.`
-          );
+            if (availableStock < item.quantity) {
+              stockErrors.push(
+                `Only ${availableStock} left for "${dbProd.suit_title}" (${resolvedSize || 'item'}), but you requested ${item.quantity}.`
+              );
+            } else {
+              variantQtyTracker.set(matchedVariant.id, currentStock - item.quantity);
+            }
+          } else {
+            stockErrors.push(
+              `Requested option for "${dbProd.suit_title}" is no longer available.`
+            );
+          }
         }
       }
 
@@ -247,12 +536,16 @@ export async function placeOrder({
         const currSellerTotal = sellerSubtotals.get(sId) || 0;
         sellerSubtotals.set(sId, currSellerTotal + subtotal);
 
+        const { size: resolvedSize, color: resolvedColor } =
+          resolveOrderItemVariantAndColor(item, dbProd);
+
         preparedOrderItems.push({
           product_id: dbProd.id,
           seller_id: sId,
           product_title: dbProd.suit_title || item.product.title,
           brand: dbProd.brand || item.product.brand || 'Brand',
-          size: item.size || 'Unstitched',
+          size: resolvedSize,
+          color: resolvedColor,
           quantity: item.quantity,
           price: actualPrice,
           subtotal: subtotal,
@@ -318,6 +611,8 @@ export async function placeOrder({
         quantity: oi.quantity,
         price: oi.price,
         subtotal: oi.subtotal,
+        size: oi.size ?? null,
+        color: oi.color ?? null,
       }));
 
       const { error: itemsErr } = await supabase
@@ -378,42 +673,28 @@ export async function placeOrder({
       }
 
       // Step 4: Deduct Variant Quantities & Update Product Status
-      for (const item of dbItems) {
-        const dbProd = prodMap.get(item.product.id)!;
-        const variantsList = Array.isArray(dbProd.product_variants) ? dbProd.product_variants : [];
+      for (const [vId, newQty] of variantQtyTracker.entries()) {
+        const prodVariantOrig = dbProducts
+          .flatMap((p) => p.product_variants || [])
+          .find((v: any) => v.id === vId);
 
-        if (variantsList.length > 0) {
-          const itemColorId = item.color?.id;
-          let matchedVariant: any = null;
-
-          if (itemColorId) {
-            matchedVariant = dbProd.category === 'Unstitched'
-              ? variantsList.find((v: any) => v.size === 'Unstitched' && v.color_id === itemColorId)
-              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase() && v.color_id === itemColorId);
-          }
-
-          if (!matchedVariant) {
-            matchedVariant = dbProd.category === 'Unstitched'
-              ? variantsList.find((v: any) => v.size === 'Unstitched')
-              : variantsList.find((v: any) => v.size?.toLowerCase() === (item.size || '').toLowerCase());
-          }
-
-          const targetVariant = matchedVariant || variantsList[0];
-          if (targetVariant) {
-            const newVarQty = Math.max(0, (Number(targetVariant.quantity) || 0) - item.quantity);
-            await supabase
-              .from('product_variants')
-              .update({ quantity: newVarQty, updated_at: new Date().toISOString() })
-              .eq('id', targetVariant.id);
-          }
-
-          // Check remaining stock across variants to update product status if sold out
-          const { data: remainingVariants } = await supabase
+        if (prodVariantOrig && Number(prodVariantOrig.quantity) !== newQty) {
+          await supabase
             .from('product_variants')
-            .select('quantity')
-            .eq('product_id', dbProd.id);
+            .update({ quantity: Math.max(0, newQty), updated_at: new Date().toISOString() })
+            .eq('id', vId);
+        }
+      }
 
-          const totalRemaining = (remainingVariants || []).reduce(
+      // Check remaining stock across variants to update product status if sold out
+      for (const prodId of productIds) {
+        const { data: remainingVariants } = await supabase
+          .from('product_variants')
+          .select('quantity')
+          .eq('product_id', prodId);
+
+        if (remainingVariants && remainingVariants.length > 0) {
+          const totalRemaining = remainingVariants.reduce(
             (sum: number, v: any) => sum + (Number(v.quantity) || 0),
             0
           );
@@ -425,7 +706,7 @@ export async function placeOrder({
                 status: 'Sold Out',
                 updated_at: new Date().toISOString(),
               })
-              .eq('id', dbProd.id);
+              .eq('id', prodId);
           }
         }
       }
@@ -455,6 +736,11 @@ export async function placeOrder({
         success: true,
         orderId,
         orderNumber,
+        orderItems: preparedOrderItems.map((oi) => ({
+          product_id: oi.product_id,
+          size: oi.size ?? null,
+          color: oi.color ?? null,
+        })),
       };
     } catch (err: any) {
       console.error('Unexpected error placing DB order:', err);
@@ -493,7 +779,8 @@ export interface FetchedOrderSummary {
     sellerId: string;
     title: string;
     brand: string;
-    size: string;
+    size?: string | null;
+    color?: string | null;
     quantity: number;
     price: number;
     subtotal: number;
@@ -555,7 +842,8 @@ export async function fetchOrderByIdOrNumber(orderIdOrNumber: string): Promise<F
         sellerId: item.seller_id,
         title: item.product_title || 'Product',
         brand: item.brand || 'Zebaish',
-        size: item.size || 'Unstitched',
+        size: item.size ?? null,
+        color: item.color ?? null,
         quantity: Number(item.quantity) || 1,
         price: Number(item.price) || 0,
         subtotal: Number(item.subtotal) || 0,

@@ -117,12 +117,7 @@ export const CoutureSection: React.FC<CoutureSectionProps> = ({ onSelectReseller
               </div>
 
               <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => onSelectReseller && onSelectReseller('reseller-1')}
-                  className="text-xs font-semibold text-stone-800 hover:text-black underline underline-offset-4 tracking-wide transition-colors cursor-pointer hidden sm:block"
-                >
-                  View all stores
-                </button>
+                
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => scroll('left')}
@@ -150,7 +145,7 @@ export const CoutureSection: React.FC<CoutureSectionProps> = ({ onSelectReseller
               {TOP_STORES.map((store) => (
                 <div
                   key={store.id}
-                  onClick={() => onSelectReseller && onSelectReseller(store.id)}
+                  // onClick={() => onSelectReseller && onSelectReseller(store.id)}
                   className="flex-none w-[260px] sm:w-[280px] md:w-[310px] group cursor-pointer bg-white border border-stone-200 rounded-xl overflow-hidden flex flex-col justify-between transition-all hover:border-stone-400 hover:shadow-lg"
                 >
                   {/* Full Tall Showcase Image (Matching original product card height/aspect ratio) */}
