@@ -4,8 +4,8 @@ import "./globals.css";
 import { AuthProvider } from "@/components/context/AuthProvider";
 import { AppProvider } from "@/components/context/AppContext";
 import { MainLayoutShell } from "@/components/MainLayoutShell";
-
 import { QueryProvider } from "@/src/providers/QueryProvider";
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata: Metadata = {
   title: 'ZEBAISH | Official Luxury Fashion Store',
@@ -39,6 +39,7 @@ export default function RootLayout({
         <QueryProvider>
           <AuthProvider>
             <AppProvider>
+              <Analytics /> 
               <MainLayoutShell>{children}</MainLayoutShell>
             </AppProvider>
           </AuthProvider>
