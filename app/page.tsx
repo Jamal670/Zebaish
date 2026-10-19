@@ -12,6 +12,7 @@ import { WornAndLoved } from '@/components/WornAndLoved';
 import { Newsletter } from '@/components/Newsletter';
 import { useApp } from '@/components/context/AppContext';
 import { Product } from '@/types';
+import { formatStoreSlug } from '@/src/api/sellerService';
 
 export default function HomePage() {
   const router = useRouter();
@@ -53,7 +54,8 @@ export default function HomePage() {
   };
 
   const handleSelectReseller = (resellerId: string) => {
-    router.push(`/store/${resellerId}`);
+    const slug = formatStoreSlug(resellerId, resellerId);
+    router.push(`/${slug}`);
   };
 
   const handleNavigateReseller = (page: 'signup' | 'login' | 'dashboard') => {

@@ -27,6 +27,7 @@ import { getItemAvailableStock } from '@/src/utils/stockUtils';
 import { resolveSwatchColor } from '@/src/utils/colorUtils';
 import { useRouter } from 'next/navigation';
 import useAuth from '@/src/hooks/useAuth';
+import { formatStoreSlug } from '@/src/api/sellerService';
 const DEFAULT_STORE_IMAGE =
   'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
 
@@ -693,7 +694,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
                 {product.resellerId && onSelectReseller && (
                   <button
-                    onClick={() => onSelectReseller(product.resellerId!)}
+                    onClick={() => onSelectReseller(formatStoreSlug(product.seller?.shop_name || product.resellerName, product.resellerId!))}
                     className="text-[9px] sm:text-[10px] lg:text-xs font-bold text-stone-900 hover:text-black underline flex items-center space-x-1 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-white border border-stone-200 rounded-xs hover:border-stone-400 transition-colors shadow-2xs shrink-0"
                   >
                     <span>Visit Store</span>

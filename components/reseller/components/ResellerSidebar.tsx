@@ -21,6 +21,7 @@ import { useAuth } from '@/src/hooks/useAuth';
 import { fetchSellerPayableAmount } from '@/src/api/sellerWalletService';
 import { format$ } from '../data/mockWalletData';
 import { getAvatarUrl } from '@/src/api/sellerProfileService';
+import { formatStoreSlug } from '@/src/api/sellerService';
 
 export interface ResellerSidebarProps {
   onLogout: () => void;
@@ -173,7 +174,7 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
 
                   {sellerId ? (
                     <Link
-                      href={`/store/${sellerId}`}
+                      href={storeSettings?.storeName?.trim() ? `/${formatStoreSlug(storeSettings?.storeName, sellerId)}` : `/store/${formatStoreSlug(storeSettings?.storeName, sellerId)}`}
                       onClick={() => setIsMobileDrawerOpen(false)}
                       className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 hover:text-amber-300 text-[10px] font-bold rounded border border-amber-400/30 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
                       title="Visit Store"
@@ -302,7 +303,7 @@ export const ResellerSidebar: React.FC<ResellerSidebarProps> = ({
 
         {sellerId ? (
           <Link
-            href={`/store/${sellerId}`}
+            href={storeSettings?.storeName?.trim() ? `/${formatStoreSlug(storeSettings?.storeName, sellerId)}` : `/store/${formatStoreSlug(storeSettings?.storeName, sellerId)}`}
             className="inline-flex items-center space-x-1 px-2 py-1 bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 text-[10px] font-bold rounded border border-amber-400/30 transition-colors shrink-0 whitespace-nowrap cursor-pointer"
             title="Visit Store"
           >

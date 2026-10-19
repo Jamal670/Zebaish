@@ -20,8 +20,98 @@ export interface SellerStorefrontData {
 /**
  * Validates whether a string is a valid UUID format
  */
-function isValidUUID(id: string): boolean {
+export function isValidUUID(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+/**
+ * Converts a shop name or identifier to a clean, lowercase URL slug with spaces removed.
+ * E.g. "The Economy Store" -> "theeconomystore", "The%20Economy%20Store" -> "theeconomystore"
+ */
+export function formatStoreSlug(shopName?: string, fallbackId?: string): string {
+  const target = shopName && shopName.trim() ? shopName : fallbackId;
+  if (target && target.trim()) {
+    try {
+      const decoded = decodeURIComponent(target.trim());
+      return decoded.toLowerCase().replace(/\s+/g, '');
+    } catch {
+      return target.trim().toLowerCase().replace(/\s+/g, '');
+    }
+  }
+  return '';
+}
+
+/**
+ * Resolves a seller record from the `sellers` table using either UUID or shop_name.
+ * Supports exact match, lowercase slug with spaces removed (e.g. "theeconomystore"),
+ * hyphenated slugs, and case-insensitive names.
+ */
+export async function resolveSellerRecord(identifier: string) {
+  if (!identifier) return null;
+  const decoded = decodeURIComponent(identifier).trim();
+  const normalizedIncoming = formatStoreSlug(decoded);
+
+  // 1. If valid UUID, search by id
+  if (isValidUUID(decoded)) {
+    const { data: byId } = await supabase
+      .from('sellers')
+      .select('*')
+      .eq('id', decoded)
+      .maybeSingle();
+    if (byId) return byId;
+  }
+
+  // 2. Case-insensitive exact match on shop_name
+  const { data: byShopName } = await supabase
+    .from('sellers')
+    .select('*')
+    .ilike('shop_name', decoded)
+    .maybeSingle();
+
+  if (byShopName) return byShopName;
+
+  // 3. Match normalized slug with spaces removed (e.g. "theeconomystore" -> "The Economy Store")
+  const { data: allSellers } = await supabase.from('sellers').select('*');
+  if (allSellers && allSellers.length > 0) {
+    const matched = allSellers.find((s: any) => formatStoreSlug(s.shop_name) === normalizedIncoming);
+    if (matched) return matched;
+  }
+
+  // 4. Try replacing hyphens with spaces (e.g. "muasam-collection" -> "muasam collection")
+  if (decoded.includes('-')) {
+    const spaceVariant = decoded.replace(/-/g, ' ');
+    const { data: bySpace } = await supabase
+      .from('sellers')
+      .select('*')
+      .ilike('shop_name', spaceVariant)
+      .maybeSingle();
+
+    if (bySpace) return bySpace;
+  }
+
+  // 5. Try replacing underscores with spaces
+  if (decoded.includes('_')) {
+    const spaceVariant = decoded.replace(/_/g, ' ');
+    const { data: bySpace } = await supabase
+      .from('sellers')
+      .select('*')
+      .ilike('shop_name', spaceVariant)
+      .maybeSingle();
+
+    if (bySpace) return bySpace;
+  }
+
+  // 6. Wildcard match on shop_name
+  const cleanTerm = decoded.replace(/[-_]/g, '%');
+  const { data: byWildcard } = await supabase
+    .from('sellers')
+    .select('*')
+    .ilike('shop_name', `%${cleanTerm}%`)
+    .limit(1);
+
+  if (byWildcard && byWildcard.length > 0) return byWildcard[0];
+
+  return null;
 }
 
 /**
@@ -39,14 +129,21 @@ function formatDate(dateStr?: string): string {
 
 /**
  * Fetches seller profile, order items, products, and approved reviews in batch requests.
+ * Searches seller dynamically by either UUID or shop_name.
  * Merges statistics (units sold, total orders, average rating, review count) efficiently without N+1 queries.
  */
-export async function fetchSellerStorefrontData(sellerId: string): Promise<SellerStorefrontData> {
-  const isUuid = isValidUUID(sellerId);
+export async function fetchSellerStorefrontData(sellerIdOrShopName: string): Promise<SellerStorefrontData> {
+  // Dynamically resolve seller record by UUID or shop_name
+  const rawSeller = await resolveSellerRecord(sellerIdOrShopName);
 
-  // If not a valid UUID, return fallback mock data gracefully for demo reseller IDs
-  if (!isUuid) {
-    const mockSeller = MOCK_RESELLERS.find((r) => r.id === sellerId) || MOCK_RESELLERS[0];
+  // If not found in database, check fallback mock data gracefully for demo reseller IDs
+  if (!rawSeller) {
+    const decoded = decodeURIComponent(sellerIdOrShopName || '').trim();
+    const normalized = formatStoreSlug(decoded);
+    const mockSeller = MOCK_RESELLERS.find((r) =>
+      formatStoreSlug(r.id) === normalized ||
+      formatStoreSlug(r.shopName) === normalized
+    ) || MOCK_RESELLERS[0];
     const mockProds = ALL_PRODUCTS.filter((p) => p.resellerId === mockSeller.id || (!p.resellerId && mockSeller.id === 'reseller-1'));
 
     let mockTotalReviews = 0;
@@ -90,36 +187,27 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     };
   }
 
-  // 1. Fetch Seller Profile from `sellers` table
-  const sellerPromise = supabase
-    .from('sellers')
-    .select('*')
-    .eq('id', sellerId)
-    .maybeSingle();
+  const sellerId = rawSeller.id;
 
-  // 2. Fetch Order Items for this Seller from `order_items` table
+  // 1. Fetch Order Items for this Seller from `order_items` table
   const orderItemsPromise = supabase
     .from('order_items')
     .select('*')
     .eq('seller_id', sellerId);
 
-  // 3. Fetch Seller Orders from `seller_orders` table
+  // 2. Fetch Seller Orders from `seller_orders` table
   const sellerOrdersPromise = supabase
     .from('seller_orders')
     .select('id, seller_total, status')
     .eq('seller_id', sellerId);
 
-  // 4. Fetch Products listed by this Seller from `products` table (only Active status)
+  // 3. Fetch Products listed by this Seller from `products` table (only Active status)
+  // Optimize by not joining heavy base64 product_images directly to prevent statement timeout
   const productsPromise = supabase
     .from('products')
     .select(`
       *,
       category,
-      product_images (
-        id,
-        image_url,
-        is_thumbnail
-      ),
       product_variants (
         id,
         size,
@@ -129,28 +217,51 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     .eq('seller_id', sellerId)
     .eq('status', 'Active');
 
-  // 5. Query average_rating and review_count across ALL products of this seller (unfiltered by status or pagination)
+  // 4. Query average_rating and review_count across ALL products of this seller (unfiltered by status or pagination)
   const sellerRatingsPromise = supabase
     .from('products')
     .select('average_rating, review_count')
     .eq('seller_id', sellerId);
 
-  const [sellerRes, orderItemsRes, sellerOrdersRes, productsRes, sellerRatingsRes] = await Promise.all([
-    sellerPromise,
+  const [orderItemsRes, sellerOrdersRes, productsRes, sellerRatingsRes] = await Promise.all([
     orderItemsPromise,
     sellerOrdersPromise,
     productsPromise,
     sellerRatingsPromise,
   ]);
 
-  if (sellerRes.error) {
-    console.error('Error fetching seller:', sellerRes.error);
-  }
-
-  const rawSeller = sellerRes.data;
   const rawOrderItems = orderItemsRes.data || [];
   const rawSellerOrders = sellerOrdersRes.data || [];
   const rawProducts = productsRes.data || [];
+
+  // Batch-fetch thumbnail images only for this seller's products to ensure fast response (< 1s)
+  const sellerProductIds = rawProducts.map((p: any) => p.id);
+  const imageMap = new Map<string, string>();
+
+  if (sellerProductIds.length > 0) {
+    const { data: thumbData } = await supabase
+      .from('product_images')
+      .select('product_id, image_url, is_thumbnail')
+      .in('product_id', sellerProductIds)
+      .eq('is_thumbnail', true);
+
+    thumbData?.forEach((img: any) => {
+      imageMap.set(img.product_id, img.image_url);
+    });
+
+    const missingPids = sellerProductIds.filter((id: string) => !imageMap.has(id));
+    if (missingPids.length > 0) {
+      const { data: fallbackData } = await supabase
+        .from('product_images')
+        .select('product_id, image_url')
+        .in('product_id', missingPids);
+      fallbackData?.forEach((img: any) => {
+        if (!imageMap.has(img.product_id)) {
+          imageMap.set(img.product_id, img.image_url);
+        }
+      });
+    }
+  }
 
   // Group order_items by product_id
   const orderStatsMap = new Map<string, { totalUnitsSold: number; totalOrders: number }>();
@@ -285,10 +396,9 @@ export async function fetchSellerStorefrontData(sellerId: string): Promise<Selle
     const stats = orderStatsMap.get(pId) || { totalUnitsSold: 0, totalOrders: 0 };
 
     // Format images
-    const imagesList = p.product_images || [];
-    const thumb = imagesList.find((img: any) => img.is_thumbnail)?.image_url || imagesList[0]?.image_url || 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
-    const hoverImg = imagesList[1]?.image_url || thumb;
-    const addlImgs = imagesList.map((img: any) => img.image_url);
+    const thumb = imageMap.get(pId) || p.image_url || 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
+    const hoverImg = thumb;
+    const addlImgs = [thumb];
 
     const price = Number(p.surplus_selling_price) || 0;
     const origPrice = Number(p.original_retail_price) || price;
@@ -361,23 +471,29 @@ export interface FetchReviewsResult {
 /**
  * Fetches reviews specifically belonging to an authenticated seller using Supabase range-based pagination.
  * Batches 9 reviews per page and prevents duplicate DB queries.
+ * Supports searching seller by either UUID or shop_name.
  */
 export async function fetchSellerReviewsPaginated(
-  sellerId: string,
+  sellerIdOrShopName: string,
   page: number = 0,
   pageSize: number = 9
 ): Promise<FetchReviewsResult> {
-  const isUuid = isValidUUID(sellerId);
+  let sellerId = sellerIdOrShopName;
 
-  if (!isUuid) {
-    const start = page * pageSize;
-    const end = start + pageSize;
-    const paged = MOCK_REVIEWS.slice(start, end);
-    return {
-      reviews: paged,
-      hasMore: end < MOCK_REVIEWS.length,
-      totalCount: MOCK_REVIEWS.length,
-    };
+  if (!isValidUUID(sellerIdOrShopName)) {
+    const resolved = await resolveSellerRecord(sellerIdOrShopName);
+    if (resolved) {
+      sellerId = resolved.id;
+    } else {
+      const start = page * pageSize;
+      const end = start + pageSize;
+      const paged = MOCK_REVIEWS.slice(start, end);
+      return {
+        reviews: paged,
+        hasMore: end < MOCK_REVIEWS.length,
+        totalCount: MOCK_REVIEWS.length,
+      };
+    }
   }
 
   const from = page * pageSize;

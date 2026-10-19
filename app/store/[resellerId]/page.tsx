@@ -9,7 +9,8 @@ import { Product } from '@/types';
 export default function ResellerStorePage() {
   const router = useRouter();
   const params = useParams();
-  const resellerId = (params?.resellerId as string) || 'reseller-1';
+  const rawParam = (params?.resellerId as string) || 'reseller-1';
+  const resellerId = decodeURIComponent(rawParam);
 
   const {
     setQuickViewProduct,

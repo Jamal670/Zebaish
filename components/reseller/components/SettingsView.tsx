@@ -12,6 +12,7 @@ import {
   updateSellerPassword,
   updateSellerShippingAndPaymentConfig,
 } from '@/src/api/sellerProfileService';
+import { formatStoreSlug } from '@/src/api/sellerService';
 import {
   User,
   ShieldCheck,
@@ -1039,15 +1040,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  const handleCopyStoreLink = () => {
-    if (!sellerId) return;
-    const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://localhost:3000';
-    const storeUrl = `${origin}/store/${sellerId}`;
-    navigator.clipboard.writeText(storeUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
-  };
-
   // TanStack Query for seller profile & settings (Shared query, Section E)
   const {
     data: profileQueryData,
@@ -1062,6 +1054,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
   });
 
   const seller = profileQueryData?.profile || resellerProfile;
+
+  const handleCopyStoreLink = () => {
+    const shopName = seller?.shop_name || resellerProfile?.shop_name;
+    const identifier = formatStoreSlug(shopName, sellerId);
+    if (!identifier) return;
+    const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://localhost:3000';
+    // For shop names, format clean root vanity URL: http://localhost:3000/muasamcollection
+    // For raw UUID fallback without shop name, fallback to: http://localhost:3000/store/[id]
+    const storeUrl = shopName && shopName.trim()
+      ? `${origin}/${identifier}`
+      : `${origin}/store/${identifier}`;
+    navigator.clipboard.writeText(storeUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
 
   // Security tab state
   const [updatingPassword, setUpdatingPassword] = useState<boolean>(false);

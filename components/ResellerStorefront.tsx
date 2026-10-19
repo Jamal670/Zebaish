@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Star, MapPin, Clock, Calendar, CheckCircle2, MessageSquare, ArrowUpDown, ChevronRight, Loader2, AlertCircle } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { Product, Review } from '@/types';
-import { fetchSellerStorefrontData, fetchSellerReviewsPaginated, SellerStorefrontData } from '@/src/api/sellerService';
+import { fetchSellerStorefrontData, fetchSellerReviewsPaginated, SellerStorefrontData, formatStoreSlug } from '@/src/api/sellerService';
 
 interface ResellerStorefrontProps {
   resellerId: string;
@@ -56,6 +56,27 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
     setReviewsPage(0);
     setHasMoreReviews(true);
   }, [resellerId]);
+
+  // Dynamically normalize browser URL if it contains encoded spaces or unformatted characters
+  // Preserves existing /store/[id] routes for previous users, and clean /[shopname] routes for new users
+  useEffect(() => {
+    if (typeof window !== 'undefined' && storefrontData?.seller?.shopName) {
+      const cleanSlug = formatStoreSlug(storefrontData.seller.shopName);
+      if (cleanSlug) {
+        const currentPath = window.location.pathname;
+        if (!currentPath.startsWith('/store/')) {
+          // Root-level store URL (e.g. /muasamcollection)
+          const expectedPath = `/${cleanSlug}`;
+          if (currentPath !== expectedPath) {
+            window.history.replaceState(null, '', expectedPath);
+          }
+        } else if (currentPath.includes('%20') || currentPath.includes(' ')) {
+          // If previous /store/ path had spaces, clean them
+          window.history.replaceState(null, '', `/store/${cleanSlug}`);
+        }
+      }
+    }
+  }, [storefrontData, resellerId]);
 
   // Load initial 9 reviews for page 0
   const loadInitialReviews = useCallback(async () => {

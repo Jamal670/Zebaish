@@ -2,6 +2,7 @@ import React from 'react';
 import { useRouter } from 'next/navigation';
 import { Product } from '@/types';
 import { Eye, ShoppingBag, Heart, Star, Store } from 'lucide-react';
+import { formatStoreSlug } from '@/src/api/sellerService';
 
 interface ProductCardProps {
   product: Product;
@@ -226,12 +227,14 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
             {product.resellerName ? (
               <div
                 onClick={(e) => {
-                  if (product.resellerId) {
+                  const targetReseller = formatStoreSlug(product.resellerName, product.resellerId);
+                  if (targetReseller) {
                     e.stopPropagation();
                     if (onSelectReseller) {
-                      onSelectReseller(product.resellerId);
+                      onSelectReseller(targetReseller);
                     } else {
-                      router.push(`/store/${product.resellerId}`);
+                      const targetUrl = product.resellerName?.trim() ? `/${targetReseller}` : `/store/${targetReseller}`;
+                      router.push(targetUrl);
                     }
                   }
                 }}

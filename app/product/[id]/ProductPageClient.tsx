@@ -8,6 +8,7 @@ import { Product } from '@/types';
 import { useProductQuery } from '@/src/hooks/useQueries';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { formatStoreSlug } from '@/src/api/sellerService';
 
 interface ProductPageClientProps {
   productId: string;
@@ -57,7 +58,8 @@ export function ProductPageClient({ productId }: ProductPageClientProps) {
   };
 
   const handleSelectReseller = (resellerId: string) => {
-    router.push(`/store/${resellerId}`);
+    const slug = formatStoreSlug(resellerId, resellerId);
+    router.push(`/${slug}`);
   };
 
   const handleNavigateHome = () => {

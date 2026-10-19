@@ -185,10 +185,6 @@ export async function fetchCollectionProducts({
       created_at,
       average_rating,
       review_count,
-      product_images (
-        image_url,
-        is_thumbnail
-      ),
       product_variants (
         id,
         size,
@@ -229,12 +225,41 @@ export async function fetchCollectionProducts({
       return { products: [], sellerGroups: [], hasMore: false, totalCount: 0 };
     }
 
+    // Batch-fetch thumbnail images to prevent serializing heavy base64 strings and timing out
+    const productIds = rawProducts.map((p: any) => p.id);
+    const imageMap: Record<string, string> = {};
+
+    if (productIds.length > 0) {
+      const { data: thumbData } = await supabase
+        .from('product_images')
+        .select('product_id, image_url, is_thumbnail')
+        .in('product_id', productIds)
+        .eq('is_thumbnail', true);
+
+      thumbData?.forEach((img: any) => {
+        imageMap[img.product_id] = img.image_url;
+      });
+
+      const missingIds = productIds.filter((id: string) => !imageMap[id]);
+      if (missingIds.length > 0) {
+        const { data: fallbackData } = await supabase
+          .from('product_images')
+          .select('product_id, image_url')
+          .in('product_id', missingIds);
+        fallbackData?.forEach((img: any) => {
+          if (!imageMap[img.product_id]) {
+            imageMap[img.product_id] = img.image_url;
+          }
+        });
+      }
+    }
+
+    const defaultImg = 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
+
     const formattedProducts: Product[] = rawProducts.map((p: any) => {
       const sellerObj = Array.isArray(p.seller) ? p.seller[0] : p.seller;
-      const imagesArr = Array.isArray(p.product_images) ? p.product_images : [];
-      const thumbnailObj = imagesArr.find((img: any) => img.is_thumbnail) || imagesArr[0];
-      const mainImg = thumbnailObj?.image_url || p.image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
-      const extraImgs = imagesArr.map((img: any) => img.image_url);
+      const mainImg = imageMap[p.id] || p.image_url || defaultImg;
+      const extraImgs = [mainImg];
 
       const origPrice = Number(p.original_retail_price || p.surplus_selling_price || 0);
       const surplusPrice = Number(p.surplus_selling_price || 0);
@@ -682,14 +707,15 @@ export async function fetchTrendingProductsByTab(tabCategory: string): Promise<P
         created_at,
         average_rating,
         review_count,
-        product_images (
-          image_url,
-          is_thumbnail
-        ),
         product_variants (
           id,
           size,
           quantity
+        ),
+        seller:sellers (
+          id,
+          shop_name,
+          average_rating
         )
       `)
       .eq('status', 'Active');
@@ -699,11 +725,11 @@ export async function fetchTrendingProductsByTab(tabCategory: string): Promise<P
     if (tabUpper === 'UNSTITCHED') {
       query = query.ilike('category', '%Unstitched%');
     } else if (tabUpper === 'LUXURY PRET') {
-      query = query.or('category.ilike.%Luxury Pret%,category.ilike.%Pret%,category.ilike.%Ready to Wear%');
+      query = query.or('category.ilike.%Luxury Pret%,category.ilike.%Pret%,category.ilike.%Ready to Wear%,subcategory.ilike.%Pret%,subcategory.ilike.%Ready%');
     } else if (tabUpper === 'BRIDAL WEAR' || tabUpper === 'BRIDAL') {
-      query = query.ilike('category', '%Bridal%');
+      query = query.or('category.ilike.%Bridal%,subcategory.ilike.%Bridal%');
     } else if (tabUpper === 'FORMALS' || tabUpper === 'FORMAL') {
-      query = query.ilike('category', '%Formal%');
+      query = query.or('category.ilike.%Formal%,subcategory.ilike.%Formal%,subcategory.ilike.%Organza%');
     }
     // NEW ARRIVALS has no category filter
 
@@ -711,70 +737,44 @@ export async function fetchTrendingProductsByTab(tabCategory: string): Promise<P
 
     const { data: rawProducts, error: pErr } = await query;
 
-    if (pErr || !rawProducts || rawProducts.length === 0) {
-      if (pErr) {
-        console.error('Error fetching trending products by tab:', pErr.message || pErr.details || pErr);
-      }
+    if (pErr) {
+      console.error('Error fetching trending products by tab:', pErr.message || pErr.details || pErr);
       return [];
     }
 
-    // Batch fetch seller details
-    const uniqueSellerIds = Array.from(new Set(rawProducts.map((p) => p.seller_id).filter(Boolean)));
-    let sellerMap: Record<string, { shopName: string; averageRating: number }> = {};
+    if (!rawProducts || rawProducts.length === 0) {
+      return [];
+    }
 
-    if (uniqueSellerIds.length > 0) {
-      const { data: sellersData } = await supabase
-        .from('sellers')
-        .select('id, shop_name')
-        .in('id', uniqueSellerIds);
+    // Efficiently batch-fetch thumbnail images only for the 5 selected products
+    // to prevent serializing heavy base64 strings and triggering Postgres statement timeout
+    const productIds = rawProducts.map((p) => p.id);
+    const imageMap: Record<string, string> = {};
 
-      if (sellersData) {
-        sellersData.forEach((s) => {
-          sellerMap[s.id] = {
-            shopName: s.shop_name || 'Verified Seller',
-            averageRating: 4.9,
-          };
+    if (productIds.length > 0) {
+      const { data: thumbData } = await supabase
+        .from('product_images')
+        .select('product_id, image_url, is_thumbnail')
+        .in('product_id', productIds)
+        .eq('is_thumbnail', true);
+
+      if (thumbData) {
+        thumbData.forEach((img: any) => {
+          imageMap[img.product_id] = img.image_url;
         });
       }
 
-      // Calculate rating per seller
-      const { data: sellerProductIdsData } = await supabase
-        .from('products')
-        .select('id, seller_id')
-        .in('seller_id', uniqueSellerIds);
+      const missingIds = productIds.filter((id) => !imageMap[id]);
+      if (missingIds.length > 0) {
+        const { data: fallbackData } = await supabase
+          .from('product_images')
+          .select('product_id, image_url')
+          .in('product_id', missingIds);
 
-      if (sellerProductIdsData && sellerProductIdsData.length > 0) {
-        const prodIdToSellerId: Record<string, string> = {};
-        const allProdIds: string[] = [];
-
-        sellerProductIdsData.forEach((item) => {
-          prodIdToSellerId[item.id] = item.seller_id;
-          allProdIds.push(item.id);
-        });
-
-        const { data: reviewsData } = await supabase
-          .from('reviews')
-          .select('product_id, rating')
-          .in('product_id', allProdIds);
-
-        if (reviewsData && reviewsData.length > 0) {
-          const sellerRatings: Record<string, number[]> = {};
-
-          reviewsData.forEach((rev) => {
-            const sid = prodIdToSellerId[rev.product_id];
-            if (sid) {
-              if (!sellerRatings[sid]) sellerRatings[sid] = [];
-              sellerRatings[sid].push(rev.rating);
-            }
-          });
-
-          Object.keys(sellerRatings).forEach((sid) => {
-            const ratingsArr = sellerRatings[sid];
-            if (ratingsArr.length > 0) {
-              const avg = ratingsArr.reduce((sum, r) => sum + r, 0) / ratingsArr.length;
-              if (sellerMap[sid]) {
-                sellerMap[sid].averageRating = Number(avg.toFixed(1));
-              }
+        if (fallbackData) {
+          fallbackData.forEach((img: any) => {
+            if (!imageMap[img.product_id]) {
+              imageMap[img.product_id] = img.image_url;
             }
           });
         }
@@ -783,12 +783,9 @@ export async function fetchTrendingProductsByTab(tabCategory: string): Promise<P
 
     const defaultImg = 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
 
-    const formattedProducts: Product[] = rawProducts.map((p) => {
-      const seller = sellerMap[p.seller_id];
-      const imagesArr = Array.isArray(p.product_images) ? p.product_images : [];
-      const thumbnailObj = imagesArr.find((img: any) => img.is_thumbnail) || imagesArr[0];
-      const mainImg = thumbnailObj?.image_url || defaultImg;
-      const extraImgs = imagesArr.map((img: any) => img.image_url);
+    const formattedProducts: Product[] = rawProducts.map((p: any) => {
+      const seller = Array.isArray(p.seller) ? p.seller[0] : p.seller;
+      const mainImg = imageMap[p.id] || defaultImg;
 
       const origPrice = Number(p.original_retail_price || p.surplus_selling_price || 0);
       const surplusPrice = Number(p.surplus_selling_price || 0);
@@ -805,8 +802,8 @@ export async function fetchTrendingProductsByTab(tabCategory: string): Promise<P
         originalPrice: surplusPrice > 0 && surplusPrice !== origPrice ? surplusPrice : undefined,
         currency: 'Rs.',
         image: mainImg,
-        hoverImage: extraImgs[1] || mainImg,
-        additionalImages: extraImgs,
+        hoverImage: mainImg,
+        additionalImages: [mainImg],
         badge: 'Surplus',
         category: p.category || 'Unstitched',
         subcategory: p.subcategory || '',
@@ -820,8 +817,8 @@ export async function fetchTrendingProductsByTab(tabCategory: string): Promise<P
         variants: variants.map((v: any) => ({ id: v.id, size: v.size, quantity: Number(v.quantity) || 0 })),
         listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',
         resellerId: p.seller_id,
-        resellerName: seller?.shopName || 'Verified Reseller',
-        resellerRating: seller?.averageRating || 4.9,
+        resellerName: seller?.shop_name || 'Verified Reseller',
+        resellerRating: seller?.average_rating ? Number(seller.average_rating) : 4.9,
         discountPercentage: discount,
         average_rating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 0,
         review_count: p.review_count !== undefined && p.review_count !== null ? Number(p.review_count) : 0,

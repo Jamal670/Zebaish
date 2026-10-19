@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CollectionPage } from '@/components/CollectionPage';
 import { useApp } from '@/components/context/AppContext';
 import { Product } from '@/types';
+import { formatStoreSlug } from '@/src/api/sellerService';
 
 function ShopContent() {
   const router = useRouter();
@@ -25,7 +26,8 @@ function ShopContent() {
   };
 
   const handleSelectReseller = (resellerId: string) => {
-    router.push(`/store/${resellerId}`);
+    const slug = formatStoreSlug(resellerId, resellerId);
+    router.push(`/${slug}`);
   };
 
   const handleNavigateHome = () => {
