@@ -62,6 +62,40 @@ export interface NewListingFormProps {
   onCancel?: () => void;
 }
 
+/**
+ * Sentinel value used exclusively for UI custom entry selection if needed.
+ */
+export const CUSTOM_SENTINEL = '__custom__';
+
+/**
+ * Single named constant representing the "no size" variant marker sent to database
+ */
+export const NO_SIZE_VALUE = 'Unstitched';
+
+/**
+ * Static lookup table for Product Type options keyed by Department and Category
+ */
+export const PRODUCT_TYPES: Record<string, Record<string, string[]>> = {
+  Womens: {
+    Clothing: ['Unstitched', 'Ready to wear', 'Kurta', 'Formal', 'Dress', 'Abaya', 'Lehenga', 'Saree', 'Dupatta'],
+    Accessories: ['Handbags', 'Jewellery', 'Scarf', 'Belts', 'Sunglasses', 'Watches'],
+    Footwear: ['Khussa', 'Flats', 'Sandals', 'Heels', 'Sneakers'],
+  },
+  Mens: {
+    Clothing: ['Shalwar Kameez', 'Kurta', 'Waistcoat', 'Shirt', 'Trouser', 'Suits', 'Pant'],
+    Accessories: ['Wallet', 'Belt', 'Watch', 'Sunglasses', 'Tie'],
+    Footwear: ['Peshawari Chappal', 'Sandals', 'Formal Shoes', 'Sneakers'],
+  },
+  Kids: {
+    Clothing: ['Kids Suits', 'Shirts & Trouser', 'Frock', 'Baby Clothing', 'Party Wear'],
+    Accessories: ['Hair Accessories', 'Bags', 'Caps', 'Belts'],
+    Footwear: ['Sandals', 'School Shoes', 'Sneakers'],
+  },
+};
+
+/**
+ * Subcategory (Collection Type) options map preserved from existing data sources
+ */
 export const CATEGORY_SUBCATEGORIES_MAP: Record<string, string[]> = {
   'Unstitched': [
     '3 Piece Lawn',
@@ -136,6 +170,35 @@ export const CATEGORY_SUBCATEGORIES_MAP: Record<string, string[]> = {
   ],
 };
 
+/**
+ * Case-insensitive helper to test if a product type is Unstitched
+ */
+export function isUnstitched(productType?: string | null): boolean {
+  if (!productType) return false;
+  return productType.trim().toLowerCase() === 'unstitched';
+}
+
+/**
+ * Computes available Collection Type options based on product type and category
+ */
+export function getCollectionTypeOptions(productType?: string | null, category?: string | null): string[] {
+  const pt = (productType || '').trim().toLowerCase();
+  const cat = (category || '').trim().toLowerCase();
+
+  if (pt === 'unstitched') return CATEGORY_SUBCATEGORIES_MAP['Unstitched'];
+  if (pt === 'ready to wear' || pt === 'kurta' || pt === 'shalwar kameez' || pt === 'dress' || pt === 'shirt' || pt === 'trousers & pants' || pt === 'pant' || pt === 'trouser') {
+    return CATEGORY_SUBCATEGORIES_MAP['Ready to Wear'];
+  }
+  if (pt === 'formal' || pt === 'party wear' || pt === 'lehenga' || pt === 'saree' || pt === 'suits') {
+    return CATEGORY_SUBCATEGORIES_MAP['Formal'];
+  }
+  if (cat === 'accessories' || pt === 'handbags' || pt === 'jewellery' || pt === 'bags' || pt === 'wallet' || pt === 'belts' || pt === 'sunglasses' || pt === 'watches') {
+    return CATEGORY_SUBCATEGORIES_MAP['Accessories'];
+  }
+
+  return CATEGORY_SUBCATEGORIES_MAP['Unstitched'];
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -209,11 +272,66 @@ async function uploadSingleFileToStorage(
 }
 
 export function buildInitialProductState(initialProduct: any) {
-  const cat = initialProduct?.category || initialProduct?.stitching_status || 'Unstitched';
-  const subcatOptions = CATEGORY_SUBCATEGORIES_MAP[cat] || CATEGORY_SUBCATEGORIES_MAP['Unstitched'];
-  const subcat = String(initialProduct?.subcategory || initialProduct?.piece_count || subcatOptions[0]);
+  // 1. Department detection
+  const initialDept = initialProduct?.department || (initialProduct ? 'Womens' : '');
 
-  // Color lookup: color_id -> color_name
+  // 1b. Category (category_type) detection
+  let initialCategory = '';
+  if (initialProduct) {
+    if (initialProduct.category_type && ['Clothing', 'Accessories', 'Footwear'].includes(initialProduct.category_type)) {
+      initialCategory = initialProduct.category_type;
+    } else if (['Clothing', 'Accessories', 'Footwear'].includes(initialProduct?.category)) {
+      initialCategory = initialProduct.category;
+    } else if (initialProduct?.category && ['Handbags', 'Jewellery', 'Bags', 'Wallet', 'Belts', 'Sunglasses', 'Watches'].some((a) => a.toLowerCase() === initialProduct.category.toLowerCase())) {
+      initialCategory = 'Accessories';
+    } else if (initialProduct?.category && ['Heels', 'Flats', 'Sandals', 'Khussa', 'Sneakers', 'Boots', 'Slippers'].some((f) => f.toLowerCase() === initialProduct.category.toLowerCase())) {
+      initialCategory = 'Footwear';
+    } else {
+      initialCategory = 'Clothing';
+    }
+  }
+
+  const isClothing = initialCategory === 'Clothing';
+
+  // 2. Product Type (category) detection
+  let rawProductType = '';
+  if (initialProduct) {
+    if (initialProduct.category && !['Clothing', 'Accessories', 'Footwear'].includes(initialProduct.category)) {
+      rawProductType = initialProduct.category;
+    } else if (initialProduct.product_type) {
+      rawProductType = initialProduct.product_type;
+    } else if (initialCategory === 'Accessories') {
+      rawProductType = 'Handbags';
+    } else if (initialCategory === 'Footwear') {
+      rawProductType = 'Heels';
+    } else {
+      rawProductType = 'Unstitched';
+    }
+  }
+
+  // Canonicalize Product Type case from PRODUCT_TYPES if found
+  if (initialDept && initialCategory && rawProductType) {
+    const validList = PRODUCT_TYPES[initialDept]?.[initialCategory] || [];
+    const matched = validList.find((t) => t.toLowerCase() === rawProductType.trim().toLowerCase());
+    if (matched) {
+      rawProductType = matched;
+    }
+  }
+
+  // 3. Collection Type (subcategory) detection
+  let rawSubcat = '';
+  const subcatOptions = getCollectionTypeOptions(rawProductType, initialCategory);
+  if (initialProduct && isClothing) {
+    rawSubcat = String(initialProduct?.subcategory || initialProduct?.piece_count || '').trim();
+    if (rawSubcat) {
+      const matchedSub = subcatOptions.find((s) => s.toLowerCase() === rawSubcat.toLowerCase());
+      if (matchedSub) {
+        rawSubcat = matchedSub;
+      }
+    }
+  }
+
+  // 4. Color lookup: color_id -> color_name
   const colorLookup: Record<string, string> = {};
   const rawColors: any[] = initialProduct?.product_colors || [];
   if (Array.isArray(rawColors)) {
@@ -224,7 +342,7 @@ export function buildInitialProductState(initialProduct: any) {
     });
   }
 
-  // Existing images
+  // 5. Existing images
   let initialExistingImages: ExistingImage[] = [];
   if (initialProduct?.product_images && Array.isArray(initialProduct.product_images) && initialProduct.product_images.length > 0) {
     initialExistingImages = initialProduct.product_images.map((img: any) => ({
@@ -238,11 +356,21 @@ export function buildInitialProductState(initialProduct: any) {
   }
 
   const rawVariants: any[] = initialProduct?.product_variants || initialProduct?.variants || [];
-  const isSizeBased = ['Ready to Wear', 'Formal', 'Formals', 'Bridal', 'Bridal Wear'].includes(cat);
 
-  let initialQuantity = '1';
-  let initialShowColors = false;
-  let initialColorEntries: ColorEntry[] = [];
+  // Determine if loaded product has real sizes
+  const STANDARD_SIZES = ['Small', 'Medium', 'Large', 'X Large'];
+  const standardSizeMap = new Map<string, string>();
+  STANDARD_SIZES.forEach((sz) => standardSizeMap.set(sz.toLowerCase(), sz));
+  standardSizeMap.set('xlarge', 'X Large');
+  standardSizeMap.set('xl', 'X Large');
+
+  const hasRealSizedVariants = Array.isArray(rawVariants) && rawVariants.some((v) => {
+    const sz = String(v?.size || '').trim().toLowerCase();
+    return sz && sz !== NO_SIZE_VALUE.toLowerCase();
+  });
+
+  const initialIsSizedMode = hasRealSizedVariants;
+
   const initialSelectedSizes: Record<string, number> = {};
   const initialSizeEntries: Record<string, SizeStockEntry[]> = {
     Small: [],
@@ -250,34 +378,17 @@ export function buildInitialProductState(initialProduct: any) {
     Large: [],
     'X Large': [],
   };
-
-  const STANDARD_SIZES = ['Small', 'Medium', 'Large', 'X Large'];
-  const standardSizeMap = new Map<string, string>();
-  STANDARD_SIZES.forEach((sz) => standardSizeMap.set(sz.toLowerCase(), sz));
-  standardSizeMap.set('xlarge', 'X Large');
-  standardSizeMap.set('xl', 'X Large');
-
-  const referencedColorIds = new Set<string>();
+  const initialColorEntries: ColorEntry[] = [];
 
   if (Array.isArray(rawVariants) && rawVariants.length > 0) {
-    if (isSizeBased) {
-      // Group variants by size
+    if (initialIsSizedMode) {
       rawVariants.forEach((v) => {
         if (!v) return;
         const rawSize = String(v.size || '').trim();
         if (!rawSize) return;
 
-        if (v.color_id) {
-          referencedColorIds.add(v.color_id);
-        }
-
         const lowerSize = rawSize.toLowerCase();
         const canonicalSize = standardSizeMap.get(lowerSize) || rawSize;
-
-        if (!standardSizeMap.has(lowerSize)) {
-          console.warn(`[NewListingForm] Non-standard size encountered in DB variants: "${rawSize}". Preserving entry under "${canonicalSize}".`);
-        }
-
         const colorName = v.color_id ? (colorLookup[v.color_id] || '') : (v.color || '');
         const qty = Number(v.quantity) || 0;
 
@@ -294,50 +405,21 @@ export function buildInitialProductState(initialProduct: any) {
         initialSelectedSizes[canonicalSize] = (initialSelectedSizes[canonicalSize] || 0) + qty;
       });
     } else {
-      // Unstitched
-      const colorVariants: ColorEntry[] = [];
-      let noColorVariantQty: number | null = null;
-
       rawVariants.forEach((v) => {
         if (!v) return;
-        if (v.color_id) {
-          referencedColorIds.add(v.color_id);
-        }
         const colorName = v.color_id ? (colorLookup[v.color_id] || '') : (v.color || '');
-        if (v.color_id || (colorName && colorName.trim() !== '')) {
-          colorVariants.push({
-            id: v.id ? String(v.id) : `col_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-            quantity: Number(v.quantity) || 0,
-            color: colorName,
-          });
-        } else if (noColorVariantQty === null) {
-          noColorVariantQty = Number(v.quantity) || 0;
-        }
+        const qty = Number(v.quantity) || 0;
+        initialColorEntries.push({
+          id: v.id ? String(v.id) : `col_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          quantity: qty,
+          color: colorName,
+        });
       });
-
-      if (colorVariants.length > 0) {
-        initialShowColors = true;
-        initialColorEntries = colorVariants;
-        const total = colorVariants.reduce((sum, item) => sum + item.quantity, 0);
-        initialQuantity = String(total > 0 ? total : 1);
-      } else {
-        initialShowColors = false;
-        initialColorEntries = [];
-        initialQuantity = String(noColorVariantQty !== null ? noColorVariantQty : (rawVariants[0]?.quantity || 1));
-      }
-    }
-  }
-
-  // Check orphan colors
-  if (Array.isArray(rawColors)) {
-    const orphans = rawColors.filter((c) => c && c.id && !referencedColorIds.has(c.id));
-    if (orphans.length > 0) {
-      console.info('[NewListingForm] Found unreferenced (orphan) product_colors in DB:', orphans);
     }
   }
 
   let initialActiveSize: string | null = null;
-  if (isSizeBased) {
+  if (initialIsSizedMode) {
     const keysWithQty = Object.keys(initialSelectedSizes).filter((k) => initialSelectedSizes[k] > 0);
     initialActiveSize = keysWithQty[0] || Object.keys(initialSelectedSizes)[0] || 'Small';
   }
@@ -345,10 +427,10 @@ export function buildInitialProductState(initialProduct: any) {
   const formData = {
     suit_title: initialProduct?.suit_title || initialProduct?.title || '',
     brand: initialProduct?.brand || BRANDS[0] || 'Khaadi',
-    fabric: initialProduct?.fabric || '',
-    stitching_status: cat,
-    piece_count: subcat,
-    quantity: initialQuantity,
+    fabric: isClothing ? (initialProduct?.fabric || '') : '',
+    stitching_status: initialProduct?.category || 'Unstitched',
+    piece_count: rawSubcat || subcatOptions[0] || '',
+    quantity: '1',
     color: initialProduct?.color || '',
     original_retail_price: String(initialProduct?.original_retail_price || initialProduct?.originalPrice || ''),
     surplus_selling_price: String(initialProduct?.surplus_selling_price || initialProduct?.price || ''),
@@ -358,9 +440,13 @@ export function buildInitialProductState(initialProduct: any) {
 
   return {
     formData,
+    department: initialDept,
+    category: initialCategory,
+    productType: rawProductType,
+    collectionType: rawSubcat,
+    isSizedMode: initialIsSizedMode,
     existingImages: initialExistingImages,
     selectedSizes: initialSelectedSizes,
-    showColors: initialShowColors,
     colorEntries: initialColorEntries,
     sizeEntries: initialSizeEntries,
     activeSize: initialActiveSize,
@@ -371,7 +457,7 @@ export function buildInitialProductState(initialProduct: any) {
  * Shared helper to extract, validate, and deduplicate colors & variants from form state
  */
 export function extractAndValidateVariants(
-  isSizeBasedCategory: boolean,
+  isSizedMode: boolean,
   selectedSizes: Record<string, number>,
   sizeEntries: Record<string, SizeStockEntry[]>,
   colorEntries: ColorEntry[],
@@ -384,7 +470,7 @@ export function extractAndValidateVariants(
   }
   const rawEntries: RawVariantItem[] = [];
 
-  if (isSizeBasedCategory) {
+  if (isSizedMode) {
     const allowedSizes = ['Small', 'Medium', 'Large', 'X Large'];
     for (const [sz, qty] of Object.entries(selectedSizes)) {
       if (!allowedSizes.includes(sz)) continue;
@@ -410,16 +496,16 @@ export function extractAndValidateVariants(
       }
     }
   } else {
-    // Unstitched category
-    const unstitchedValidEntries = colorEntries.filter(
+    // Unsized mode: submit with NO_SIZE_VALUE ('Unstitched')
+    const validEntries = colorEntries.filter(
       (e) => Number.isInteger(e.quantity) && e.quantity >= 0
     );
 
-    if (unstitchedValidEntries.length > 0) {
-      for (const e of unstitchedValidEntries) {
+    if (validEntries.length > 0) {
+      for (const e of validEntries) {
         const cleanedColor = typeof e.color === 'string' ? e.color.trim().slice(0, 100) : '';
         rawEntries.push({
-          size: 'Unstitched',
+          size: NO_SIZE_VALUE,
           quantity: e.quantity,
           rawColor: cleanedColor,
         });
@@ -428,14 +514,14 @@ export function extractAndValidateVariants(
       const parsedQty = parseInt(formDataQuantity, 10);
       const safeQty = Number.isInteger(parsedQty) && parsedQty >= 0 ? parsedQty : 1;
       rawEntries.push({
-        size: 'Unstitched',
+        size: NO_SIZE_VALUE,
         quantity: Math.max(1, safeQty),
         rawColor: '',
       });
     }
   }
 
-  // Colors validation: trim, non-empty, max length 100, case-insensitive uniqueness (first spelling preserved)
+  // Colors validation: trim, non-empty, max length 100, case-insensitive uniqueness
   const distinctColorsMap = new Map<string, string>();
   for (const item of rawEntries) {
     const trimmedColor = (item.rawColor || '').trim();
@@ -449,7 +535,7 @@ export function extractAndValidateVariants(
   }
   const colors: string[] = Array.from(distinctColorsMap.values());
 
-  // Variants validation: size non-empty, quantity integer >= 0, color exists, merge duplicate (size+color)
+  // Variants validation: size non-empty, quantity integer >= 0, merge duplicate (size+color)
   interface VariantPayload {
     size: string;
     color: string;
@@ -516,7 +602,7 @@ export async function saveProductColorsAndVariantsAtomically(
 
   // Graceful client-side fallback if RPC is not deployed in Supabase yet (PGRST202)
   if (rpcErr.code === 'PGRST202' || rpcErr.message?.includes('Could not find the function')) {
-    // 1. Delete existing variants (reference colors)
+    // 1. Delete existing variants
     const { error: delVarErr } = await supabase
       .from('product_variants')
       .delete()
@@ -589,30 +675,52 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const {
-    status: sellerStatus,
     isRestricted,
     messages: restrictionMessages,
     badgeText,
     formattedRestrictedUntil,
-    loading: statusLoading,
   } = useSellerStatus();
   const isEditMode = mode === 'edit' || mode === 'restock' || !!initialProduct;
   const isRestockMode = mode === 'restock';
 
   const initialValues = React.useMemo(() => buildInitialProductState(initialProduct), [initialProduct]);
 
+  // Core Form Data
   const [formData, setFormData] = useState(initialValues.formData);
-  const [selectedSizes, setSelectedSizes] = useState<Record<string, number>>(initialValues.selectedSizes);
 
-  // Unstitched Colors Feature State
-  const [showColors, setShowColors] = useState<boolean>(initialValues.showColors);
+  // Department & Category State
+  const [department, setDepartment] = useState<string>(initialValues.department);
+  const [category, setCategory] = useState<string>(initialValues.category);
+  const isClothing = category === 'Clothing';
+
+  // Product Type State with Inline Custom Dropdown
+  const [productType, setProductType] = useState<string>(initialValues.productType);
+  const [isProductTypeDropdownOpen, setIsProductTypeDropdownOpen] = useState<boolean>(false);
+  const [productTypeSearchTerm, setProductTypeSearchTerm] = useState<string>('');
+  const [customProductTypeInput, setCustomProductTypeInput] = useState<string>('');
+  const productTypeDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Collection Type State with Inline Custom Dropdown
+  const [collectionType, setCollectionType] = useState<string>(initialValues.collectionType);
+  const [isCollectionTypeDropdownOpen, setIsCollectionTypeDropdownOpen] = useState<boolean>(false);
+  const [collectionTypeSearchTerm, setCollectionTypeSearchTerm] = useState<string>('');
+  const [customCollectionTypeInput, setCustomCollectionTypeInput] = useState<string>('');
+  const collectionTypeDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Stock Mode State
+  const [isSizedMode, setIsSizedMode] = useState<boolean>(initialValues.isSizedMode);
+
+  // Unsized Stock State (uses colorEntries)
   const [colorEntries, setColorEntries] = useState<ColorEntry[]>(initialValues.colorEntries);
-  const [draftColorQuantity, setDraftColorQuantity] = useState<string>('');
-  const [draftColorName, setDraftColorName] = useState<string>('');
-  const [colorInputError, setColorInputError] = useState<string | null>(null);
-  const colorQuantityInputRef = useRef<HTMLInputElement>(null);
+  const [unsizedQty, setUnsizedQty] = useState<string>('');
+  const [unsizedColor, setUnsizedColor] = useState<string>('');
+  const [showUnsizedColorInput, setShowUnsizedColorInput] = useState<boolean>(false);
+  const [unsizedInputError, setUnsizedInputError] = useState<string | null>(null);
+  const unsizedQtyInputRef = useRef<HTMLInputElement>(null);
+  const unsizedColorInputRef = useRef<HTMLInputElement>(null);
 
-  // Per-size quantity & color state for Ready to Wear / Formal
+  // Sized Stock State
+  const [selectedSizes, setSelectedSizes] = useState<Record<string, number>>(initialValues.selectedSizes);
   const [sizeEntries, setSizeEntries] = useState<Record<string, SizeStockEntry[]>>(initialValues.sizeEntries);
   const [sizeDrafts, setSizeDrafts] = useState<Record<string, { quantity: string; color: string }>>({
     Small: { quantity: '', color: '' },
@@ -624,12 +732,15 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
   const sizeQuantityInputRef = useRef<HTMLInputElement>(null);
   const [showSizeColorInput, setShowSizeColorInput] = useState<Record<string, boolean>>({});
   const sizeColorInputRef = useRef<HTMLInputElement>(null);
-  const [activeSize, setActiveSize] = useState<string | null>(initialValues.activeSize);
+  const [activeSize, setActiveSize] = useState<string | null>(initialValues.activeSize || 'Small');
+
+  // Images State
   const [existingImages, setExistingImages] = useState<ExistingImage[]>(initialValues.existingImages);
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const uploadItemsRef = useRef<UploadItem[]>([]);
   uploadItemsRef.current = uploadItems;
 
+  // General Form States
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -638,7 +749,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
   // TanStack React Query for fetching brandNames table
   const { data: fetchedBrandNames = [], isLoading: isBrandsLoading } = useBrandNamesQuery();
 
-  // Combine fetched brand names with fallback mock BRANDS (deduplicated case-insensitively)
+  // Combine fetched brand names with fallback mock BRANDS
   const allBrands = React.useMemo(() => {
     const set = new Set<string>();
     const list: string[] = [];
@@ -677,10 +788,8 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     'Small fabric weaving irregularity',
   ], []);
 
-  // Dropdown UI states
+  // Dropdown UI states for Brand and Defect
   const [isBrandDropdownOpen, setIsBrandDropdownOpen] = useState<boolean>(false);
-  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState<boolean>(false);
-  const [isSubcategoryDropdownOpen, setIsSubcategoryDropdownOpen] = useState<boolean>(false);
   const [isDefectDropdownOpen, setIsDefectDropdownOpen] = useState<boolean>(false);
 
   const [brandSearchTerm, setBrandSearchTerm] = useState<string>('');
@@ -688,29 +797,60 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
   const [customDefectInput, setCustomDefectInput] = useState<string>('');
 
   const brandDropdownRef = useRef<HTMLDivElement>(null);
-  const categoryDropdownRef = useRef<HTMLDivElement>(null);
-  const subcategoryDropdownRef = useRef<HTMLDivElement>(null);
   const defectDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close brand, category, subcategory, and defect dropdowns when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (brandDropdownRef.current && !brandDropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (brandDropdownRef.current && !brandDropdownRef.current.contains(target)) {
         setIsBrandDropdownOpen(false);
       }
-      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target as Node)) {
-        setIsCategoryDropdownOpen(false);
+      if (productTypeDropdownRef.current && !productTypeDropdownRef.current.contains(target)) {
+        setIsProductTypeDropdownOpen(false);
       }
-      if (subcategoryDropdownRef.current && !subcategoryDropdownRef.current.contains(e.target as Node)) {
-        setIsSubcategoryDropdownOpen(false);
+      if (collectionTypeDropdownRef.current && !collectionTypeDropdownRef.current.contains(target)) {
+        setIsCollectionTypeDropdownOpen(false);
       }
-      if (defectDropdownRef.current && !defectDropdownRef.current.contains(e.target as Node)) {
+      if (defectDropdownRef.current && !defectDropdownRef.current.contains(target)) {
         setIsDefectDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Clean up object URLs on unmount
+  useEffect(() => {
+    return () => {
+      uploadItemsRef.current.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+    };
+  }, []);
+
+  // Product Type options for current department & category
+  const currentProductTypeOptions = React.useMemo(() => {
+    if (!department || !category) return [];
+    return PRODUCT_TYPES[department]?.[category] || [];
+  }, [department, category]);
+
+  const filteredProductTypes = React.useMemo(() => {
+    if (!productTypeSearchTerm.trim()) return currentProductTypeOptions;
+    const q = productTypeSearchTerm.trim().toLowerCase();
+    return currentProductTypeOptions.filter((p) => p.toLowerCase().includes(q));
+  }, [currentProductTypeOptions, productTypeSearchTerm]);
+
+  // Collection Type options
+  const currentCollectionTypeOptions = React.useMemo(() => {
+    return getCollectionTypeOptions(productType, category);
+  }, [productType, category]);
+
+  const filteredCollectionTypes = React.useMemo(() => {
+    if (!collectionTypeSearchTerm.trim()) return currentCollectionTypeOptions;
+    const q = collectionTypeSearchTerm.trim().toLowerCase();
+    return currentCollectionTypeOptions.filter((c) => c.toLowerCase().includes(q));
+  }, [currentCollectionTypeOptions, collectionTypeSearchTerm]);
 
   // Filtered brands list based on search term
   const filteredBrands = React.useMemo(() => {
@@ -719,19 +859,76 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     return allBrands.filter((b) => b.toLowerCase().includes(q));
   }, [allBrands, brandSearchTerm]);
 
-  // Handle selecting an existing brand from list
+  // Input Change Handlers
+  const handleInputChange = (field: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const handleDepartmentChange = (newDept: string) => {
+    setDepartment(newDept);
+    if (errors.department) {
+      setErrors((prev) => ({ ...prev, department: '' }));
+    }
+
+    // Reset Product Type if not valid in new list
+    if (newDept && category) {
+      const validTypes = PRODUCT_TYPES[newDept]?.[category] || [];
+      const match = validTypes.find((t) => t.toLowerCase() === productType.trim().toLowerCase());
+      if (match) {
+        setProductType(match);
+      } else {
+        setProductType('');
+      }
+    } else {
+      setProductType('');
+    }
+  };
+
+  const handleCategoryChange = (newCat: string) => {
+    setCategory(newCat);
+    if (errors.category) {
+      setErrors((prev) => ({ ...prev, category: '' }));
+    }
+
+    if (newCat !== 'Clothing') {
+      setIsCollectionTypeDropdownOpen(false);
+      setErrors((prev) => {
+        if (!prev.collectionType && !prev.fabric) return prev;
+        const next = { ...prev };
+        delete next.collectionType;
+        delete next.fabric;
+        return next;
+      });
+    }
+
+    // Reset Product Type if not valid in new list
+    if (department && newCat) {
+      const validTypes = PRODUCT_TYPES[department]?.[newCat] || [];
+      const match = validTypes.find((t) => t.toLowerCase() === productType.trim().toLowerCase());
+      if (match) {
+        setProductType(match);
+      } else {
+        setProductType('');
+      }
+    } else {
+      setProductType('');
+    }
+  };
+
+  // Brand Handlers
   const handleSelectBrand = (brandName: string) => {
     handleInputChange('brand', brandName);
     setIsBrandDropdownOpen(false);
     setBrandSearchTerm('');
   };
 
-  // Handle adding custom brand name from sticky bottom input
   const handleAddCustomBrand = () => {
     const trimmed = customBrandInput.trim();
     if (!trimmed) return;
 
-    // Check if custom brand already exists in fetched list (case-insensitive)
     const existingMatch = allBrands.find(
       (b) => b.toLowerCase() === trimmed.toLowerCase()
     );
@@ -744,7 +941,64 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     setIsBrandDropdownOpen(false);
   };
 
-  // Handle adding custom defect / flaw description
+  // Collection Type (Inline Custom Dropdown) Handlers
+  const handleSelectCollectionType = (subcat: string) => {
+    setCollectionType(subcat);
+    setIsCollectionTypeDropdownOpen(false);
+    setCollectionTypeSearchTerm('');
+    if (errors.collectionType) {
+      setErrors((prev) => ({ ...prev, collectionType: '' }));
+    }
+  };
+
+  const handleAddCustomCollectionType = () => {
+    const trimmed = customCollectionTypeInput.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return;
+
+    const existingMatch = currentCollectionTypeOptions.find(
+      (c) => c.toLowerCase() === trimmed.toLowerCase()
+    );
+
+    const finalValue = (existingMatch || trimmed).slice(0, 100);
+
+    setCollectionType(finalValue);
+    setCustomCollectionTypeInput('');
+    setCollectionTypeSearchTerm('');
+    setIsCollectionTypeDropdownOpen(false);
+    if (errors.collectionType) {
+      setErrors((prev) => ({ ...prev, collectionType: '' }));
+    }
+  };
+
+  // Product Type (Inline Custom Dropdown) Handlers
+  const handleSelectProductType = (pt: string) => {
+    setProductType(pt);
+    setIsProductTypeDropdownOpen(false);
+    setProductTypeSearchTerm('');
+    if (errors.productType) {
+      setErrors((prev) => ({ ...prev, productType: '' }));
+    }
+  };
+
+  const handleAddCustomProductType = () => {
+    const trimmed = customProductTypeInput.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return;
+
+    const existingMatch = currentProductTypeOptions.find(
+      (p) => p.toLowerCase() === trimmed.toLowerCase()
+    );
+
+    const finalValue = (existingMatch || trimmed).slice(0, 100);
+
+    setProductType(finalValue);
+    setCustomProductTypeInput('');
+    setProductTypeSearchTerm('');
+    setIsProductTypeDropdownOpen(false);
+    if (errors.productType) {
+      setErrors((prev) => ({ ...prev, productType: '' }));
+    }
+  };
+
   const handleAddCustomDefect = () => {
     const trimmed = customDefectInput.trim();
     if (!trimmed) return;
@@ -754,40 +1008,105 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     setIsDefectDropdownOpen(false);
   };
 
-  const isSizeBasedCategory = ['Ready to Wear', 'Formal', 'Formals', 'Bridal', 'Bridal Wear'].includes(
-    formData.stitching_status
-  );
+  // Seamless Stock Mode Switch Handler (auto-clears default-mode values when switching to sized mode)
+  const handleToggleSizedMode = () => {
+    if (errors.quantity) {
+      setErrors((prev) => ({ ...prev, quantity: '' }));
+    }
 
-  useEffect(() => {
-    return () => {
-      uploadItemsRef.current.forEach((item) => {
-        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    if (!isSizedMode) {
+      // Switching from Default mode to Sized mode:
+      // Automatically clear/reset the quantity and color values entered in default mode
+      setColorEntries([]);
+      setUnsizedQty('');
+      setUnsizedColor('');
+      setShowUnsizedColorInput(false);
+      setUnsizedInputError(null);
+
+      setIsSizedMode(true);
+      if (!activeSize) setActiveSize('Small');
+    } else {
+      // Switching from Sized mode back to Default mode:
+      // Reset size entries and drafts
+      setSizeEntries({
+        Small: [],
+        Medium: [],
+        Large: [],
+        'X Large': [],
       });
+      setSelectedSizes({});
+      setSizeDrafts({
+        Small: { quantity: '', color: '' },
+        Medium: { quantity: '', color: '' },
+        Large: { quantity: '', color: '' },
+        'X Large': { quantity: '', color: '' },
+      });
+      setSizeInputError(null);
+      setShowSizeColorInput({});
+
+      setIsSizedMode(false);
+    }
+  };
+
+  // Unsized Stock Entry Handlers
+  const handleAddUnsizedEntry = () => {
+    const rawQty = unsizedQty.trim();
+    const rawColor = unsizedColor.trim().slice(0, 100);
+
+    if (!rawQty) {
+      setUnsizedInputError('Please enter a quantity.');
+      return;
+    }
+
+    if (!/^\d+$/.test(rawQty)) {
+      setUnsizedInputError('Quantity must be a whole number (1 or more).');
+      return;
+    }
+
+    const qtyNum = parseInt(rawQty, 10);
+    if (isNaN(qtyNum) || qtyNum < 1) {
+      setUnsizedInputError('Quantity must be at least 1.');
+      return;
+    }
+
+    const isDuplicate = colorEntries.some(
+      (entry) => (entry.color || '').trim().toLowerCase() === rawColor.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      if (rawColor) {
+        setUnsizedInputError(`The color "${rawColor}" has already been added.`);
+      } else {
+        setUnsizedInputError('A stock entry without color has already been added.');
+      }
+      return;
+    }
+
+    const newEntry: ColorEntry = {
+      id: `unsized_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      quantity: qtyNum,
+      color: rawColor,
     };
-  }, []);
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: '' }));
+    const nextEntries = [...colorEntries, newEntry];
+    setColorEntries(nextEntries);
+    setUnsizedQty('');
+    setUnsizedColor('');
+    setShowUnsizedColorInput(false);
+    setUnsizedInputError(null);
+
+    if (errors.quantity) {
+      setErrors((prev) => ({ ...prev, quantity: '' }));
     }
+
+    unsizedQtyInputRef.current?.focus();
   };
 
-  const handleCategoryChange = (newCategory: string) => {
-    const availableSubcats = CATEGORY_SUBCATEGORIES_MAP[newCategory] || CATEGORY_SUBCATEGORIES_MAP['Unstitched'];
-    setFormData((prev) => ({
-      ...prev,
-      stitching_status: newCategory,
-      piece_count: availableSubcats[0] || '',
-    }));
-    if (errors.stitching_status) {
-      setErrors((prev) => ({ ...prev, stitching_status: '' }));
-    }
-    if (errors.piece_count) {
-      setErrors((prev) => ({ ...prev, piece_count: '' }));
-    }
+  const handleRemoveUnsizedEntry = (id: string) => {
+    setColorEntries((prev) => prev.filter((entry) => entry.id !== id));
   };
 
+  // Sized Stock Entry Handlers
   const handleToggleSize = (sizeName: string) => {
     if (sizeName in selectedSizes && activeSize === sizeName) {
       setSelectedSizes((prev) => {
@@ -822,7 +1141,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
 
     const currentDraft = sizeDrafts[activeSize] || { quantity: '', color: '' };
     const rawQty = currentDraft.quantity.trim();
-    const rawColor = currentDraft.color.trim();
+    const rawColor = currentDraft.color.trim().slice(0, 100);
 
     const isColorOpen = !!showSizeColorInput[activeSize] || !!rawColor;
 
@@ -844,28 +1163,19 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
 
     const currentEntries = sizeEntries[activeSize] || [];
 
-    if (isColorOpen) {
-      if (!rawColor) {
-        setSizeInputError('Please enter a color name or cancel color.');
-        return;
-      }
-
-      if (/\d/.test(rawColor)) {
-        setSizeInputError('Color must contain text only (no numbers allowed).');
-        return;
-      }
-
-      if (rawColor.length > 30) {
-        setSizeInputError('Color name cannot exceed 30 characters.');
-        return;
-      }
-
+    if (isColorOpen && rawColor) {
       const isDuplicate = currentEntries.some(
-        (entry) => entry.color.trim().toLowerCase() === rawColor.toLowerCase()
+        (entry) => (entry.color || '').trim().toLowerCase() === rawColor.toLowerCase()
       );
 
       if (isDuplicate) {
         setSizeInputError(`The color "${rawColor}" has already been added for ${activeSize}.`);
+        return;
+      }
+    } else if (!rawColor) {
+      const hasEmptyColorEntry = currentEntries.some((entry) => !(entry.color || '').trim());
+      if (hasEmptyColorEntry) {
+        setSizeInputError(`A stock entry without color has already been added for ${activeSize}.`);
         return;
       }
     }
@@ -918,7 +1228,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     }));
 
     if (nextEntries.length === 0) {
-      // Completely remove size from selectedSizes
       setSelectedSizes((prev) => {
         const next = { ...prev };
         delete next[sizeName];
@@ -938,79 +1247,9 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     }
   };
 
-  const handleAddColor = () => {
-    const rawQty = draftColorQuantity.trim();
-    const rawColor = draftColorName.trim();
-
-    if (!rawQty) {
-      setColorInputError('Please enter a quantity.');
-      return;
-    }
-
-    if (!/^\d+$/.test(rawQty)) {
-      setColorInputError('Quantity must be a whole number (1 or more).');
-      return;
-    }
-
-    const qtyNum = parseInt(rawQty, 10);
-    if (isNaN(qtyNum) || qtyNum < 1) {
-      setColorInputError('Quantity must be at least 1.');
-      return;
-    }
-
-    if (!rawColor) {
-      setColorInputError('Please enter a color name.');
-      return;
-    }
-
-    if (/\d/.test(rawColor)) {
-      setColorInputError('Color must contain text only (no numbers allowed).');
-      return;
-    }
-
-    if (rawColor.length > 30) {
-      setColorInputError('Color name cannot exceed 30 characters.');
-      return;
-    }
-
-    const isDuplicate = colorEntries.some(
-      (entry) => entry.color.trim().toLowerCase() === rawColor.toLowerCase()
-    );
-
-    if (isDuplicate) {
-      setColorInputError(`The color "${rawColor}" has already been added.`);
-      return;
-    }
-
-    const newEntry: ColorEntry = {
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      quantity: qtyNum,
-      color: rawColor,
-    };
-
-    const nextEntries = [...colorEntries, newEntry];
-    setColorEntries(nextEntries);
-    const totalQty = nextEntries.reduce((sum, e) => sum + e.quantity, 0);
-    setFormData((prev) => ({ ...prev, quantity: String(totalQty) }));
-    setDraftColorQuantity('');
-    setDraftColorName('');
-    setColorInputError(null);
-    if (errors.quantity) {
-      setErrors((prev) => ({ ...prev, quantity: '' }));
-    }
-    colorQuantityInputRef.current?.focus();
-  };
-
-  const handleRemoveColor = (id: string) => {
-    const nextEntries = colorEntries.filter((entry) => entry.id !== id);
-    setColorEntries(nextEntries);
-    const totalQty = nextEntries.reduce((sum, e) => sum + e.quantity, 0);
-    setFormData((prev) => ({ ...prev, quantity: nextEntries.length > 0 ? String(totalQty) : '1' }));
-  };
-
+  // Image Upload Handling
   const totalImageCount = existingImages.length + uploadItems.length;
 
-  // Background Upload Trigger Function
   const startBackgroundUpload = async (item: UploadItem, sellerId: string) => {
     try {
       const { publicUrl, path } = await uploadSingleFileToStorage(item.file, sellerId, item.id);
@@ -1063,10 +1302,12 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
       setErrors((prev) => ({ ...prev, images: '' }));
     }
 
-    // Trigger parallel background uploads immediately
     newItems.forEach((item) => {
       startBackgroundUpload(item, sellerId);
     });
+
+    // Reset input value so same files can be re-selected if removed
+    e.target.value = '';
   };
 
   const handleRetryUpload = (item: UploadItem) => {
@@ -1103,6 +1344,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     });
   };
 
+  // Form Validation
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
@@ -1114,58 +1356,40 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     }
 
     if (!formData.suit_title.trim()) {
-      newErrors.suit_title = 'Suit Title is required.';
+      newErrors.suit_title = 'Product Title is required.';
     } else if (formData.suit_title.trim().length < 3) {
-      newErrors.suit_title = 'Suit Title must be at least 3 characters long.';
+      newErrors.suit_title = 'Product Title must be at least 3 characters long.';
+    }
+
+    if (!department.trim()) {
+      newErrors.department = 'Department selection is required.';
+    }
+
+    if (!category.trim()) {
+      newErrors.category = 'Category selection is required.';
+    }
+
+    const effectiveProductType = productType.trim();
+    if (!effectiveProductType) {
+      newErrors.productType = 'Product Type is required.';
+    } else if (effectiveProductType.length > 100) {
+      newErrors.productType = 'Product Type cannot exceed 100 characters.';
     }
 
     if (!formData.brand.trim()) {
       newErrors.brand = 'Brand selection is required.';
     }
 
-    if (!formData.fabric.trim()) {
-      newErrors.fabric = 'Fabric Type is required (e.g. Lawn, Chiffon, Organza).';
-    }
-
-    if (!formData.stitching_status) {
-      newErrors.stitching_status = 'Category selection is required.';
-    }
-
-    if (!formData.piece_count) {
-      newErrors.piece_count = 'Subcategory selection is required.';
-    }
-
-    if (isSizeBasedCategory) {
-      const selectedKeys = Object.keys(selectedSizes);
-      if (selectedKeys.length === 0) {
-        newErrors.quantity = 'Please select at least one stock size (Small, Medium, Large, X Large).';
-      } else {
-        const unaddedDrafts = selectedKeys.filter((sz) => {
-          const draft = sizeDrafts[sz];
-          return draft && (draft.quantity.trim() !== '' || draft.color.trim() !== '');
-        });
-
-        if (unaddedDrafts.length > 0) {
-          newErrors.quantity = `You have un-added stock inputs for ${unaddedDrafts.join(', ')}. Click "Add" to save the entry before submitting.`;
-        } else {
-          const invalidSizes = selectedKeys.filter((sz) => !selectedSizes[sz] || selectedSizes[sz] < 1);
-          if (invalidSizes.length > 0) {
-            newErrors.quantity = `Please enter a valid stock quantity (> 0) for all selected sizes: ${invalidSizes.join(', ')}.`;
-          }
-        }
+    if (isClothing) {
+      const effectiveCollectionType = collectionType.trim();
+      if (!effectiveCollectionType) {
+        newErrors.collectionType = 'Collection Type is required.';
+      } else if (effectiveCollectionType.length > 100) {
+        newErrors.collectionType = 'Collection Type cannot exceed 100 characters.';
       }
-    } else {
-      if (formData.stitching_status === 'Unstitched' && showColors) {
-        if (draftColorQuantity.trim() || draftColorName.trim()) {
-          newErrors.quantity = 'Click "Add" to save your quantity and color entry before submitting.';
-        } else if (colorEntries.length === 0) {
-          newErrors.quantity = 'Please add at least one stock quantity and color entry.';
-        }
-      } else {
-        const qty = parseInt(formData.quantity, 10);
-        if (!formData.quantity || isNaN(qty) || qty < 1) {
-          newErrors.quantity = 'Stock quantity is required and must be at least 1 piece.';
-        }
+
+      if (!formData.fabric.trim()) {
+        newErrors.fabric = 'Fabric Type is required (e.g. Lawn, Chiffon, Organza).';
       }
     }
 
@@ -1179,10 +1403,31 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
       newErrors.surplus_selling_price = 'Discounted Price is required and must be greater than 0.';
     }
 
+    // Stock Validation
+    if (isSizedMode) {
+      const totalEntries = Object.values(sizeEntries).reduce((sum, list) => sum + list.length, 0);
+
+      if (totalEntries === 0) {
+        newErrors.quantity = 'Please select at least one stock size and add a quantity entry.';
+      } else if (activeSize) {
+        const draft = sizeDrafts[activeSize];
+        if (draft && (draft.quantity.trim() !== '' || draft.color.trim() !== '')) {
+          newErrors.quantity = `Click "Add" to save your stock input for ${activeSize} before submitting.`;
+        }
+      }
+    } else {
+      if (unsizedQty.trim() || unsizedColor.trim()) {
+        newErrors.quantity = 'Click "Add" to save your stock quantity entry before submitting.';
+      } else if (colorEntries.length === 0) {
+        newErrors.quantity = 'Please add at least one stock quantity entry.';
+      }
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  // Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
@@ -1205,14 +1450,13 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
       return;
     }
 
-    // 1. Wait for any active background image uploads to settle
+    // Wait for active background image uploads to settle
     let waitAttempts = 0;
     while (uploadItemsRef.current.some((it) => it.status === 'uploading') && waitAttempts < 40) {
       await new Promise((r) => setTimeout(r, 250));
       waitAttempts++;
     }
 
-    // 2. Check for upload errors
     const currentUploads = uploadItemsRef.current;
     const failedUploads = currentUploads.filter((it) => it.status === 'error');
 
@@ -1223,29 +1467,45 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
     }
 
     try {
-      const totalStockQty = isSizeBasedCategory
-        ? Object.values(selectedSizes).reduce((sum, q) => sum + (Number(q) || 0), 0)
-        : Math.max(1, parseInt(formData.quantity, 10));
-
-      // 1. Extract and validate colors & variants for both edit and create flows
+      // 1. Extract and validate colors & variants
       const { colors: p_colors, variants: p_variants } = extractAndValidateVariants(
-        isSizeBasedCategory,
+        isSizedMode,
         selectedSizes,
         sizeEntries,
         colorEntries,
-        formData.quantity
+        '1'
       );
 
-      // 2. Guard against wiping data (never call replacement with empty variants)
       if (p_variants.length === 0) {
         throw new Error('Cannot save collection: Please specify at least one valid size and quantity.');
       }
 
+      const totalStockQty = p_variants.reduce((sum, v) => sum + (Number(v.quantity) || 0), 0);
+
+      const effectiveProductType = productType.trim();
+      const effectiveCollectionType = isClothing ? (collectionType.trim() || null) : null;
+      const effectiveFabric = isClothing ? (formData.fabric.trim() || null) : null;
+
+      const productPayload = {
+        suit_title: formData.suit_title.trim(),
+        department: department.trim(),
+        category_type: category.trim(),
+        brand: formData.brand.trim(),
+        category: effectiveProductType,
+        subcategory: effectiveCollectionType,
+        fabric: effectiveFabric,
+        piece_count: 1,
+        color: formData.color.trim() || null,
+        original_retail_price: parseFloat(formData.original_retail_price),
+        surplus_selling_price: parseFloat(formData.surplus_selling_price),
+        defect: formData.defect ? formData.defect.trim() : null,
+        description: formData.description ? formData.description.trim() : null,
+      };
+
       if (isEditMode && initialProduct?.id) {
-        // 3. Atomically replace colors & variants via RPC FIRST (step 5)
+        // Atomically replace colors & variants via RPC
         await saveProductColorsAndVariantsAtomically(initialProduct.id, p_colors, p_variants);
 
-        // 4. Update products row with ONLY submitted fields (never overwrite ratings/reviews)
         const newStatus = (initialProduct.status === 'Sold Out' || totalStockQty > 0)
           ? 'Active'
           : (initialProduct.status || 'Active');
@@ -1253,17 +1513,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
         const { error: updateError } = await supabase
           .from('products')
           .update({
-            brand: formData.brand.trim(),
-            suit_title: formData.suit_title.trim(),
-            category: formData.stitching_status,
-            subcategory: formData.piece_count,
-            fabric: formData.fabric.trim() || null,
-            piece_count: 1,
-            color: formData.color.trim() || null,
-            original_retail_price: parseFloat(formData.original_retail_price),
-            surplus_selling_price: parseFloat(formData.surplus_selling_price),
-            defect: formData.defect ? formData.defect.trim() : null,
-            description: formData.description ? formData.description.trim() : null,
+            ...productPayload,
             status: newStatus,
             updated_at: new Date().toISOString(),
           })
@@ -1274,7 +1524,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           throw new Error(parseSupabaseError(updateError));
         }
 
-        // 5. Batch insert new image records using pre-uploaded URLs
+        // Batch insert new image records using pre-uploaded URLs
         const newImageRecords = currentUploads
           .filter((it) => it.uploadedUrl)
           .map((it, i) => ({
@@ -1311,7 +1561,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
             .eq('image_url', topUrl);
         }
 
-        // 6. Invalidate query cache
+        // Invalidate query cache
         if (sellerId) {
           queryClient.invalidateQueries({ queryKey: ['sellerProducts', sellerId] });
         }
@@ -1320,6 +1570,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           queryClient.invalidateQueries({ queryKey: ['product', initialProduct.id] });
         }
         queryClient.invalidateQueries({ queryKey: ['products'] });
+        queryClient.invalidateQueries({ queryKey: ['storefront'] });
 
         setSubmitSuccess(
           isRestockMode ? '🎉 Collection restocked successfully!' : '🎉 Collection updated successfully!'
@@ -1329,18 +1580,8 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
         const { data: product, error: productError } = await supabase
           .from('products')
           .insert({
+            ...productPayload,
             seller_id: sellerId,
-            brand: formData.brand.trim(),
-            suit_title: formData.suit_title.trim(),
-            category: formData.stitching_status,
-            subcategory: formData.piece_count,
-            fabric: formData.fabric.trim() || null,
-            piece_count: 1,
-            color: formData.color.trim() || null,
-            original_retail_price: parseFloat(formData.original_retail_price),
-            surplus_selling_price: parseFloat(formData.surplus_selling_price),
-            defect: formData.defect ? formData.defect.trim() : null,
-            description: formData.description ? formData.description.trim() : null,
             status: 'Active',
           })
           .select('id')
@@ -1353,7 +1594,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
         const createdProductId = product.id;
 
         try {
-          // Batch insert image records using pre-uploaded URLs
           const imageRecords = currentUploads
             .filter((it) => it.uploadedUrl)
             .map((it, i) => ({
@@ -1370,14 +1610,13 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           // Atomically save colors and variants via shared RPC helper
           await saveProductColorsAndVariantsAtomically(createdProductId, p_colors, p_variants);
         } catch (postCreateErr: any) {
-          // Rollback: delete just-created product (cascades to images, colors, variants)
+          // Rollback created product
           try {
             await supabase.from('products').delete().eq('id', createdProductId);
           } catch (rollbackErr) {
             console.error('Failed to rollback created product:', rollbackErr);
           }
 
-          // Clean up newly uploaded images from Supabase Storage
           try {
             const storagePaths = currentUploads
               .map((it) => it.storagePath)
@@ -1395,12 +1634,13 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
 
         setSubmitSuccess('🎉 Collection created successfully with all details, variants and images!');
 
+        // Reset state for new listing
         setFormData({
           suit_title: '',
           brand: BRANDS[0] || 'Khaadi',
           fabric: '',
           stitching_status: 'Unstitched',
-          piece_count: CATEGORY_SUBCATEGORIES_MAP['Unstitched'][0],
+          piece_count: '',
           quantity: '1',
           color: '',
           original_retail_price: '',
@@ -1408,6 +1648,20 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           defect: 'None (100% Mint Factory Surplus)',
           description: '',
         });
+        setDepartment('');
+        setCategory('');
+        setProductType('');
+        setCustomProductTypeInput('');
+        setProductTypeSearchTerm('');
+        setCollectionType('');
+        setCustomCollectionTypeInput('');
+        setCollectionTypeSearchTerm('');
+        setIsSizedMode(false);
+        setColorEntries([]);
+        setUnsizedQty('');
+        setUnsizedColor('');
+        setShowUnsizedColorInput(false);
+        setUnsizedInputError(null);
         setSelectedSizes({});
         setSizeEntries({
           Small: [],
@@ -1421,14 +1675,9 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
           Large: { quantity: '', color: '' },
           'X Large': { quantity: '', color: '' },
         });
-        setActiveSize(null);
+        setActiveSize('Small');
         setSizeInputError(null);
         setShowSizeColorInput({});
-        setColorEntries([]);
-        setDraftColorQuantity('');
-        setDraftColorName('');
-        setColorInputError(null);
-        setShowColors(false);
         uploadItemsRef.current.forEach((it) => {
           if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
         });
@@ -1444,6 +1693,7 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
         queryClient.invalidateQueries({ queryKey: ['editProduct', initialProduct.id] });
       }
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['storefront'] });
 
       if (onSuccess) {
         setTimeout(() => {
@@ -1457,9 +1707,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
       setIsSubmitting(false);
     }
   };
-
-  const currentSubcategoryOptions =
-    CATEGORY_SUBCATEGORIES_MAP[formData.stitching_status] || CATEGORY_SUBCATEGORIES_MAP['Unstitched'];
 
   const getFormTitle = () => {
     if (isRestockMode) return 'Restock Collection Listing';
@@ -1543,17 +1790,30 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
       )}
 
       <form onSubmit={handleSubmit} noValidate className="space-y-6 text-xs sm:text-sm">
-        {/* SECTION 1: Photography Gallery */}
+        {/* SECTION 1: Photography Gallery (Max 4 Images, Single Horizontal Row) */}
         <div className="space-y-4 bg-stone-50/80 p-4 sm:p-5 rounded-xl border border-stone-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-stone-200 pb-3 gap-2">
             <label className="font-bold text-stone-900 uppercase tracking-wider text-xs sm:text-sm flex items-center space-x-2">
               <ImageIcon className="w-4 h-4 text-amber-600 shrink-0" />
               <span>1. Collection Photography Gallery (Max 4 Images) <span className="text-red-600">*</span></span>
             </label>
-
+            {totalImageCount > 0 && totalImageCount < 4 && (
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-100 cursor-pointer shadow-2xs transition-colors shrink-0">
+                <Plus className="w-3.5 h-3.5 text-stone-600" />
+                <span>Add More Photos ({totalImageCount}/4)</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageSelect}
+                  className="hidden"
+                />
+              </label>
+            )}
           </div>
 
-          {totalImageCount < 4 && (
+          {/* Initial Drag-and-Drop Area (Shown ONLY when NO images have been uploaded yet) */}
+          {totalImageCount === 0 && (
             <label className="border-2 border-dashed border-stone-300 hover:border-stone-800 bg-white hover:bg-stone-50 transition-colors rounded-lg p-5 sm:p-8 flex flex-col items-center justify-center cursor-pointer text-center shadow-2xs">
               <Upload className="w-8 h-8 text-stone-500 mb-2" />
               <span className="font-bold text-stone-800 text-xs sm:text-sm uppercase tracking-wide mb-1">
@@ -1574,13 +1834,14 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
 
           {errors.images && <p className="text-xs text-red-600 font-medium">{errors.images}</p>}
 
+          {/* Single-Row Horizontal Scrollable Gallery (Never wraps onto a second row) */}
           {totalImageCount > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 pt-2">
+            <div className="flex flex-nowrap overflow-x-auto gap-3 sm:gap-4 pt-1 pb-2 no-scrollbar sm:scrollbar-thin sm:scrollbar-thumb-stone-300 w-full items-stretch">
               {/* Existing Images from DB */}
               {existingImages.map((img, index) => (
                 <div
                   key={img.id || img.url || index}
-                  className="relative group border border-stone-300 rounded-md overflow-hidden bg-stone-100 aspect-3/4 flex flex-col shadow-xs"
+                  className="w-36 sm:w-44 shrink-0 aspect-3/4 relative group border border-stone-300 rounded-md overflow-hidden bg-stone-100 flex flex-col shadow-xs"
                 >
                   <img src={img.url} alt={`Existing Image ${index + 1}`} className="w-full h-full object-cover" />
                   <span
@@ -1606,11 +1867,10 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className="relative group border border-stone-300 rounded-md overflow-hidden bg-stone-100 aspect-3/4 flex flex-col shadow-xs"
+                    className="w-36 sm:w-44 shrink-0 aspect-3/4 relative group border border-stone-300 rounded-md overflow-hidden bg-stone-100 flex flex-col shadow-xs"
                   >
                     <img src={item.previewUrl} alt={`New Photo ${index + 1}`} className="w-full h-full object-cover" />
 
-                    {/* Status Badge */}
                     <span
                       className={`absolute top-2 left-2 px-2 py-0.5 text-[9px] sm:text-[10px] font-extrabold uppercase rounded-full shadow-sm ${item.status === 'success'
                         ? combinedIndex === 0
@@ -1630,7 +1890,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                             : `Ready`}
                     </span>
 
-                    {/* Uploading Spinner Overlay */}
                     {item.status === 'uploading' && (
                       <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex flex-col items-center justify-center space-y-1 text-white p-2">
                         <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
@@ -1638,7 +1897,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                       </div>
                     )}
 
-                    {/* Error Overlay with Retry */}
                     {item.status === 'error' && (
                       <div className="absolute inset-0 bg-red-950/70 backdrop-blur-[1px] flex flex-col items-center justify-center p-2 text-center text-white space-y-2">
                         <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
@@ -1667,30 +1925,121 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                   </div>
                 );
               })}
+
+              {/* Inline Add Photo Card (Visible when at least 1 image uploaded and total < 4) */}
+              {totalImageCount < 4 && (
+                <label className="w-36 sm:w-44 shrink-0 aspect-3/4 border-2 border-dashed border-stone-300 hover:border-stone-800 bg-white hover:bg-stone-50 transition-colors rounded-md flex flex-col items-center justify-center cursor-pointer text-center p-3 shadow-2xs group">
+                  <div className="w-9 h-9 rounded-full bg-stone-100 group-hover:bg-stone-200 flex items-center justify-center mb-1.5 transition-colors">
+                    <Plus className="w-5 h-5 text-stone-600" />
+                  </div>
+                  <span className="font-bold text-stone-800 text-[11px] sm:text-xs uppercase tracking-wide">
+                    Add Photo
+                  </span>
+                  <span className="text-[10px] text-stone-400 mt-0.5">
+                    ({totalImageCount}/4)
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+                </label>
+              )}
             </div>
           )}
         </div>
 
-        {/* SECTION 2: Collection Details */}
+        {/* SECTION 2: Collection Specifications & Pricing */}
         <div className="space-y-5">
           <h3 className="font-bold text-stone-900 uppercase tracking-wider text-xs sm:text-sm border-b border-stone-200 pb-2 flex items-center space-x-2">
             <Tag className="w-4 h-4 text-stone-500" />
             <span>2. Collection Specifications & Pricing</span>
           </h3>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+          {/* Row 1: Product Title, Department, Category */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+            {/* Product Title */}
+            <div className="min-w-0">
+              <label htmlFor="field-product-title" className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+                Product Title <span className="text-red-600">*</span>
+              </label>
+              <input
+                id="field-product-title"
+                type="text"
+                placeholder="Embroidered 3PC Lawn Suit"
+                value={formData.suit_title}
+                onChange={(e) => handleInputChange('suit_title', e.target.value)}
+                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${
+                  errors.suit_title ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+                }`}
+              />
+              {errors.suit_title && <p className="text-xs text-red-600 font-medium mt-1">{errors.suit_title}</p>}
+            </div>
+
+            {/* Department */}
+            <div className="min-w-0">
+              <label htmlFor="field-department" className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+                Department <span className="text-red-600">*</span>
+              </label>
+              <select
+                id="field-department"
+                value={department}
+                onChange={(e) => handleDepartmentChange(e.target.value)}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] text-xs sm:text-sm font-semibold transition-colors cursor-pointer ${
+                  errors.department ? 'border-red-500 focus:border-red-600 text-stone-900' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900 text-stone-900'
+                }`}
+              >
+                <option value="">Select Department</option>
+                <option value="Mens">Mens</option>
+                <option value="Womens">Womens</option>
+                <option value="Kids">Kids</option>
+              </select>
+              {errors.department && <p className="text-xs text-red-600 font-medium mt-1">{errors.department}</p>}
+            </div>
+
+            {/* Category */}
+            <div className="min-w-0">
+              <label htmlFor="field-category" className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+                Category <span className="text-red-600">*</span>
+              </label>
+              <select
+                id="field-category"
+                value={category}
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] text-xs sm:text-sm font-semibold transition-colors cursor-pointer ${
+                  errors.category ? 'border-red-500 focus:border-red-600 text-stone-900' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900 text-stone-900'
+                }`}
+              >
+                <option value="">Select Category</option>
+                <option value="Clothing">Clothing</option>
+                <option value="Accessories">Accessories</option>
+                <option value="Footwear">Footwear</option>
+              </select>
+              {errors.category && <p className="text-xs text-red-600 font-medium mt-1">{errors.category}</p>}
+            </div>
+          </div>
+
+          {/* Row 2: Brand, Product Type, Collection Type (All with Inline Custom Dropdown) */}
+          <div className={`grid grid-cols-1 ${isClothing ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-4 sm:gap-5`}>
             {/* Brand Dropdown */}
-            <div className="relative" ref={brandDropdownRef}>
+            <div className="min-w-0 relative" ref={brandDropdownRef}>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                 Brand <span className="text-red-600">*</span>
               </label>
 
-              {/* Trigger Button */}
               <button
                 type="button"
-                onClick={() => setIsBrandDropdownOpen((prev) => !prev)}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${errors.brand ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
-                  }`}
+                onClick={() => {
+                  setIsBrandDropdownOpen((prev) => !prev);
+                  setIsCollectionTypeDropdownOpen(false);
+                  setIsProductTypeDropdownOpen(false);
+                  setIsDefectDropdownOpen(false);
+                }}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${
+                  errors.brand ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
+                }`}
               >
                 <span className={`text-xs sm:text-sm font-semibold truncate ${formData.brand ? 'text-stone-900' : 'text-stone-400'}`}>
                   {formData.brand || 'Select Brand'}
@@ -1703,11 +2052,8 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
 
               {errors.brand && <p className="text-xs text-red-600 font-medium mt-1">{errors.brand}</p>}
 
-              {/* Dropdown Menu */}
               {isBrandDropdownOpen && (
                 <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-80 w-full animate-in fade-in slide-in-from-top-2 duration-150">
-
-                  {/* 1. STICKY TOP: Search Input */}
                   <div className="sticky top-0 bg-white border-b border-stone-200 p-2 z-10 shrink-0">
                     <div className="relative flex items-center">
                       <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 pointer-events-none" />
@@ -1731,7 +2077,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                     </div>
                   </div>
 
-                  {/* 2. MIDDLE SCROLLABLE: Brand List */}
                   <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 max-h-48 min-h-[100px]">
                     {isBrandsLoading && filteredBrands.length === 0 ? (
                       <div className="p-4 text-center text-xs text-stone-500 flex items-center justify-center space-x-2">
@@ -1763,7 +2108,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                     )}
                   </div>
 
-                  {/* 3. STICKY BOTTOM: Add your own brand name */}
                   <div className="sticky bottom-0 bg-stone-50 border-t border-stone-200 p-2 z-10 shrink-0">
                     <div className="flex items-center space-x-1.5">
                       <input
@@ -1790,155 +2134,300 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                       </button>
                     </div>
                   </div>
-
                 </div>
               )}
             </div>
 
-            {/* Suit Title */}
-            <div>
+            {/* Product Type (Inline Custom Dropdown matching Brand) */}
+            <div className="min-w-0 relative" ref={productTypeDropdownRef}>
               <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
-                Suit Title <span className="text-red-600">*</span>
+                Product Type <span className="text-red-600">*</span>
               </label>
-              <input
-                type="text"
-                placeholder="Embroidered 3PC Lawn Suit"
-                value={formData.suit_title}
-                onChange={(e) => handleInputChange('suit_title', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${errors.suit_title ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
-                  }`}
-              />
-              {errors.suit_title && <p className="text-xs text-red-600 font-medium mt-1">{errors.suit_title}</p>}
+
+              <button
+                type="button"
+                disabled={!department || !category}
+                onClick={() => {
+                  if (!department || !category) return;
+                  setIsProductTypeDropdownOpen((prev) => !prev);
+                  setIsBrandDropdownOpen(false);
+                  setIsCollectionTypeDropdownOpen(false);
+                  setIsDefectDropdownOpen(false);
+                }}
+                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed cursor-pointer ${
+                  errors.productType ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
+                }`}
+              >
+                <span className={`text-xs sm:text-sm font-semibold truncate ${
+                  !department || !category ? 'text-stone-400' : productType ? 'text-stone-900' : 'text-stone-400'
+                }`}>
+                  {!department || !category
+                    ? 'Select Department & Category first'
+                    : productType || 'Select Product Type'}
+                </span>
+                <div className="flex items-center space-x-1 shrink-0 text-stone-400">
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isProductTypeDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
+                </div>
+              </button>
+
+              {errors.productType && <p className="text-xs text-red-600 font-medium mt-1">{errors.productType}</p>}
+
+              {isProductTypeDropdownOpen && department && category && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-80 w-full animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* Sticky Top: Search */}
+                  <div className="sticky top-0 bg-white border-b border-stone-200 p-2 z-10 shrink-0">
+                    <div className="relative flex items-center">
+                      <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search product type..."
+                        value={productTypeSearchTerm}
+                        onChange={(e) => setProductTypeSearchTerm(e.target.value)}
+                        className="w-full pl-8 pr-7 py-2 bg-stone-50 border border-stone-200 rounded-md text-xs text-stone-900 focus:outline-none focus:border-stone-900 focus:bg-white placeholder-stone-400"
+                        autoFocus
+                      />
+                      {productTypeSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setProductTypeSearchTerm('')}
+                          className="absolute right-2.5 p-0.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Scrollable: Options List */}
+                  <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 max-h-48 min-h-[100px]">
+                    {filteredProductTypes.length > 0 ? (
+                      filteredProductTypes.map((pt) => {
+                        const isSelected = productType === pt;
+                        return (
+                          <button
+                            key={pt}
+                            type="button"
+                            onClick={() => handleSelectProductType(pt)}
+                            className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${isSelected
+                              ? 'bg-stone-900 text-white font-bold'
+                              : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
+                              }`}
+                          >
+                            <span className="truncate">{pt}</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="p-3 text-center text-xs text-stone-500 font-medium">
+                        No product type found matching "{productTypeSearchTerm}"
+                      </div>
+                    )}
+
+                    {/* Show custom option if set and not in standard list */}
+                    {productType && !currentProductTypeOptions.includes(productType) && (
+                      <button
+                        type="button"
+                        onClick={() => setIsProductTypeDropdownOpen(false)}
+                        className="w-full text-left px-3 py-2 text-xs font-bold bg-stone-900 text-white rounded-md flex items-center justify-between cursor-pointer"
+                      >
+                        <span className="truncate">Custom: {productType}</span>
+                        <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Sticky Bottom: Add Custom Product Type */}
+                  <div className="sticky bottom-0 bg-stone-50 border-t border-stone-200 p-2 z-10 shrink-0">
+                    <div className="flex items-center space-x-1.5">
+                      <input
+                        type="text"
+                        placeholder="Add custom product type"
+                        maxLength={100}
+                        value={customProductTypeInput}
+                        onChange={(e) => setCustomProductTypeInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddCustomProductType();
+                          }
+                        }}
+                        className="flex-1 px-3 py-1.5 bg-white border border-stone-300 rounded-md text-xs text-stone-900 focus:outline-none focus:border-stone-900 placeholder-stone-400 min-w-0"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCustomProductType}
+                        disabled={!customProductTypeInput.trim()}
+                        className="px-3 py-1.5 bg-stone-900 hover:bg-black text-white text-xs font-bold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 flex items-center space-x-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
+            {/* Collection Type (Inline Custom Dropdown matching Brand) */}
+            {isClothing && (
+              <div className="min-w-0 relative" ref={collectionTypeDropdownRef}>
+                <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+                  Collection Type <span className="text-red-600">*</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCollectionTypeDropdownOpen((prev) => !prev);
+                    setIsBrandDropdownOpen(false);
+                    setIsProductTypeDropdownOpen(false);
+                    setIsDefectDropdownOpen(false);
+                  }}
+                  className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${
+                    errors.collectionType ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
+                  }`}
+                >
+                  <span className={`text-xs sm:text-sm font-semibold truncate ${collectionType ? 'text-stone-900' : 'text-stone-400'}`}>
+                    {collectionType || 'Select Collection Type'}
+                  </span>
+                  <div className="flex items-center space-x-1 shrink-0 text-stone-400">
+                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isCollectionTypeDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
+                  </div>
+                </button>
+
+                {errors.collectionType && <p className="text-xs text-red-600 font-medium mt-1">{errors.collectionType}</p>}
+
+                {isCollectionTypeDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-80 w-full animate-in fade-in slide-in-from-top-2 duration-150">
+                    {/* Sticky Top: Search */}
+                    <div className="sticky top-0 bg-white border-b border-stone-200 p-2 z-10 shrink-0">
+                      <div className="relative flex items-center">
+                        <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Search collection type..."
+                          value={collectionTypeSearchTerm}
+                          onChange={(e) => setCollectionTypeSearchTerm(e.target.value)}
+                          className="w-full pl-8 pr-7 py-2 bg-stone-50 border border-stone-200 rounded-md text-xs text-stone-900 focus:outline-none focus:border-stone-900 focus:bg-white placeholder-stone-400"
+                          autoFocus
+                        />
+                        {collectionTypeSearchTerm && (
+                          <button
+                            type="button"
+                            onClick={() => setCollectionTypeSearchTerm('')}
+                            className="absolute right-2.5 p-0.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Scrollable: Options List */}
+                    <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 max-h-48 min-h-[100px]">
+                      {filteredCollectionTypes.length > 0 ? (
+                        filteredCollectionTypes.map((sub) => {
+                          const isSelected = collectionType === sub;
+                          return (
+                            <button
+                              key={sub}
+                              type="button"
+                              onClick={() => handleSelectCollectionType(sub)}
+                              className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${isSelected
+                                ? 'bg-stone-900 text-white font-bold'
+                                : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
+                                }`}
+                            >
+                              <span className="truncate">{sub}</span>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="p-3 text-center text-xs text-stone-500 font-medium">
+                          No collection type found matching "{collectionTypeSearchTerm}"
+                        </div>
+                      )}
+
+                      {/* Show custom option if set and not in current list */}
+                      {collectionType && !currentCollectionTypeOptions.includes(collectionType) && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCollectionTypeDropdownOpen(false)}
+                          className="w-full text-left px-3 py-2 text-xs font-bold bg-stone-900 text-white rounded-md flex items-center justify-between cursor-pointer"
+                        >
+                          <span className="truncate">Custom: {collectionType}</span>
+                          <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Sticky Bottom: Add Custom Collection Type */}
+                    <div className="sticky bottom-0 bg-stone-50 border-t border-stone-200 p-2 z-10 shrink-0">
+                      <div className="flex items-center space-x-1.5">
+                        <input
+                          type="text"
+                          placeholder="Add custom collection type"
+                          maxLength={100}
+                          value={customCollectionTypeInput}
+                          onChange={(e) => setCustomCollectionTypeInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddCustomCollectionType();
+                            }
+                          }}
+                          className="flex-1 px-3 py-1.5 bg-white border border-stone-300 rounded-md text-xs text-stone-900 focus:outline-none focus:border-stone-900 placeholder-stone-400 min-w-0"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCustomCollectionType}
+                          disabled={!customCollectionTypeInput.trim()}
+                          className="px-3 py-1.5 bg-stone-900 hover:bg-black text-white text-xs font-bold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 flex items-center space-x-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Row 3: Fabric Type, Retail Price, Discounted Price */}
+          <div className={`grid grid-cols-1 ${isClothing ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-4 sm:gap-5`}>
             {/* Fabric Type */}
-            <div>
-              <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
-                Fabric Type <span className="text-red-600">*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="Lawn, Chiffon, Organza"
-                value={formData.fabric}
-                onChange={(e) => handleInputChange('fabric', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${errors.fabric ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
+            {isClothing && (
+              <div className="min-w-0">
+                <label htmlFor="field-fabric-type" className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+                  Fabric Type <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="field-fabric-type"
+                  type="text"
+                  placeholder="Lawn, Chiffon, Organza"
+                  value={formData.fabric}
+                  onChange={(e) => handleInputChange('fabric', e.target.value)}
+                  className={`w-full p-3 border rounded-lg focus:outline-none min-h-[42px] ${
+                    errors.fabric ? 'border-red-500 focus:border-red-600' : 'border-stone-300 focus:border-stone-900'
                   }`}
-              />
-              {errors.fabric && <p className="text-xs text-red-600 font-medium mt-1">{errors.fabric}</p>}
-            </div>
-
-            {/* Category Dropdown */}
-            <div className="relative" ref={categoryDropdownRef}>
-              <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
-                Category <span className="text-red-600">*</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCategoryDropdownOpen((prev) => !prev);
-                  setIsBrandDropdownOpen(false);
-                  setIsSubcategoryDropdownOpen(false);
-                  setIsDefectDropdownOpen(false);
-                }}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${errors.stitching_status ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
-                  }`}
-              >
-                <span className={`text-xs sm:text-sm font-semibold truncate ${formData.stitching_status ? 'text-stone-900' : 'text-stone-400'}`}>
-                  {formData.stitching_status || 'Select Category'}
-                </span>
-                <div className="flex items-center space-x-1 shrink-0 text-stone-400">
-                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isCategoryDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
-                </div>
-              </button>
-              {errors.stitching_status && (
-                <p className="text-xs text-red-600 font-medium mt-1">{errors.stitching_status}</p>
-              )}
-
-              {isCategoryDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col w-full animate-in fade-in slide-in-from-top-2 duration-150 p-1.5 space-y-0.5">
-                  {['Unstitched', 'Ready to Wear', 'Formal'].map((cat) => {
-                    const isSelected = formData.stitching_status === cat;
-                    return (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => {
-                          handleCategoryChange(cat);
-                          setIsCategoryDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${isSelected
-                          ? 'bg-stone-900 text-white font-bold'
-                          : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
-                          }`}
-                      >
-                        <span className="truncate">{cat}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Subcategory Dropdown */}
-            <div className="relative" ref={subcategoryDropdownRef}>
-              <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
-                Subcategory <span className="text-red-600">*</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSubcategoryDropdownOpen((prev) => !prev);
-                  setIsBrandDropdownOpen(false);
-                  setIsCategoryDropdownOpen(false);
-                  setIsDefectDropdownOpen(false);
-                }}
-                className={`w-full p-3 border rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer ${errors.piece_count ? 'border-red-500 focus:border-red-600' : 'border-stone-300 hover:border-stone-400 focus:border-stone-900'
-                  }`}
-              >
-                <span className={`text-xs sm:text-sm font-semibold truncate ${formData.piece_count ? 'text-stone-900' : 'text-stone-400'}`}>
-                  {formData.piece_count || 'Select Subcategory'}
-                </span>
-                <div className="flex items-center space-x-1 shrink-0 text-stone-400">
-                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isSubcategoryDropdownOpen ? 'rotate-180 text-stone-900' : ''}`} />
-                </div>
-              </button>
-              {errors.piece_count && <p className="text-xs text-red-600 font-medium mt-1">{errors.piece_count}</p>}
-
-              {isSubcategoryDropdownOpen && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-60 w-full animate-in fade-in slide-in-from-top-2 duration-150 p-1.5 space-y-0.5 overflow-y-auto">
-                  {currentSubcategoryOptions.map((sub) => {
-                    const isSelected = formData.piece_count === sub;
-                    return (
-                      <button
-                        key={sub}
-                        type="button"
-                        onClick={() => {
-                          handleInputChange('piece_count', sub);
-                          setIsSubcategoryDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-md transition-colors flex items-center justify-between cursor-pointer ${isSelected
-                          ? 'bg-stone-900 text-white font-bold'
-                          : 'text-stone-800 hover:bg-stone-100 hover:text-stone-900'
-                          }`}
-                      >
-                        <span className="truncate">{sub}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                />
+                {errors.fabric && <p className="text-xs text-red-600 font-medium mt-1">{errors.fabric}</p>}
+              </div>
+            )}
 
             {/* Retail Price */}
-            <div>
-              <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+            <div className="min-w-0">
+              <label htmlFor="field-retail-price" className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                 Retail Price <span className="text-red-600">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-3 text-stone-400 font-bold text-xs">Rs</span>
                 <input
+                  id="field-retail-price"
                   type="number"
                   min="1"
                   placeholder="6500"
@@ -1956,13 +2445,14 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
             </div>
 
             {/* Discounted Price */}
-            <div>
-              <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
+            <div className="min-w-0">
+              <label htmlFor="field-discounted-price" className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">
                 Discounted Price <span className="text-red-600">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-3 text-stone-400 font-bold text-xs">Rs</span>
                 <input
+                  id="field-discounted-price"
                   type="number"
                   min="1"
                   placeholder="3500"
@@ -1980,364 +2470,353 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
             </div>
           </div>
 
-          {/* Stock Section */}
-          {isSizeBasedCategory ? (
-            <div className="space-y-3 bg-stone-50 p-4 sm:p-5 rounded-xl border border-stone-200">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-stone-200 pb-2.5">
+          {/* Row 4: Stock Size * Section (Two Modes) */}
+          <div className="space-y-3 bg-stone-50 p-4 sm:p-5 rounded-xl border border-stone-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 pb-2.5">
+              <div>
                 <label className="font-bold text-stone-900 uppercase tracking-wide text-xs sm:text-sm">
                   Stock Size <span className="text-red-600">*</span>
                 </label>
-
+                
               </div>
 
-              {/* Predefined Size Buttons */}
-              <div className="flex flex-wrap gap-2 pt-1">
-                {['Small', 'Medium', 'Large', 'X Large'].map((sz) => {
-                  const isSelected = sz in selectedSizes;
-                  const isActive = activeSize === sz;
-                  return (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => handleToggleSize(sz)}
-                      aria-label={`${sz} size${isSelected ? ' selected' : ''}${isActive ? ' editing' : ''}`}
-                      className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer ${isSelected
-                        ? isActive
-                          ? 'bg-stone-900 text-white border-stone-900 shadow-xs ring-2 ring-stone-900 ring-offset-1'
-                          : 'bg-stone-800 text-white border-stone-800 shadow-2xs'
-                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100 hover:border-stone-400'
-                        }`}
-                    >
-                      {sz} {isSelected ? '✓' : '+'}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Active Size QTY and Color Input Area */}
-              {activeSize && activeSize in selectedSizes && (
-                <div className="pt-3 border-t border-stone-200/80 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                    <label className="font-bold text-stone-900 uppercase tracking-wide text-xs">
-                      QTY and Color
-                    </label>
-
-                  </div>
-
-                  {/* Input row + Inline Add Button matching Add Colors section */}
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="grid grid-cols-2 gap-2 flex-1 min-w-0">
-                      <div>
-                        <input
-                          ref={sizeQuantityInputRef}
-                          type="text"
-                          inputMode="numeric"
-                          placeholder="Add Quantity"
-                          aria-label={`${activeSize} Quantity`}
-                          value={sizeDrafts[activeSize]?.quantity ?? ''}
-                          onChange={(e) => {
-                            const numbersOnly = e.target.value.replace(/\D/g, '');
-                            setSizeDrafts((prev) => ({
-                              ...prev,
-                              [activeSize]: { ...prev[activeSize], quantity: numbersOnly },
-                            }));
-                            if (sizeInputError) setSizeInputError(null);
-                          }}
-                          onKeyDown={(e) => {
-                            if (['e', 'E', '+', '-', '.'].includes(e.key)) {
-                              e.preventDefault();
-                            }
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddSizeStockEntry();
-                            }
-                          }}
-                          className="w-full p-2.5 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white"
-                        />
-                      </div>
-                      <div>
-                        {!(showSizeColorInput[activeSize] || sizeDrafts[activeSize]?.color) ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowSizeColorInput((prev) => ({ ...prev, [activeSize]: true }));
-                              setTimeout(() => sizeColorInputRef.current?.focus(), 50);
-                            }}
-                            aria-label="Add Color"
-                            className="w-full min-h-[40px] px-3 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 bg-white hover:bg-stone-50 border border-dashed border-stone-300 hover:border-stone-400 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
-                          >
-                            <Plus className="w-3.5 h-3.5 text-stone-500" />
-                            <span>Add Color</span>
-                          </button>
-                        ) : (
-                          <div className="relative w-full">
-                            <input
-                              ref={sizeColorInputRef}
-                              type="text"
-                              maxLength={30}
-                              placeholder="Add Color"
-                              aria-label={`${activeSize} Color`}
-                              value={sizeDrafts[activeSize]?.color ?? ''}
-                              onChange={(e) => {
-                                const textOnly = e.target.value.replace(/[^a-zA-Z\s]/g, '');
-                                setSizeDrafts((prev) => ({
-                                  ...prev,
-                                  [activeSize]: { ...prev[activeSize], color: textOnly },
-                                }));
-                                if (sizeInputError) setSizeInputError(null);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key.length === 1 && !/^[a-zA-Z\s]$/.test(e.key)) {
-                                  e.preventDefault();
-                                }
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleAddSizeStockEntry();
-                                }
-                              }}
-                              className="w-full p-2.5 pr-8 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowSizeColorInput((prev) => ({ ...prev, [activeSize]: false }));
-                                setSizeDrafts((prev) => ({
-                                  ...prev,
-                                  [activeSize]: { ...prev[activeSize], color: '' },
-                                }));
-                                if (sizeInputError) setSizeInputError(null);
-                              }}
-                              aria-label="Cancel color"
-                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 rounded cursor-pointer"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleAddSizeStockEntry}
-                      aria-label={`Add ${activeSize} stock entry`}
-                      className="px-5 py-2.5 text-xs font-bold rounded-lg bg-stone-900 hover:bg-black text-white transition-all cursor-pointer shadow-xs min-h-[40px] shrink-0"
-                    >
-                      Add
-                    </button>
-                  </div>
-
-                  {sizeInputError && (
-                    <p className="text-xs text-red-600 font-medium">{sizeInputError}</p>
-                  )}
-
-                  {/* Added Entries Display (Per Active Size) matching Add Colors section */}
-                  {(sizeEntries[activeSize] || []).length > 0 && (
-                    <div className="pt-2.5 border-t border-stone-200">
-                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        {(sizeEntries[activeSize] || []).map((entry) => (
-                          <div
-                            key={entry.id}
-                            className="inline-flex items-center space-x-2 px-3 py-1.5 bg-white rounded-lg border border-stone-200 shadow-2xs text-xs shrink-0"
-                          >
-                            <span className="font-bold text-stone-900 max-w-[140px] truncate" title={entry.color}>
-                              {entry.color}
-                            </span>
-                            <span className="px-2 py-0.5 bg-stone-100 text-stone-700 font-semibold rounded-md text-[11px]">
-                              Qty: {entry.quantity}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveSizeStockEntry(activeSize, entry.id)}
-                              aria-label={`Remove ${entry.color} for ${activeSize}`}
-                              className="p-0.5 ml-1 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer text-base leading-none font-bold shrink-0"
-                            >
-                              &times;
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {errors.quantity && <p className="text-xs text-red-600 font-medium pt-1">{errors.quantity}</p>}
+              <button
+                type="button"
+                onClick={handleToggleSizedMode}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 ${
+                  isSizedMode
+                    ? 'bg-stone-100 text-stone-800 border-stone-300 hover:bg-stone-200'
+                    : 'bg-stone-900 text-white border-stone-900 hover:bg-black shadow-xs'
+                }`}
+              >
+                {isSizedMode ? (
+                  <>
+                    <X className="w-3.5 h-3.5" />
+                    <span>Disable Sizes</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Sizes</span>
+                  </>
+                )}
+              </button>
             </div>
-          ) : (
-            <>
-              {!(formData.stitching_status === 'Unstitched' && showColors) && (
-                <div className="max-w-md">
-                  <div className="flex items-center justify-between gap-3 mb-1.5">
-                    <label className="font-bold text-stone-900 uppercase tracking-wide text-xs sm:text-sm">
-                      Stock Quantity <span className="text-red-600">*</span>
-                    </label>
-                  </div>
-                  <div className="w-full max-w-xs">
-                    <div className="flex items-center gap-2 w-full flex-nowrap">
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        placeholder="5"
-                        value={formData.quantity}
-                        onChange={(e) => handleInputChange('quantity', e.target.value)}
-                        className={`flex-1 min-w-0 w-0 p-3 border rounded-lg focus:outline-none min-h-[42px] ${errors.quantity
-                            ? 'border-red-500 focus:border-red-600'
-                            : 'border-stone-300 focus:border-stone-900'
-                          }`}
-                      />
 
-                      {formData.stitching_status === 'Unstitched' && (
+            {/* MODE 1: Unsized Stock (Default) */}
+            {!isSizedMode && (
+              <div className="space-y-3 pt-1">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="flex-1 min-w-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    {/* QTY input */}
+                    <div className="flex-1 min-w-0">
+                      <input
+                        ref={unsizedQtyInputRef}
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Add Quantity"
+                        aria-label="Stock Quantity"
+                        value={unsizedQty}
+                        onChange={(e) => {
+                          const numbersOnly = e.target.value.replace(/\D/g, '');
+                          setUnsizedQty(numbersOnly);
+                          if (unsizedInputError) setUnsizedInputError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (['e', 'E', '+', '-', '.'].includes(e.key)) {
+                            e.preventDefault();
+                          }
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddUnsizedEntry();
+                          }
+                        }}
+                        className="w-full p-2.5 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white min-h-[40px]"
+                      />
+                    </div>
+
+                    {/* Optional Color */}
+                    <div className="flex-1 min-w-0">
+                      {!showUnsizedColorInput && !unsizedColor ? (
                         <button
                           type="button"
                           onClick={() => {
-                            setShowColors(true);
-                            if (errors.quantity) {
-                              setErrors((prev) => ({ ...prev, quantity: '' }));
-                            }
+                            setShowUnsizedColorInput(true);
+                            setTimeout(() => unsizedColorInputRef.current?.focus(), 50);
                           }}
-                          aria-label="Add Colors"
-                          className="flex-1 min-w-0 px-1 py-2 text-[10px] sm:text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap min-h-[47px] bg-black text-white border-black hover:bg-stone-800"
+                          aria-label="Add Color"
+                          className="w-full min-h-[40px] px-3 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 bg-white hover:bg-stone-50 border border-dashed border-stone-300 hover:border-stone-400 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
                         >
-                          <Plus className="w-3.5 h-3.5 shrink-0 text-white" />
-                          <span>Add Colors</span>
+                          <Plus className="w-3.5 h-3.5 text-stone-500" />
+                          <span>Add Color (Optional)</span>
                         </button>
+                      ) : (
+                        <div className="relative w-full">
+                          <input
+                            ref={unsizedColorInputRef}
+                            type="text"
+                            maxLength={100}
+                            placeholder="Color (Optional)"
+                            aria-label="Stock Color"
+                            value={unsizedColor}
+                            onChange={(e) => {
+                              setUnsizedColor(e.target.value);
+                              if (unsizedInputError) setUnsizedInputError(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddUnsizedEntry();
+                              }
+                            }}
+                            className="w-full p-2.5 pr-8 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white min-h-[40px]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowUnsizedColorInput(false);
+                              setUnsizedColor('');
+                              if (unsizedInputError) setUnsizedInputError(null);
+                            }}
+                            aria-label="Cancel color"
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 rounded cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       )}
                     </div>
-
-                    {errors.quantity && (
-                      <p className="text-xs text-red-600 font-medium mt-1">
-                        {errors.quantity}
-                      </p>
-                    )}
                   </div>
+
+                  {/* Add Button */}
+                  <button
+                    type="button"
+                    onClick={handleAddUnsizedEntry}
+                    aria-label="Add stock entry"
+                    className="px-5 py-2.5 text-xs font-bold rounded-lg bg-stone-900 hover:bg-black text-white transition-all cursor-pointer shadow-xs min-h-[40px] shrink-0"
+                  >
+                    Add
+                  </button>
                 </div>
-              )}
 
-              {/* Add Colors Section (Unstitched Only) */}
-              {formData.stitching_status === 'Unstitched' && showColors && (
-                <div className="space-y-3 bg-stone-50 p-4 sm:p-5 rounded-xl border border-stone-200">
+                {unsizedInputError && (
+                  <p className="text-xs text-red-600 font-medium">{unsizedInputError}</p>
+                )}
 
-                  <div className="flex flex-row items-center justify-between gap-2 border-b border-stone-200 pb-2.5">
-                    <label className="font-bold text-stone-900 uppercase tracking-wide text-xs sm:text-sm whitespace-nowrap">
-                      Stock qty & color <span className="text-red-600">*</span>
-                    </label>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowColors(false);
-                        if (errors.quantity) {
-                          setErrors((prev) => ({ ...prev, quantity: '' }));
-                        }
-                      }}
-                      aria-label="Hide Colors"
-                      className="shrink-0 px-1.5 py-1.5 text-[10px] sm:text-xs font-bold rounded-lg border transition-all cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap bg-white text-stone-900 border-stone-300 hover:bg-stone-100"
-                    >
-                      <X className="w-3.5 h-3.5 shrink-0 text-stone-900" />
-                    </button>
-                  </div>
-
-
-                  {/* First row: Draft inputs + Add button */}
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="grid grid-cols-2 gap-2 flex-1 min-w-0">
-                      <div>
-                        <input
-                          ref={colorQuantityInputRef}
-                          type="text"
-                          inputMode="numeric"
-                          placeholder="Add Quantity"
-                          aria-label="Add Quantity"
-                          value={draftColorQuantity}
-                          onChange={(e) => {
-                            const numbersOnly = e.target.value.replace(/\D/g, '');
-                            setDraftColorQuantity(numbersOnly);
-                            if (colorInputError) setColorInputError(null);
-                          }}
-                          onKeyDown={(e) => {
-                            if (['e', 'E', '+', '-', '.'].includes(e.key)) {
-                              e.preventDefault();
-                            }
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddColor();
-                            }
-                          }}
-                          className="w-full p-2.5 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white"
-                        />
-                      </div>
-                      <div>
-                        <input
-                          type="text"
-                          maxLength={30}
-                          placeholder="Add Color"
-                          aria-label="Add Color"
-                          value={draftColorName}
-                          onChange={(e) => {
-                            const textOnly = e.target.value.replace(/[0-9]/g, '');
-                            setDraftColorName(textOnly);
-                            if (colorInputError) setColorInputError(null);
-                          }}
-                          onKeyDown={(e) => {
-                            if (/^[0-9]$/.test(e.key)) {
-                              e.preventDefault();
-                            }
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddColor();
-                            }
-                          }}
-                          className="w-full p-2.5 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white"
-                        />
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleAddColor}
-                      className="px-5 py-2.5 text-xs font-bold rounded-lg bg-stone-900 hover:bg-black text-white transition-all cursor-pointer shadow-xs min-h-[40px] shrink-0"
-                    >
-                      Add
-                    </button>
-                  </div>
-
-                  {colorInputError && (
-                    <p className="text-xs text-red-600 font-medium">{colorInputError}</p>
-                  )}
-
-                  {/* Added Color Entries - Horizontal Single Row with Scroll */}
-                  {colorEntries.length > 0 && (
-                    <div className="pt-2.5 border-t border-stone-200">
-                      <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-0.5 no-scrollbar sm:scrollbar-thin sm:scrollbar-thumb-stone-300 flex-nowrap w-full">
-                        {colorEntries.map((entry) => (
-                          <div
-                            key={entry.id}
-                            className="inline-flex items-center space-x-2 px-3 py-1.5 bg-white rounded-lg border border-stone-200 shadow-2xs text-xs shrink-0 whitespace-nowrap"
-                          >
-                            <span className="font-bold text-stone-900">
+                {/* Added Unsized Entries Display */}
+                {colorEntries.length > 0 && (
+                  <div className="pt-2.5 border-t border-stone-200">
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      {colorEntries.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="inline-flex items-center space-x-2 px-3 py-1.5 bg-white rounded-lg border border-stone-200 shadow-2xs text-xs shrink-0"
+                        >
+                          {entry.color && (
+                            <span className="font-bold text-stone-900 max-w-[140px] truncate" title={entry.color}>
                               {entry.color}
                             </span>
-                            <span className="px-2 py-0.5 bg-stone-100 text-stone-700 font-semibold rounded-md text-[11px]">
-                              Qty: {entry.quantity}
-                            </span>
+                          )}
+                          <span className="px-2 py-0.5 bg-stone-100 text-stone-700 font-semibold rounded-md text-[11px]">
+                            Qty: {entry.quantity}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveUnsizedEntry(entry.id)}
+                            aria-label={`Remove ${entry.color || 'unsized'} entry`}
+                            className="p-0.5 ml-1 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer text-base leading-none font-bold shrink-0"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* MODE 2: Sized Stock (Activated via Add Sizes) */}
+            {isSizedMode && (
+              <div className="space-y-3 pt-1">
+                {/* Size Selection Buttons */}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {['Small', 'Medium', 'Large', 'X Large'].map((sz) => {
+                    const isSelected = sz in selectedSizes;
+                    const isActive = activeSize === sz;
+                    return (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => handleToggleSize(sz)}
+                        aria-label={`${sz} size${isSelected ? ' selected' : ''}${isActive ? ' editing' : ''}`}
+                        className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer ${isSelected
+                          ? isActive
+                            ? 'bg-stone-900 text-white border-stone-900 shadow-xs ring-2 ring-stone-900 ring-offset-1'
+                            : 'bg-stone-800 text-white border-stone-800 shadow-2xs'
+                          : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100 hover:border-stone-400'
+                          }`}
+                      >
+                        {sz} {isSelected ? '✓' : '+'}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Active Size QTY and Color Draft Area */}
+                {activeSize && activeSize in selectedSizes && (
+                  <div className="pt-3 border-t border-stone-200/80 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <label className="font-bold text-stone-900 uppercase tracking-wide text-xs">
+                        {activeSize} Stock & Color
+                      </label>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <div className="flex-1 min-w-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        {/* QTY input */}
+                        <div className="flex-1 min-w-0">
+                          <input
+                            ref={sizeQuantityInputRef}
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="Add Quantity"
+                            aria-label={`${activeSize} Quantity`}
+                            value={sizeDrafts[activeSize]?.quantity ?? ''}
+                            onChange={(e) => {
+                              const numbersOnly = e.target.value.replace(/\D/g, '');
+                              setSizeDrafts((prev) => ({
+                                ...prev,
+                                [activeSize]: { ...prev[activeSize], quantity: numbersOnly },
+                              }));
+                              if (sizeInputError) setSizeInputError(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (['e', 'E', '+', '-', '.'].includes(e.key)) {
+                                e.preventDefault();
+                              }
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddSizeStockEntry();
+                              }
+                            }}
+                            className="w-full p-2.5 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white min-h-[40px]"
+                          />
+                        </div>
+
+                        {/* Optional Color */}
+                        <div className="flex-1 min-w-0">
+                          {!(showSizeColorInput[activeSize] || sizeDrafts[activeSize]?.color) ? (
                             <button
                               type="button"
-                              onClick={() => handleRemoveColor(entry.id)}
-                              aria-label="Remove color"
-                              className="p-0.5 ml-1 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer text-base leading-none font-bold shrink-0"
+                              onClick={() => {
+                                setShowSizeColorInput((prev) => ({ ...prev, [activeSize]: true }));
+                                setTimeout(() => sizeColorInputRef.current?.focus(), 50);
+                              }}
+                              aria-label="Add Color"
+                              className="w-full min-h-[40px] px-3 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 bg-white hover:bg-stone-50 border border-dashed border-stone-300 hover:border-stone-400 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-2xs"
                             >
-                              &times;
+                              <Plus className="w-3.5 h-3.5 text-stone-500" />
+                              <span>Add Color (Optional)</span>
                             </button>
-                          </div>
-                        ))}
+                          ) : (
+                            <div className="relative w-full">
+                              <input
+                                ref={sizeColorInputRef}
+                                type="text"
+                                maxLength={100}
+                                placeholder="Color (Optional)"
+                                aria-label={`${activeSize} Color`}
+                                value={sizeDrafts[activeSize]?.color ?? ''}
+                                onChange={(e) => {
+                                  setSizeDrafts((prev) => ({
+                                    ...prev,
+                                    [activeSize]: { ...prev[activeSize], color: e.target.value },
+                                  }));
+                                  if (sizeInputError) setSizeInputError(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleAddSizeStockEntry();
+                                  }
+                                }}
+                                className="w-full p-2.5 pr-8 text-xs sm:text-sm border border-stone-300 rounded-lg focus:outline-none focus:border-stone-900 bg-white min-h-[40px]"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowSizeColorInput((prev) => ({ ...prev, [activeSize]: false }));
+                                  setSizeDrafts((prev) => ({
+                                    ...prev,
+                                    [activeSize]: { ...prev[activeSize], color: '' },
+                                  }));
+                                  if (sizeInputError) setSizeInputError(null);
+                                }}
+                                aria-label="Cancel color"
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 rounded cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
 
+                      {/* Add Button */}
+                      <button
+                        type="button"
+                        onClick={handleAddSizeStockEntry}
+                        aria-label={`Add ${activeSize} stock entry`}
+                        className="px-5 py-2.5 text-xs font-bold rounded-lg bg-stone-900 hover:bg-black text-white transition-all cursor-pointer shadow-xs min-h-[40px] shrink-0"
+                      >
+                        Add
+                      </button>
+                    </div>
+
+                    {sizeInputError && (
+                      <p className="text-xs text-red-600 font-medium">{sizeInputError}</p>
+                    )}
+
+                    {/* Added Entries Display for Active Size */}
+                    {(sizeEntries[activeSize] || []).length > 0 && (
+                      <div className="pt-2.5 border-t border-stone-200">
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          {(sizeEntries[activeSize] || []).map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="inline-flex items-center space-x-2 px-3 py-1.5 bg-white rounded-lg border border-stone-200 shadow-2xs text-xs shrink-0"
+                            >
+                              {entry.color && (
+                                <span className="font-bold text-stone-900 max-w-[140px] truncate" title={entry.color}>
+                                  {entry.color}
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 bg-stone-100 text-stone-700 font-semibold rounded-md text-[11px]">
+                                Qty: {entry.quantity}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSizeStockEntry(activeSize, entry.id)}
+                                aria-label={`Remove ${entry.color || 'entry'} for ${activeSize}`}
+                                className="p-0.5 ml-1 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer text-base leading-none font-bold shrink-0"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {errors.quantity && <p className="text-xs text-red-600 font-medium pt-1">{errors.quantity}</p>}
+          </div>
+
+          {/* Below: Defect Disclaimer & Detailed Description */}
           {/* Defect Disclaimer Dropdown */}
           <div className="relative" ref={defectDropdownRef}>
             <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide">Defect / Flaw Disclaimer</label>
@@ -2346,8 +2825,8 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
               onClick={() => {
                 setIsDefectDropdownOpen((prev) => !prev);
                 setIsBrandDropdownOpen(false);
-                setIsCategoryDropdownOpen(false);
-                setIsSubcategoryDropdownOpen(false);
+                setIsCollectionTypeDropdownOpen(false);
+                setIsProductTypeDropdownOpen(false);
               }}
               className="w-full p-3 border border-stone-300 hover:border-stone-400 focus:border-stone-900 rounded-lg focus:outline-none bg-white min-h-[42px] flex items-center justify-between text-left transition-colors cursor-pointer"
             >
@@ -2361,7 +2840,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
 
             {isDefectDropdownOpen && (
               <div className="absolute left-0 right-0 bottom-full mb-1.5 sm:bottom-auto sm:top-full sm:mt-1.5 bg-white border border-stone-300 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-80 w-full animate-in fade-in slide-in-from-top-2 duration-150">
-                {/* Scrollable list of predefined defect options */}
                 <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 max-h-48 min-h-[100px]">
                   {PREDEFINED_DEFECTS.map((defOption) => {
                     const isSelected = formData.defect === defOption;
@@ -2384,7 +2862,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                     );
                   })}
 
-                  {/* Display custom defect item if selected */}
                   {formData.defect && !PREDEFINED_DEFECTS.includes(formData.defect) && (
                     <button
                       type="button"
@@ -2397,7 +2874,6 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
                   )}
                 </div>
 
-                {/* Sticky Bottom Action: Add your item's defect */}
                 <div className="sticky bottom-0 bg-stone-50 border-t border-stone-200 p-2 z-10 shrink-0">
                   <div className="flex items-center space-x-1.5">
                     <input
@@ -2430,11 +2906,12 @@ const NewListingFormContent: React.FC<NewListingFormContentProps> = ({
 
           {/* Detailed Description */}
           <div>
-            <label className="font-bold text-stone-900 block mb-1 uppercase tracking-wide flex items-center space-x-1">
+            <label htmlFor="field-description" className="font-bold text-stone-900 block mb-1 uppercase tracking-wide flex items-center space-x-1">
               <FileText className="w-3.5 h-3.5 text-stone-500" />
               <span>Detailed Description & Fabric Breakdown</span>
             </label>
             <textarea
+              id="field-description"
               rows={6}
               placeholder={`Shirt: Printed Centre Panel With Hand-Embellished Organza Detailing...\nTrouser: Printed Culotte Trouser...\nDupatta: Spray Embroidered Medium Silk...`}
               value={formData.description}
@@ -2479,7 +2956,6 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
   const targetProductId = productId || editingListing?.id || null;
   const isEditMode = mode === 'edit' || mode === 'restock' || Boolean(editingListing) || Boolean(productId);
 
-  // TanStack Query to fetch product with variants and colors in a single nested select
   const {
     data: fetchedProduct,
     isLoading: isProductLoading,
@@ -2496,6 +2972,8 @@ export const NewListingForm: React.FC<NewListingFormProps> = ({
           seller_id,
           brand,
           suit_title,
+          department,
+          category_type,
           category,
           subcategory,
           fabric,

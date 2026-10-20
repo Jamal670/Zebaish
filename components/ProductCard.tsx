@@ -12,6 +12,7 @@ interface ProductCardProps {
   isWishlisted?: boolean;
   onSelectProduct?: (product: Product) => void;
   onSelectReseller?: (resellerId: string) => void;
+  priority?: boolean;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = React.memo(({
@@ -22,6 +23,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   isWishlisted = false,
   onSelectProduct,
   onSelectReseller,
+  priority = false,
 }) => {
   const router = useRouter();
 
@@ -92,19 +94,27 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         className="relative aspect-[3/4] bg-stone-100 overflow-hidden cursor-pointer"
       >
         <img
-          src={typeof product.image === 'string' ? product.image : (product.image as any).src}
+          src={typeof product.image === 'string' ? product.image : (product.image as any)?.src || 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop'}
           alt={product.title}
-          loading="lazy"
+          loading={priority ? 'eager' : 'lazy'}
           decoding="async"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src =
+              'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
+          }}
           className="w-full h-full object-cover object-top transition-transform duration-700 group-hover/card:scale-105"
         />
 
         {product.hoverImage && (
           <img
-            src={typeof product.hoverImage === 'string' ? product.hoverImage : (product.hoverImage as any).src}
+            src={typeof product.hoverImage === 'string' ? product.hoverImage : (product.hoverImage as any)?.src || 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop'}
             alt={`${product.title} detail`}
             loading="lazy"
             decoding="async"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src =
+                'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
+            }}
             className="absolute inset-0 w-full h-full object-cover object-top opacity-0 group-hover/card:opacity-100 transition-opacity duration-500"
           />
         )}

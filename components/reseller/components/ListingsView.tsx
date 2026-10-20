@@ -55,7 +55,9 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       id: p.id,
       title: p.suit_title || p.title || 'Untitled Suit',
       brand: p.brand || 'Unbranded',
-      fabric: p.fabric || 'Fabric N/A',
+      fabric: p.fabric || '',
+      department: p.department || '',
+      categoryType: p.category_type || '',
       category: p.category || 'Unstitched',
       subcategory: p.subcategory || '',
       stitchingStatus: p.category || 'Unstitched',
@@ -75,7 +77,11 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
   const filteredListings = activeItems.filter(
     (item) =>
       item.title?.toLowerCase().includes(filterText.toLowerCase()) ||
-      item.brand?.toLowerCase().includes(filterText.toLowerCase())
+      item.brand?.toLowerCase().includes(filterText.toLowerCase()) ||
+      item.category?.toLowerCase().includes(filterText.toLowerCase()) ||
+      item.subcategory?.toLowerCase().includes(filterText.toLowerCase()) ||
+      item.categoryType?.toLowerCase().includes(filterText.toLowerCase()) ||
+      item.department?.toLowerCase().includes(filterText.toLowerCase())
   );
 
   const totalPages = Math.ceil(filteredListings.length / itemsPerPage) || 1;
@@ -161,7 +167,9 @@ export const ListingsView: React.FC<ListingsViewProps> = ({
       cell: (row) => (
         <div className="text-xs sm:text-sm lg:text-base text-stone-600">
           <span className="font-semibold block">{row.category}</span>
-          <span className="text-[10px] sm:text-xs text-stone-400 block">{row.subcategory || row.fabric}</span>
+          <span className="text-[10px] sm:text-xs text-stone-400 block">
+            {row.subcategory || row.fabric || row.categoryType || (row.department ? `${row.department}` : '')}
+          </span>
         </div>
       ),
     },
