@@ -1,5 +1,8 @@
 import supabase from './client';
 import { Product, Review, FilterOptions } from '@/types';
+import { resolveCategory } from '@/lib/shop/resolve-category';
+import { parseCategoryUrlParam } from '@/lib/slugify-category';
+import { fetchProductDetail, isValidUuid } from '@/lib/product/fetch-product-detail';
 
 export interface SellerGroup {
   sellerId: string;
@@ -163,23 +166,145 @@ export async function fetchCollectionProducts({
   sortBy = 'featured',
 }: FetchCollectionParams): Promise<FetchCollectionResult> {
   try {
-    const params: FetchCollectionParams = { categoryTitle, brandFilter, page, pageSize, excludedIds, filters, sortBy };
     const fromIndex = page * pageSize;
     const toIndex = fromIndex + pageSize - 1;
+
+    const parsedCategory = parseCategoryUrlParam(categoryTitle);
+
+    // 1. Optimized Unified RPC execution when standard sorting & no custom attributes
+    const hasCustomFilters = Boolean(
+      (filters?.brands && filters.brands.length > 0) ||
+      brandFilter ||
+      (filters?.fabrics && filters.fabrics.length > 0) ||
+      (filters?.stitchingStatuses && filters.stitchingStatuses.length > 0) ||
+      (filters?.pieceCounts && filters.pieceCounts.length > 0) ||
+      (filters?.priceRange && (filters.priceRange[0] > 0 || filters.priceRange[1] < 100000)) ||
+      (filters?.minResellerRating && filters.minResellerRating > 0) ||
+      (sortBy && sortBy !== 'featured' && sortBy !== 'newest')
+    );
+
+    if (!hasCustomFilters && !parsedCategory.isAll && parsedCategory.mainSlug) {
+      try {
+        const { data: rpcRows, error: rpcError } = await supabase.rpc('get_collection_products', {
+          main_slug: parsedCategory.mainSlug,
+          sub_slug: parsedCategory.subSlug || null,
+          page_limit: pageSize,
+          page_offset: fromIndex,
+        });
+
+        if (!rpcError && Array.isArray(rpcRows) && rpcRows.length > 0) {
+          const totalCount = Number(rpcRows[0]?.total_count || rpcRows.length);
+          const defaultImg = 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
+
+          const formattedProducts: Product[] = rpcRows.map((p: any) => {
+            let resolvedImg = p.thumbnail_url;
+            if (!resolvedImg && p.storage_path) {
+              const { data } = supabase.storage.from('productImages').getPublicUrl(p.storage_path.trim());
+              resolvedImg = data?.publicUrl || null;
+            }
+            const mainImg = resolvedImg || defaultImg;
+            const extraImgs = [mainImg];
+
+            let effectivePrice = 0;
+            let compareAt = 0;
+
+            if (p.inventory_mode === 'variants') {
+              if (p.cached_min_variant_price !== null && p.cached_min_variant_price !== undefined) {
+                effectivePrice = Number(p.cached_min_variant_price);
+              }
+            } else {
+              effectivePrice = Number(p.selling_price || 0);
+              compareAt = Number(p.compare_at_price || 0);
+            }
+
+            const origPrice = compareAt > effectivePrice ? compareAt : effectivePrice;
+            const surplusPrice = effectivePrice;
+            const discount = origPrice > surplusPrice ? Math.round(((origPrice - surplusPrice) / origPrice) * 100) : 0;
+
+            const totalStock = p.inventory_mode === 'variants'
+              ? Number(p.cached_total_variant_quantity ?? 0)
+              : Number(p.quantity || 0);
+
+            let badgeLabel: string | undefined = undefined;
+            if (discount > 0) {
+              badgeLabel = `${discount}% OFF`;
+            } else if (p.condition && p.condition.toLowerCase() !== 'new') {
+              const c = p.condition.toLowerCase();
+              badgeLabel = c === 'used' ? 'Used' : c === 'refurbished' ? 'Refurbished' : c === 'open_box' ? 'Open Box' : p.condition;
+            }
+
+            return {
+              id: p.id,
+              title: p.title || 'Product',
+              brand: p.brand || '',
+              price: surplusPrice,
+              surplus_selling_price: surplusPrice,
+              originalPrice: origPrice > surplusPrice ? origPrice : undefined,
+              original_retail_price: origPrice,
+              currency: 'Rs.',
+              image: mainImg,
+              hoverImage: extraImgs[1] || mainImg,
+              additionalImages: extraImgs,
+              badge: badgeLabel,
+              category: parsedCategory.decoded,
+              subcategory: parsedCategory.subCategoryName || '',
+              description: p.description || '',
+              inStock: p.status === 'active' && totalStock > 0,
+              quantity: totalStock,
+              variants: [],
+              listingStatus: p.status === 'active' ? 'Active In Stock' : 'Deactivated',
+              resellerId: p.seller_id,
+              resellerName: p.shop_name || 'Verified Seller',
+              resellerRating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 5.0,
+              sellerStoreImageUrl: p.store_image_url || null,
+              discountPercentage: discount,
+              average_rating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 0,
+              review_count: p.review_count !== undefined && p.review_count !== null ? Number(p.review_count) : 0,
+              averageRating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 0,
+              reviewCount: p.review_count !== undefined && p.review_count !== null ? Number(p.review_count) : 0,
+            };
+          });
+
+          const hasMore = (fromIndex + formattedProducts.length) < totalCount;
+          return {
+            products: formattedProducts,
+            sellerGroups: [],
+            hasMore,
+            totalCount,
+          };
+        }
+      } catch (err) {
+        console.warn('get_collection_products RPC not available, continuing with query builder:', err);
+      }
+    }
+
+    // 2. Query builder fallback (handles custom filters, sorting, and environments before RPC deployment)
+    let categoryIds: string[] | null = null;
+    let resolvedCategoryName: string = 'All Products';
+
+    if (!parsedCategory.isAll) {
+      const resolved = await resolveCategory(categoryTitle);
+      if (resolved.isNotFound) {
+        return { products: [], sellerGroups: [], hasMore: false, totalCount: 0 };
+      }
+      categoryIds = resolved.categoryIds;
+      resolvedCategoryName = resolved.categoryName;
+    }
 
     let query = supabase.from('products').select(`
       id,
       seller_id,
       brand,
-      suit_title,
-      category,
-      subcategory,
-      fabric,
-      piece_count,
-      color,
-      original_retail_price,
-      surplus_selling_price,
-      defect,
+      title,
+      condition,
+      inventory_mode,
+      selling_price,
+      compare_at_price,
+      quantity,
+      cached_min_variant_price,
+      cached_max_variant_price,
+      cached_total_variant_quantity,
+      category_id,
       description,
       status,
       created_at,
@@ -187,11 +312,11 @@ export async function fetchCollectionProducts({
       review_count,
       product_variants (
         id,
-        size,
-        color_id,
+        selling_price,
+        is_active,
         quantity
       ),
-      seller:sellers (
+      seller:sellers!inner (
         id,
         shop_name,
         average_rating,
@@ -199,23 +324,57 @@ export async function fetchCollectionProducts({
       )
     `, { count: 'exact' });
 
-    query = applyBaseFilters(query, params);
+    // Filter only active products
+    query = query.eq('status', 'active');
 
-    // Apply database-level sorting
+    // Category Filter (includes all descendant categories)
+    if (categoryIds && categoryIds.length > 0) {
+      query = query.in('category_id', categoryIds);
+    }
+
+    // Brand filters
+    if (filters?.brands && filters.brands.length > 0) {
+      query = query.in('brand', filters.brands);
+    } else if (brandFilter) {
+      query = query.ilike('brand', `%${brandFilter}%`);
+    }
+
+    // Price range filters
+    if (filters?.priceRange) {
+      const [minP, maxP] = filters.priceRange;
+      if (minP > 0) {
+        query = query.gte('selling_price', minP);
+      }
+      if (maxP < 100000) {
+        query = query.lte('selling_price', maxP);
+      }
+    }
+
+    // Min rating filter
+    if (filters?.minResellerRating && filters.minResellerRating > 0) {
+      query = query.gte('average_rating', filters.minResellerRating);
+    }
+
+    // Excluded IDs
+    if (excludedIds && excludedIds.length > 0 && excludedIds.length < 100) {
+      query = query.not('id', 'in', `(${excludedIds.join(',')})`);
+    }
+
+    // Database-level sorting
     if (sortBy === 'price-low') {
-      query = query.order('surplus_selling_price', { ascending: true });
+      query = query.order('selling_price', { ascending: true, nullsFirst: false });
     } else if (sortBy === 'price-high') {
-      query = query.order('surplus_selling_price', { ascending: false });
+      query = query.order('selling_price', { ascending: false, nullsFirst: false });
     } else if (sortBy === 'newest') {
       query = query.order('created_at', { ascending: false });
     } else if (sortBy === 'best-discount') {
       query = query.order('average_rating', { ascending: false, nullsFirst: false });
     } else {
-      // Default: featured / most-popular -> average_rating DESC
-      query = query.order('average_rating', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
+      // Default: newest first with id tie-breaker
+      query = query.order('created_at', { ascending: false }).order('id', { ascending: false });
     }
 
-    // Apply pagination range
+    // Pagination range
     query = query.range(fromIndex, toIndex);
 
     const { data: rawProducts, count: totalCount, error } = await query;
@@ -225,68 +384,92 @@ export async function fetchCollectionProducts({
       return { products: [], sellerGroups: [], hasMore: false, totalCount: 0 };
     }
 
-    // Batch-fetch thumbnail images to prevent serializing heavy base64 strings and timing out
+    // Fetch product thumbnail images
     const productIds = rawProducts.map((p: any) => p.id);
     const imageMap: Record<string, string> = {};
 
     if (productIds.length > 0) {
       const { data: thumbData } = await supabase
         .from('product_images')
-        .select('product_id, image_url, is_thumbnail')
-        .in('product_id', productIds)
-        .eq('is_thumbnail', true);
+        .select('product_id, image_url, storage_path, is_thumbnail')
+        .in('product_id', productIds);
 
       thumbData?.forEach((img: any) => {
-        imageMap[img.product_id] = img.image_url;
-      });
-
-      const missingIds = productIds.filter((id: string) => !imageMap[id]);
-      if (missingIds.length > 0) {
-        const { data: fallbackData } = await supabase
-          .from('product_images')
-          .select('product_id, image_url')
-          .in('product_id', missingIds);
-        fallbackData?.forEach((img: any) => {
-          if (!imageMap[img.product_id]) {
-            imageMap[img.product_id] = img.image_url;
+        if (!imageMap[img.product_id] || img.is_thumbnail) {
+          let resolvedUrl = img.image_url;
+          if (!resolvedUrl && img.storage_path) {
+            const { data } = supabase.storage.from('productImages').getPublicUrl(img.storage_path);
+            resolvedUrl = data?.publicUrl;
           }
-        });
-      }
+          if (resolvedUrl) {
+            imageMap[img.product_id] = resolvedUrl;
+          }
+        }
+      });
     }
 
-    const defaultImg = 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
+    const defaultImg = 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop';
 
     const formattedProducts: Product[] = rawProducts.map((p: any) => {
       const sellerObj = Array.isArray(p.seller) ? p.seller[0] : p.seller;
-      const mainImg = imageMap[p.id] || p.image_url || defaultImg;
+      const mainImg = imageMap[p.id] || defaultImg;
       const extraImgs = [mainImg];
 
-      const origPrice = Number(p.original_retail_price || p.surplus_selling_price || 0);
-      const surplusPrice = Number(p.surplus_selling_price || 0);
+      // Calculate effective price & compare-at price
+      let effectivePrice = 0;
+      let compareAt = 0;
+
+      if (p.inventory_mode === 'variants') {
+        if (p.cached_min_variant_price !== null && p.cached_min_variant_price !== undefined) {
+          effectivePrice = Number(p.cached_min_variant_price);
+        } else {
+          // Fallback calculation from product_variants
+          const variants = Array.isArray(p.product_variants) ? p.product_variants : [];
+          const activeVars = variants.filter((v: any) => v.is_active !== false && v.selling_price);
+          if (activeVars.length > 0) {
+            effectivePrice = Math.min(...activeVars.map((v: any) => Number(v.selling_price)));
+          }
+        }
+      } else {
+        effectivePrice = Number(p.selling_price || 0);
+        compareAt = Number(p.compare_at_price || 0);
+      }
+
+      const origPrice = compareAt > effectivePrice ? compareAt : effectivePrice;
+      const surplusPrice = effectivePrice;
       const discount = origPrice > surplusPrice ? Math.round(((origPrice - surplusPrice) / origPrice) * 100) : 0;
 
       const variants = Array.isArray(p.product_variants) ? p.product_variants : [];
-      const totalStock = variants.reduce((sum: number, v: any) => sum + (Number(v.quantity) || 0), 0);
+      const totalStock = p.inventory_mode === 'variants'
+        ? Number(p.cached_total_variant_quantity ?? variants.reduce((sum: number, v: any) => sum + (Number(v.quantity) || 0), 0))
+        : Number(p.quantity || 0);
+
+      // Badge handling
+      let badgeLabel: string | undefined = undefined;
+      if (discount > 0) {
+        badgeLabel = `${discount}% OFF`;
+      } else if (p.condition && p.condition.toLowerCase() !== 'new') {
+        const c = p.condition.toLowerCase();
+        badgeLabel = c === 'used' ? 'Used' : c === 'refurbished' ? 'Refurbished' : c === 'open_box' ? 'Open Box' : p.condition;
+      }
 
       return {
         id: p.id,
-        title: p.suit_title || 'Branded Leftover Suit',
-        brand: p.brand || 'Luxury Brand',
-        price: origPrice,
-        originalPrice: surplusPrice > 0 && surplusPrice !== origPrice ? surplusPrice : undefined,
+        title: p.title || 'Product',
+        brand: p.brand || '',
+        price: surplusPrice,
+        surplus_selling_price: surplusPrice,
+        originalPrice: origPrice > surplusPrice ? origPrice : undefined,
+        original_retail_price: origPrice,
         currency: 'Rs.',
         image: mainImg,
         hoverImage: extraImgs[1] || mainImg,
         additionalImages: extraImgs,
-        badge: 'Surplus',
-        category: p.category || 'Unstitched',
-        subcategory: p.subcategory || '',
-        stitchingStatus: (p.category || 'Unstitched') as any,
-        pieceCount: `${p.piece_count || 1}-Piece` as any,
-        fabric: p.fabric,
-        color: p.color,
-        description: p.description || 'Authentic designer surplus suit from clearance inventory.',
-        inStock: p.status === 'Active' && totalStock > 0,
+        badge: badgeLabel,
+        category: resolvedCategoryName,
+        subcategory: '',
+        description: p.description || '',
+        inStock: p.status === 'active' && totalStock > 0,
         quantity: totalStock,
         variants: variants.map((v: any) => ({
           id: v.id,
@@ -294,10 +477,11 @@ export async function fetchCollectionProducts({
           color_id: v.color_id,
           quantity: Number(v.quantity) || 0,
         })),
-        listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',
-        resellerId: p.seller_id,
-        resellerName: sellerObj?.shop_name || 'Verified Reseller',
-        resellerRating: sellerObj?.average_rating !== undefined && sellerObj?.average_rating !== null ? Number(sellerObj.average_rating) : 4.9,
+        listingStatus: p.status === 'active' ? 'Active In Stock' : 'Deactivated',
+        resellerId: sellerObj?.id || p.seller_id,
+        resellerName: sellerObj?.shop_name || 'Verified Seller',
+        resellerRating: sellerObj?.average_rating !== undefined && sellerObj?.average_rating !== null ? Number(sellerObj.average_rating) : 5.0,
+        sellerStoreImageUrl: sellerObj?.store_image_url || null,
         discountPercentage: discount,
         average_rating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 0,
         review_count: p.review_count !== undefined && p.review_count !== null ? Number(p.review_count) : 0,
@@ -321,157 +505,39 @@ export async function fetchCollectionProducts({
 }
 
 export interface FetchProductDetailResult {
-  product: Product | null;
+  product: Product | any | null;
   reviews: Review[];
   relatedProducts: Product[];
+  notFound?: boolean;
+  error?: string | null;
 }
 
 /**
- * Single-query product detail fetcher that returns product details, seller info, images, variants, and reviews.
+ * Product detail fetcher that calls fetchProductDetail (Query 1: product+images+seller, Query 2: options+values).
  */
 export async function fetchProductById(productId: string): Promise<FetchProductDetailResult> {
-  if (!productId) {
-    return { product: null, reviews: [], relatedProducts: [] };
+  if (!productId || !isValidUuid(productId)) {
+    return { product: null, reviews: [], relatedProducts: [], notFound: true, error: null };
   }
 
   try {
-    const { data: p, error: pErr } = await supabase
-      .from('products')
-      .select(`
-        *,
-        seller:sellers (
-          id,
-          store_image_url,
-          shop_name,
-          average_rating,
-          status
-        ),
-        product_images (
-          id,
-          image_url,
-          is_thumbnail
-        ),
-        product_variants (
-          id,
-          size,
-          color_id,
-          quantity
-        ),
-        product_colors (
-          id,
-          color_name,
-          color_code
-        ),
-        reviews (
-          id,
-          rating,
-          review,
-          created_at,
-          users (
-            first_name,
-            last_name
-          )
-        )
-      `)
-      .eq('id', productId)
-      .maybeSingle();
-
-    if (pErr || !p) {
-      if (pErr) console.error('Error fetching product by ID:', pErr);
-      return { product: null, reviews: [], relatedProducts: [] };
-    }
-
-    const sellerObj = Array.isArray(p.seller) ? p.seller[0] : p.seller;
-    const storeImageUrl = sellerObj?.store_image_url || null;
-    const shopName = sellerObj?.shop_name || 'Verified Reseller';
-    const sellerStatus = sellerObj?.status || undefined;
-    const sellerRating = sellerObj?.average_rating !== undefined && sellerObj?.average_rating !== null
-      ? Number(sellerObj.average_rating)
-      : 0;
-
-    const imagesArr = Array.isArray(p.product_images) ? p.product_images : [];
-    const thumbnailObj = imagesArr.find((img: any) => img.is_thumbnail) || imagesArr[0];
-    const mainImg = thumbnailObj?.image_url || p.image_url || 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80';
-    const extraImgs = imagesArr.map((img: any) => img.image_url);
-
-    const origPrice = Number(p.original_retail_price || p.price || p.surplus_selling_price || 0);
-    const surplusPrice = Number(p.surplus_selling_price || p.price || 0);
-    const discount = origPrice > surplusPrice ? Math.round(((origPrice - surplusPrice) / origPrice) * 100) : 0;
-
-    const variants = Array.isArray(p.product_variants) ? p.product_variants : [];
-    const totalStock = variants.reduce((sum: number, v: any) => sum + (Number(v.quantity) || 0), 0);
-
-    const reviewsArr = Array.isArray(p.reviews) ? p.reviews : [];
-    const formattedReviews: Review[] = reviewsArr.map((rev: any) => {
-      const userObj = Array.isArray(rev.users) ? rev.users[0] : rev.users;
-      const fullName = userObj ? `${userObj.first_name || ''} ${userObj.last_name || ''}`.trim() : '';
-      return {
-        id: rev.id,
-        productId: p.id,
-        userName: fullName || 'Verified Customer',
-        rating: rev.rating || 5,
-        comment: rev.review || '',
-        date: rev.created_at ? new Date(rev.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recent',
-        verifiedPurchase: true,
-      };
-    });
-
-    const formattedProduct: Product = {
-      id: p.id,
-      title: p.suit_title || p.title || 'Branded Leftover Suit',
-      brand: p.brand || 'Luxury Brand',
-      price: origPrice,
-      originalPrice: surplusPrice > 0 && surplusPrice !== origPrice ? surplusPrice : undefined,
-      currency: 'Rs.',
-      image: mainImg,
-      hoverImage: extraImgs[1] || mainImg,
-      additionalImages: extraImgs,
-      badge: 'Surplus',
-      category: p.category || 'Unstitched',
-      subcategory: p.subcategory || '',
-      stitchingStatus: (p.category || 'Unstitched') as any,
-      pieceCount: `${p.piece_count || 1}-Piece` as any,
-      fabric: p.fabric,
-      color: p.color,
-      defect: p.defect,
-      description: p.description || 'Authentic designer surplus suit from clearance inventory.',
-      inStock: p.status === 'Active' && totalStock > 0,
-      quantity: totalStock,
-      variants: variants.map((v: any) => ({
-        id: v.id,
-        size: v.size,
-        color_id: v.color_id,
-        quantity: Number(v.quantity) || 0,
-      })),
-      colors: Array.isArray(p.product_colors) ? p.product_colors : [],
-      product_colors: Array.isArray(p.product_colors) ? p.product_colors : [],
-      listingStatus: p.status === 'Active' ? 'Active In Stock' : 'Deactivated',
-      resellerId: p.seller_id,
-      resellerName: shopName,
-      resellerRating: sellerRating,
-      sellerStoreImageUrl: storeImageUrl,
-      sellerStatus: sellerStatus,
-      seller: {
-        store_image_url: storeImageUrl,
-        shop_name: shopName,
-        average_rating: sellerRating,
-        status: sellerStatus || null,
-      },
-      discountPercentage: discount,
-      average_rating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 0,
-      review_count: p.review_count !== undefined && p.review_count !== null ? Number(p.review_count) : 0,
-      averageRating: p.average_rating !== undefined && p.average_rating !== null ? Number(p.average_rating) : 0,
-      reviewCount: p.review_count !== undefined && p.review_count !== null ? Number(p.review_count) : 0,
-    };
-
+    const detailResult = await fetchProductDetail(supabase, productId);
     return {
-      product: formattedProduct,
-      reviews: formattedReviews,
+      product: detailResult.product as unknown as Product,
+      reviews: [],
       relatedProducts: [],
+      notFound: detailResult.notFound,
+      error: detailResult.error,
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error fetching product by ID from Supabase:', err);
-    return { product: null, reviews: [], relatedProducts: [] };
+    return {
+      product: null,
+      reviews: [],
+      relatedProducts: [],
+      notFound: false,
+      error: err?.message || 'Failed to fetch product details.',
+    };
   }
 }
 

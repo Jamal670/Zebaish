@@ -117,6 +117,9 @@ export interface CustomerOrderItem {
   productId?: string;
   resellerId?: string;
   reviewed?: boolean;
+  variant_id?: string | null;
+  variant_sku_snapshot?: string | null;
+  variant_options_snapshot?: Record<string, string> | null;
 }
 
 export interface Order {
@@ -186,6 +189,10 @@ export interface SellerOrderItemDetail {
   subtotal: number;
   size?: string | null;
   color?: string | null;
+  variant_id?: string | null;
+  variant_sku_snapshot?: string | null;
+  variant_options_snapshot?: Record<string, string> | null;
+  variant_price?: number | null;
   created_at: string;
 }
 
@@ -267,5 +274,9 @@ export interface CartItem {
   size?: string;
   color?: CartItemColor | null;
   seller_id?: string;
+  variant_id?: string | null;
+  variantId?: string | null;
+  variant_sku?: string | null;
+  variant_options?: Record<string, string> | null;
 }
 

@@ -1,0 +1,1 @@
+`npm run dev` starts the Next.js dev server on port 4000 with Turbo mode; `npm run build` / `npm start` produce and serve the production bundle; `npm run lint` runs ESLint; `npm run clean` / `dev:clean` remove `.next` via PowerShell before rebuilding.

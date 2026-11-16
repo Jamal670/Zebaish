@@ -111,7 +111,7 @@ export async function fetchSellerOrders({
     // Step B: Query order_items filtered by BOTH order_id IN (orderIds) AND seller_id = authenticatedSellerId
     const { data: rawOrderItems, error: itemsError } = await supabase
       .from('order_items')
-      .select('id, order_id, product_id, product_title, brand, quantity, price, subtotal, size, color')
+      .select('id, order_id, product_id, product_title, brand, quantity, price, subtotal, size, color, variant_id, variant_sku_snapshot, variant_options_snapshot')
       .eq('seller_id', sellerId)
       .in('order_id', orderIds);
 
@@ -199,12 +199,59 @@ export async function fetchSellerOrders({
 
 /**
  * Fetches full order detail dynamically for modal display starting from seller_orders.
+ * Optimized with parallel Promise.all queries and product_variants price resolution.
  */
 export async function fetchSellerOrderDetail(
   sellerId: string,
   orderId: string
 ): Promise<SellerOrderDetail | null> {
   if (!sellerId || !orderId) return null;
+
+  // Helper to fetch selling_price from product_variants for all variant_ids
+  const attachVariantPrices = async (items: any[]): Promise<any[]> => {
+    const variantIds = Array.from(
+      new Set(
+        items
+          .map((it: any) => it.variant_id)
+          .filter((v: any) => v && typeof v === 'string' && isValidUUID(v))
+      )
+    );
+
+    if (variantIds.length === 0) return items;
+
+    try {
+      const { data: pvRows } = await supabase
+        .from('product_variants')
+        .select('id, selling_price')
+        .in('id', variantIds);
+
+      if (pvRows && pvRows.length > 0) {
+        const pvMap = new Map<string, number>();
+        pvRows.forEach((row: any) => {
+          if (row.id && row.selling_price !== null && row.selling_price !== undefined) {
+            pvMap.set(row.id, Number(row.selling_price));
+          }
+        });
+
+        return items.map((it: any) => {
+          const vPrice = it.variant_id ? pvMap.get(it.variant_id) ?? null : null;
+          const resolvedUnitPrice =
+            vPrice !== null && vPrice !== undefined && vPrice > 0 ? vPrice : Number(it.price) || 0;
+          const itemQty = Number(it.quantity) || 1;
+
+          return {
+            ...it,
+            variant_price: vPrice,
+            price: resolvedUnitPrice,
+            subtotal: resolvedUnitPrice * itemQty,
+          };
+        });
+      }
+    } catch (pvErr) {
+      console.warn('Could not fetch variant prices from product_variants:', pvErr);
+    }
+    return items;
+  };
 
   // 1. RPC Call `get_seller_order_detail`
   if (isValidUUID(sellerId) && isValidUUID(orderId)) {
@@ -216,25 +263,27 @@ export async function fetchSellerOrderDetail(
 
       if (!error && data) {
         let items = Array.isArray(data.items) ? data.items : [];
-        // Ensure size and color are populated if missing from RPC response
         const missingFields = items.some(
           (it: any) => it.size === undefined || it.color === undefined
         );
         if (missingFields && items.length > 0) {
           const { data: itemRows } = await supabase
             .from('order_items')
-            .select('id, size, color')
+            .select('id, size, color, variant_id, variant_sku_snapshot, variant_options_snapshot')
             .eq('order_id', orderId)
             .eq('seller_id', sellerId);
 
           if (itemRows && itemRows.length > 0) {
-            const itemMap = new Map(itemRows.map((r: any) => [r.id, r]));
+            const itemMap = new Map<string, any>(itemRows.map((r: any) => [r.id, r]));
             items = items.map((it: any) => {
-              const row = itemMap.get(it.id);
+              const row: any = itemMap.get(it.id);
               return {
                 ...it,
                 size: it.size ?? row?.size ?? null,
                 color: it.color ?? row?.color ?? null,
+                variant_id: it.variant_id ?? row?.variant_id ?? null,
+                variant_sku_snapshot: it.variant_sku_snapshot ?? row?.variant_sku_snapshot ?? null,
+                variant_options_snapshot: it.variant_options_snapshot ?? row?.variant_options_snapshot ?? {},
               };
             });
           }
@@ -243,24 +292,14 @@ export async function fetchSellerOrderDetail(
             ...it,
             size: it.size ?? null,
             color: it.color ?? null,
+            variant_id: it.variant_id ?? null,
+            variant_sku_snapshot: it.variant_sku_snapshot ?? null,
+            variant_options_snapshot: it.variant_options_snapshot ?? {},
           }));
         }
 
-        // Ensure category is populated for size display in order details
-        const productIds = Array.from(new Set(items.map((it: any) => it.product_id).filter(Boolean)));
-        if (productIds.length > 0 && items.some((it: any) => it.category === undefined)) {
-          const { data: prodRows } = await supabase
-            .from('products')
-            .select('id, category')
-            .in('id', productIds);
-          if (prodRows) {
-            const catMap = new Map(prodRows.map((p: any) => [p.id, p.category]));
-            items = items.map((it: any) => ({
-              ...it,
-              category: it.category ?? catMap.get(it.product_id) ?? null,
-            }));
-          }
-        }
+        // Attach variant prices from product_variants
+        items = await attachVariantPrices(items);
 
         return {
           ...data,
@@ -269,31 +308,75 @@ export async function fetchSellerOrderDetail(
         } as SellerOrderDetail;
       }
     } catch (err) {
-      console.warn('RPC get_seller_order_detail unavailable, attempting relational fallback query:', err);
+      console.warn('RPC get_seller_order_detail unavailable, attempting relational query:', err);
     }
   }
 
-  // 2. Relational fallback starting from `seller_orders`
+  // 2. High-performance parallel relational query
   try {
-    const { data: sellerOrder, error: soErr } = await supabase
-      .from('seller_orders')
-      .select('*')
-      .eq('order_id', orderId)
-      .eq('seller_id', sellerId)
-      .maybeSingle();
-
-    if (!soErr && sellerOrder) {
-      const { data: order } = await supabase
+    const [sellerOrderRes, orderRes, itemsRes] = await Promise.all([
+      supabase
+        .from('seller_orders')
+        .select('*')
+        .eq('order_id', orderId)
+        .eq('seller_id', sellerId)
+        .maybeSingle(),
+      supabase
         .from('orders')
         .select('*')
         .eq('id', orderId)
-        .maybeSingle();
-
-      const { data: items } = await supabase
+        .maybeSingle(),
+      supabase
         .from('order_items')
-        .select('*, products(category)')
+        .select('id, order_id, product_id, seller_id, product_title, brand, size, color, quantity, price, subtotal, variant_id, variant_sku_snapshot, variant_options_snapshot, created_at')
+        .eq('order_id', orderId)
+        .eq('seller_id', sellerId),
+    ]);
+
+    const sellerOrder = sellerOrderRes.data;
+    const order = orderRes.data;
+    let rawItems: any[] | null = itemsRes.data;
+
+    // Resilient fallback if table does not yet have variant columns
+    if (itemsRes.error && (itemsRes.error.code === '42703' || itemsRes.error.message?.includes('variant_'))) {
+      const { data: fallbackRows } = await supabase
+        .from('order_items')
+        .select('id, order_id, product_id, seller_id, product_title, brand, size, color, quantity, price, subtotal, created_at')
         .eq('order_id', orderId)
         .eq('seller_id', sellerId);
+      rawItems = fallbackRows;
+    }
+
+    if (!sellerOrderRes.error && sellerOrder) {
+      let mappedItems = (rawItems || []).map((item: any) => {
+        let snap = item.variant_options_snapshot;
+        if (typeof snap === 'string') {
+          try {
+            snap = JSON.parse(snap);
+          } catch {
+            snap = {};
+          }
+        }
+        return {
+          id: item.id,
+          product_id: item.product_id,
+          product_title: item.product_title || 'Product',
+          brand: item.brand || 'Brand',
+          quantity: Number(item.quantity) || 1,
+          price: Number(item.price) || 0,
+          variant_price: null,
+          subtotal: Number(item.subtotal) || 0,
+          size: item.size ?? null,
+          color: item.color ?? null,
+          variant_id: item.variant_id ?? null,
+          variant_sku_snapshot: item.variant_sku_snapshot ?? null,
+          variant_options_snapshot: snap || {},
+          created_at: item.created_at,
+        };
+      });
+
+      // Attach variant prices from product_variants
+      mappedItems = await attachVariantPrices(mappedItems);
 
       return {
         seller_order_id: sellerOrder.id,
@@ -321,28 +404,11 @@ export async function fetchSellerOrderDetail(
           status: order?.payment_status || 'Pending',
           seller_total: Number(sellerOrder.seller_total),
         },
-        items: (items || []).map((item: any) => {
-          const prodCategory = Array.isArray(item.products)
-            ? item.products[0]?.category
-            : item.products?.category;
-          return {
-            id: item.id,
-            product_id: item.product_id,
-            product_title: item.product_title,
-            brand: item.brand,
-            category: prodCategory || item.category || null,
-            quantity: Number(item.quantity),
-            price: Number(item.price),
-            subtotal: Number(item.subtotal),
-            size: item.size ?? null,
-            color: item.color ?? null,
-            created_at: item.created_at,
-          };
-        }),
+        items: mappedItems,
       };
     }
   } catch (err) {
-    console.warn('Fallback detail queries failed:', err);
+    console.warn('Optimized order detail query failed:', err);
   }
 
   return null;

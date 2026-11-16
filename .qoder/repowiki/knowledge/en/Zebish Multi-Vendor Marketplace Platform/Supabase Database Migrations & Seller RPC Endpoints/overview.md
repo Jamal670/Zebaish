@@ -1,0 +1,1 @@
+PostgreSQL migration scripts and SECURITY DEFINER plpgsql RPC functions that extend the Supabase schema for guest checkout, seller order management, seller analytics dashboards, shipping/payment configuration, and monthly commission wallet/payout flows.

@@ -33,6 +33,7 @@ import {
 import { ScrollableStatCard } from './common/ScrollableStatCard';
 import { HorizontalScrollRow } from './common/HorizontalScrollRow';
 import { Section2Last7d, SellerOverviewDetailsData } from '@/src/api/sellerOverviewService';
+import { formatPrice } from '@/lib/home-static-data';
 
 interface Last7DaysSectionProps {
   dataKpi?: Section2Last7d | null;
@@ -61,7 +62,7 @@ function useCountUp(endValue: number, duration: number = 800, startAnimation: bo
       if (!startTime) startTime = timestamp;
       const progress = Math.min((timestamp - startTime) / duration, 1);
       const easeOutProgress = 1 - (1 - progress) * (1 - progress);
-      setCount(Math.round(easeOutProgress * endValue));
+      setCount(Math.round(easeOutProgress * endValue * 100) / 100);
 
       if (progress < 1) {
         animationFrameId = requestAnimationFrame(animate);
@@ -93,15 +94,17 @@ export const Last7DaysSection: React.FC<Last7DaysSectionProps> = ({
   const animatedReviews = useCountUp(dataKpi?.new_reviews_7d || 0, 800, !loadingKpi && !!dataKpi);
   const animatedUnits = useCountUp(dataKpi?.units_sold_7d || 0, 800, !loadingKpi && !!dataKpi);
 
-  // Donut Chart Data for 7-Day Order Status Breakdown (All 5 Categories Guaranteed)
+  // Donut Chart Data for 7-Day Order Status Breakdown (All 7 Statuses)
   const statusData = useMemo(() => {
     if (!dataDetails?.order_status_breakdown) return [];
     const colorMap: Record<string, string> = {
       Pending: '#f59e0b',
       Confirmed: '#8b5cf6',
+      Processing: '#6366f1',
       Shipped: '#3b82f6',
       Delivered: '#10b981',
       Cancelled: '#f43f5e',
+      Refund: '#ec4899',
     };
     return dataDetails.order_status_breakdown.map((item) => ({
       name: item.status,
@@ -174,7 +177,7 @@ export const Last7DaysSection: React.FC<Last7DaysSectionProps> = ({
         {/* CARD 1: REVENUE (LAST 7D) */}
         <ScrollableStatCard
           title="REVENUE (LAST 7D)"
-          value={`Rs. ${animatedRevenue.toLocaleString()}`}
+          value={formatPrice(animatedRevenue)}
           subtitle="Trailing 7 days sales"
           icon={DollarSign}
           iconBgColor="bg-emerald-50"
@@ -196,7 +199,7 @@ export const Last7DaysSection: React.FC<Last7DaysSectionProps> = ({
         {/* CARD 3: AVG ORDER VALUE (LAST 7D) */}
         <ScrollableStatCard
           title="AVG ORDER VALUE"
-          value={`Rs. ${animatedAov.toLocaleString()}`}
+          value={formatPrice(animatedAov)}
           subtitle="Average per seller order"
           icon={Layers}
           iconBgColor="bg-indigo-50"
@@ -431,7 +434,7 @@ const CustomRevenueTooltip = ({ active, payload }: any) => {
       <div className="bg-stone-900 text-white p-3 rounded-lg text-xs space-y-1 shadow-lg border border-stone-800">
         <p className="font-extrabold uppercase text-[10px] text-amber-400">{d.date}</p>
         <p className="font-bold">
-          Revenue: <span className="text-emerald-400">Rs. {(d.revenue || 0).toLocaleString()}</span>
+          Revenue: <span className="text-emerald-400">{formatPrice(Number(d.revenue) || 0)}</span>
         </p>
       </div>
     );

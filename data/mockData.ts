@@ -14,6 +14,7 @@ import prodPretKurti from '@/src/assets/images/prod_pret_kurti_1784669264016.jpg
 import catLuxuryFormals from '@/src/assets/images/cat_luxury_pret_1784668945182.jpg';
 import calloutRtw from '@/src/assets/images/callout_rtw_1784669029753.jpg';
 import BagAccess from '@/src/assets/images/back.png';
+import banner from '@/src/assets/images/banner.jpg';
 
 import campaignMastaniPortrait from '@/src/assets/images/campaign_mastani_portrait_1784669111434.jpg';
 import coutureMerjan from '@/src/assets/images/couture_merjan_1784669229241.jpg';
@@ -387,54 +388,128 @@ export const TRENDING_TAB_CATEGORIES = [
 
 export const MEGA_MENU_CATEGORIES = [
   {
-    id: 'unstitched',
-    title: 'UNSTITCHED',
-    items: ['3 Piece Lawn', '2 Piece Lawn', '1 Piece / Shirt', 'Chiffon Suits', 'Linen Suits', 'Khaddar Suits', 'Cotton Suits', 'Cambric Suits', 'Printed Unstitched', 'Embroidered Unstitched', 'Digital Printed', 'Jacquard / Silk'],
+    id: 'fashion',
+    title: 'FASHION',
+    items: [
+      'Women Clothing',
+      'Women Shoes',
+      'Women Accessories',
+      'Men Clothing',
+      'Men Shoes',
+      'Men Accessories',
+      'Kids & Baby',
+      'Watches',
+      'Fine Jewelry',
+      'Bags & Handbags',
+      'Women Sunglasses',
+      'Men Sunglasses',
+      'Men Wallets',
+    ],
   },
   {
-    id: 'ready-to-wear',
-    title: 'READY TO WEAR',
-    items: ['Printed Kurtis', 'Embroidered Kurtis', '2 Piece Pret', '3 Piece Pret', 'Luxury Pret', 'Velvet Pret', 'Casual Pret', 'Office / Workwear', 'Co-Ord Sets', 'Long Shirts', 'Trousers & Pants'],
+    id: 'home-garden',
+    title: 'HOME & GARDEN',
+    items: [
+      'Home Improvement',
+      'Yard, Gardening & Outdoor Living',
+      'Workshop Tools & Equipment',
+      'Kitchen, Dining & Bar',
+      'Home Furniture',
+      'Home Appliances',
+      'Lamps, Lights & Fans',
+      'Small Kitchen Appliances',
+      'Interior Decoration',
+      'Home Organization',
+      'Vacuum Cleaners',
+      'Heating, Cooling & Air',
+      'Pet Supplies',
+      'Outdoor Power Equipment',
+      'Rugs & Carpets',
+      'Candles & Home Fragrance',
+    ],
   },
   {
-    id: 'formals',
-    title: 'FORMALS',
-    items: ['Chiffon Formals', 'Organza Dupatta Suit', 'Embroidered Formal', 'Luxury Formal', 'Party Wear', 'Wedding Guest', 'Silk Formal', 'Velvet Formal', 'Long Frocks', 'Gharara / Sharara', 'Maxi', 'Peplum Suits'],
+    id: 'electronics',
+    title: 'ELECTRONICS',
+    items: ['Computers, Tablets & Networking Hardware','Cell Phones & Accessories','Cameras & Photography','Portable Audio & Headphones',
+      'TV, Video & Home Audio',
+      'Surveillance & Smart Home Electronics',
+      'Vehicle Electronics & GPS',
+      'Tablets & E-Readers',
+      'Laptops',
+      'Desktop PCs',
+      'Video Game Consoles',
+    ],
   },
   {
-    id: 'Bridal',
-    title: 'BRIDAL WEAR (Comming Soon)',
-    items: ['Heavy Velvet', 'Maxi & Sharara', 'Bridal Lehenga', 'Bridal Gharara', 'Bridal Sharara', 'Bridal Maxi', 'Pishwas', 'Nikah Dresses', 'Nikkah / Walima', 'Mehndi Dresses', 'Barat Dresses', 'Reception / Walima', 'Bridal Separates'],
+    id: 'health-beauty',
+    title: 'HEALTH & BEAUTY',
+    items: [
+      'Beauty',
+      'Makeup',
+      'Health',
+      'Fragrance for Men',
+      'Fragrance for Women',
+      'Manicure & Pedicure',
+      'Hair Products',
+      'Skin Care',
+      'Orthopedic Products',
+      'Vitamins & Food Supplements',
+      'Shaving & Waxing',
+      'Bath & Personal Hygiene',
+      'Massagers & Vision Care',
+      'Sun Protection',
+    ],
   },
   {
-    id: 'accessories',
-    title: 'ACCESSORIES (Comming Soon)',
-    items: ['Bags', 'Jewellery', 'Bangles', 'Clutches', 'Handbags', 'Wallets', 'Scarves / Stoles', 'Hair Accessories', 'Bridal Jewellery', 'Artificial Jewellery', 'Rings', 'Earrings', 'Necklaces', 'Bracelets'],
+    id: 'sports-outdoors',
+    title: 'SPORTS & OUTDOORS',
+    items: [
+      'Cycling',
+      'Fishing',
+      'Camping',
+      'Fitness, Running & Yoga',
+      'Golf',
+      'Archery',
+      'Team Sports',
+      'Outdoor Sports',
+      'Tennis & Racquet Sports',
+      'Water Sports',
+      'GPS & Running Watches',
+      'Soccer',
+      'Boxing & MMA',
+      'Basketball',
+      'Football',
+      'Swimming',
+    ],
+  },
+  {
+    id: 'industrial-business-equipment',
+    title: 'INDUSTRIAL & BUSINESS EQUIPMENT',
+    items: [
+      'Heavy Equipment',
+      'Light Tools',
+      'Healthcare Equipment',
+      'Electronics Equipment & Supplies',
+      'Office Supplies & Equipment',
+      'Printing & Graphics',
+    ],
   },
 ];
 
 export const HERO_SLIDES = [
   {
     id: 'slide-1',
-    image: heroZibaish,
+    image: '/images/home/banner3.jpg',
   },
   {
     id: 'slide-2',
-    image: heroNafasat,
+    image: '/images/home/cat-fashion.jpg',
   },
   {
     id: 'slide-3',
-    image: heroRiwayatiHusn,
+    image: '/images/home/hero-3-home.jpg',
   },
-  {
-    id: 'slide-4',
-    image: heroRonak,
-  },
-  {
-    id: 'slide-5',
-    image: heroClassic,
-  },
-
 ];
 
 export const FEATURED_CALLOUTS = {

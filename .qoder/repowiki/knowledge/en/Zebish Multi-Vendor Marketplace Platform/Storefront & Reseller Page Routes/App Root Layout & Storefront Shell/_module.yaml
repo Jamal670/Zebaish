@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: storefront_pages/app_root_layout
+title: App Root Layout & Storefront Shell
+scope:
+    - app/layout.tsx
+    - app/page.tsx
+    - app/not-found.tsx
+    - app/globals.css
+source_files: []
+depends_on: []
+related_to:
+    - path: shared_components/storefront_shell_and_pages

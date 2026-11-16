@@ -1,0 +1,6 @@
+- Every function is declared `LANGUAGE plpgsql SECURITY DEFINER` and returns `JSONB`, so the client-facing API surface is uniform across all RPCs.
+- Schema changes use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` and `CREATE TABLE IF NOT EXISTS` / `DROP POLICY IF EXISTS` / `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL $$` to make every script idempotent and safe to re-run.
+- Seller-scoped data access is enforced both at the query level (filtering on `seller_id = p_seller_id`) and at the RLS layer via policies that compare `seller_id = auth.uid()` or `current_setting('app.current_seller_id')`.
+- Analytics RPCs build zero-filled daily series using `WITH days AS (SELECT generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day'))` and LEFT JOIN against it before aggregating.
+- Pagination follows a fixed pattern: compute `v_offset := (GREATEST(p_page, 1) - 1) * p_page_size`, run a separate `COUNT(DISTINCT ...)` for total rows, then aggregate results with `COALESCE(jsonb_agg(...), '[]'::jsonb)` and return `{total_count, page, page_size, orders/records}`.
+- Business state transitions validate inputs against a local `TEXT[]` allowlist (e.g. `ARRAY['Pending','Confirmed','Processing','Shipped','Delivered','Cancelled']`) and raise `RAISE EXCEPTION` on invalid values or missing rows.

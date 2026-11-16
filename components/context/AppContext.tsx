@@ -18,7 +18,10 @@ interface AppContextType {
     product: Product,
     size?: string,
     quantity?: number,
-    color?: CartItemColor | null
+    color?: CartItemColor | null,
+    variantId?: string | null,
+    variantOptions?: Record<string, string> | null,
+    variantSku?: string | null
   ) => void;
   handleUpdateQuantity: (
     lineKeyOrProductId: string,
@@ -109,6 +112,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   code: typeof item.color.code === 'string' ? item.color.code : null,
                 };
               }
+              const vId =
+                item.variant_id ||
+                item.variantId ||
+                (item.product as any)?.variantId ||
+                null;
+              const vSku =
+                item.variant_sku ||
+                (item.product as any)?.variantSku ||
+                null;
+              const vOptions =
+                item.variant_options ||
+                (item.product as any)?.variantOptions ||
+                null;
+
               validItems.push({
                 product: item.product,
                 quantity: Math.max(1, item.quantity),
@@ -120,6 +137,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   (item.product as any).seller_id ||
                   (item.product.seller as any)?.id ||
                   undefined,
+                variant_id: vId,
+                variantId: vId,
+                variant_sku: vSku,
+                variant_options: vOptions,
               });
             }
           }
@@ -162,21 +183,47 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [user?.id]);
 
-  // Add to Cart / Bag Flow with color snapshot support
+  // Add to Cart / Bag Flow with color snapshot and dynamic variant support
   const handleAddToCart = (
     product: Product,
     size = 'Unstitched',
     quantity = 1,
-    color?: CartItemColor | null
+    color?: CartItemColor | null,
+    variantId?: string | null,
+    variantOptions?: Record<string, string> | null,
+    variantSku?: string | null
   ) => {
     const itemColor = color || null;
+    const resolvedVariantId =
+      variantId ||
+      (product as any).variantId ||
+      (product as any).variant_id ||
+      null;
+    const resolvedVariantSku =
+      variantSku ||
+      (product as any).variantSku ||
+      (product as any).variant_sku ||
+      null;
+    const resolvedVariantOptions =
+      variantOptions ||
+      (product as any).variantOptions ||
+      (product as any).variant_options ||
+      (product as any).selectedOptions ||
+      null;
+
     const sellerId =
       product.resellerId ||
       (product as any).seller_id ||
       (product as any).sellerId ||
       (product.seller as any)?.id ||
       undefined;
-    const targetKey = getCartLineKey({ productId: product.id, size, color: itemColor });
+
+    const targetKey = getCartLineKey({
+      productId: product.id,
+      size,
+      color: itemColor,
+      variantId: resolvedVariantId,
+    });
 
     setCartItems((prev) => {
       const existingIndex = prev.findIndex(
@@ -190,11 +237,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         finalQuantity = prev[existingIndex].quantity + quantity;
         updated = prev.map((item, idx) =>
           idx === existingIndex
-            ? { ...item, quantity: finalQuantity, seller_id: item.seller_id || sellerId }
+            ? {
+                ...item,
+                quantity: finalQuantity,
+                seller_id: item.seller_id || sellerId,
+                variant_id: item.variant_id || resolvedVariantId,
+                variantId: item.variantId || resolvedVariantId,
+                variant_sku: item.variant_sku || resolvedVariantSku,
+                variant_options: item.variant_options || resolvedVariantOptions,
+              }
             : item
         );
       } else {
-        updated = [...prev, { product, quantity, size, color: itemColor, seller_id: sellerId }];
+        updated = [
+          ...prev,
+          {
+            product,
+            quantity,
+            size,
+            color: itemColor,
+            seller_id: sellerId,
+            variant_id: resolvedVariantId,
+            variantId: resolvedVariantId,
+            variant_sku: resolvedVariantSku,
+            variant_options: resolvedVariantOptions,
+          },
+        ];
       }
 
       // Sync to DB if user is authenticated (DB sync doesn't touch client color)

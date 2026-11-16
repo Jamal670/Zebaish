@@ -1,0 +1,1 @@
+PostgreSQL plpgsql stored procedures deployed as Supabase Edge Functions via `SECURITY DEFINER`; JSONB used as the sole RPC return type; Row Level Security enforced through per-table policies keyed on `auth.uid()` and an optional `app.current_seller_id` session setting.

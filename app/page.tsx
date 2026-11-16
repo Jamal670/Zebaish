@@ -1,95 +1,36 @@
-'use client';
-
 import React from 'react';
-import { useRouter } from 'next/navigation';
 import { HeroCarousel } from '@/components/HeroCarousel';
-import { NewArrivalsCategories } from '@/components/NewArrivalsCategories';
-import { FeaturedCollectionsGrid } from '@/components/FeaturedCollectionsGrid';
-import { MostTrending } from '@/components/MostTrending';
-import { ShopByCollection } from '@/components/ShopByCollection';
-import { CoutureSection } from '@/components/CoutureSection';
-import { WornAndLoved } from '@/components/WornAndLoved';
-import { Newsletter } from '@/components/Newsletter';
-import { useApp } from '@/components/context/AppContext';
-import { Product } from '@/types';
-import { formatStoreSlug } from '@/src/api/sellerService';
+import { ShopByCategory } from '@/components/home/ShopByCategory';
+import { TrendingProducts } from '@/components/home/TrendingProducts';
+import { NewArrivals } from '@/components/home/NewArrivals';
+import { FeaturedSellers } from '@/components/home/FeaturedSellers';
+import { BecomeSeller } from '@/components/home/BecomeSeller';
+import { Newsletter } from '@/components/home/Newsletter';
 
 export default function HomePage() {
-  const router = useRouter();
-  const {
-    setQuickViewProduct,
-    handleAddToCart,
-    handleToggleWishlist,
-    wishlistIds,
-  } = useApp();
-
-  const handleNavigateShop = (brandOrCat?: string) => {
-    if (brandOrCat) {
-      const lower = brandOrCat.toLowerCase();
-      if (
-        lower.includes('khaadi') ||
-        lower.includes('sapphire') ||
-        lower.includes('gul ahmed') ||
-        lower.includes('maria b') ||
-        lower.includes('alkaram') ||
-        lower.includes('bareeze') ||
-        lower.includes('limelight') ||
-        lower.includes('ethnic')
-      ) {
-        router.push(
-          `/shop?brand=${encodeURIComponent(brandOrCat)}&category=${encodeURIComponent(
-            `${brandOrCat.toUpperCase()} LEFTOVER SUITS`
-          )}`
-        );
-      } else {
-        router.push(`/shop?category=${encodeURIComponent(brandOrCat)}`);
-      }
-    } else {
-      router.push('/shop');
-    }
-  };
-
-  const handleSelectProduct = (product: Product) => {
-    router.push(`/product/${product.id}`);
-  };
-
-  const handleSelectReseller = (resellerId: string) => {
-    const slug = formatStoreSlug(resellerId, resellerId);
-    router.push(`/${slug}`);
-  };
-
-  const handleNavigateReseller = (page: 'signup' | 'login' | 'dashboard') => {
-    router.push(`/${page}`);
-  };
-
   return (
     <>
+      {/* 1. Hero Carousel */}
       <HeroCarousel />
-      <NewArrivalsCategories onSelectCategory={handleNavigateShop} />
-      <FeaturedCollectionsGrid onSelectCategory={handleNavigateShop} />
-      <MostTrending
-        onQuickView={(product) => setQuickViewProduct(product)}
-        onAddToCart={(product) => handleAddToCart(product)}
-        onToggleWishlist={handleToggleWishlist}
-        wishlistIds={wishlistIds}
-        onSelectProduct={handleSelectProduct}
-        onSelectReseller={handleSelectReseller}
-      />
-      <ShopByCollection
-        onBecomeSellerClick={() => handleNavigateReseller('dashboard')}
-        onShopClick={() => handleNavigateReseller('dashboard')}
-      />
-      <CoutureSection
-        onQuickView={(product) => setQuickViewProduct(product)}
-        onAddToCart={(product) => handleAddToCart(product)}
-        onToggleWishlist={handleToggleWishlist}
-        wishlistIds={wishlistIds}
-        onSelectProduct={handleSelectProduct}
-        onSelectReseller={handleSelectReseller}
-      />
-      <WornAndLoved
-        onShopNowClick={(ugc) => handleNavigateShop(ugc.tag || 'Lawn')}
-      />
+
+      {/* 2. Shop by Category (6 core categories) */}
+      <ShopByCategory />
+
+      {/* Future: <TodaysDeals /> goes after ShopByCategory */}
+
+      {/* 3. Trending Products (8 portrait products) */}
+      {/* <TrendingProducts /> */}
+
+      {/* 4. New Arrivals (8 portrait products) */}
+      <NewArrivals />
+
+      {/* 5. Featured Sellers (Split-layout feature block) */}
+      <FeaturedSellers />
+
+      {/* 6. Become a Seller (High-contrast CTA banner) */}
+      <BecomeSeller />
+
+      {/* 7. Newsletter (UI only) */}
       <Newsletter />
     </>
   );

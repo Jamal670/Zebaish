@@ -85,6 +85,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   // Modals & UI States
   const [isSinglePayModalOpen, setIsSinglePayModalOpen] = useState(false);
@@ -491,7 +492,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   // Submit Order Logic with Payment Proof Validation & Storage Upload
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || isSubmittingRef.current) return;
 
     setSubmitError(null);
 
@@ -524,6 +525,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
 
     const uploadedPaths: string[] = [];
@@ -549,6 +551,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                 await deletePaymentProofs(uploadedPaths);
               }
               setSubmitError(uploadRes.error || `Failed to upload payment screenshot for seller "${shopName}".`);
+              isSubmittingRef.current = false;
               setIsSubmitting(false);
               return;
             }
@@ -598,6 +601,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           await deletePaymentProofs(uploadedPaths);
         }
         setSubmitError(result.error || 'Failed to place order. Please try again.');
+        isSubmittingRef.current = false;
         setIsSubmitting(false);
         return;
       }
@@ -605,11 +609,26 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       const generatedId = result.orderId || result.orderNumber || `ORD-${Date.now()}`;
       const orderNum = result.orderNumber || generatedId;
 
-      // Map returned order item details (exact size & color saved in order_items)
-      const createdItemMap = new Map<string, { size: string | null; color: string | null }>();
+      // Map returned order item details (exact size, color, and variant snapshot saved in order_items)
+      const createdItemMap = new Map<
+        string,
+        {
+          size: string | null;
+          color: string | null;
+          variant_id?: string | null;
+          variant_sku_snapshot?: string | null;
+          variant_options_snapshot?: Record<string, string>;
+        }
+      >();
       if (result.orderItems) {
         result.orderItems.forEach((oi) => {
-          createdItemMap.set(oi.product_id, { size: oi.size, color: oi.color });
+          createdItemMap.set(oi.product_id, {
+            size: oi.size,
+            color: oi.color,
+            variant_id: oi.variant_id ?? null,
+            variant_sku_snapshot: oi.variant_sku_snapshot ?? null,
+            variant_options_snapshot: oi.variant_options_snapshot ?? {},
+          });
         });
       }
 
@@ -630,6 +649,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
             color: finalColor,
             productId: item.product.id,
             resellerId: resId,
+            variant_id: dbItemInfo?.variant_id ?? item.variant_id ?? item.variantId ?? null,
+            variant_sku_snapshot: dbItemInfo?.variant_sku_snapshot ?? item.variant_sku ?? null,
+            variant_options_snapshot: dbItemInfo?.variant_options_snapshot ?? item.variant_options ?? null,
           };
         });
 
@@ -674,6 +696,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         };
       });
 
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
 
       // Notify parent to clear cart & navigate to Order Success page
@@ -684,6 +707,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         await deletePaymentProofs(uploadedPaths);
       }
       setSubmitError(err.message || 'An unexpected error occurred while placing your order.');
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -1097,8 +1121,22 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                                 {item.product.title}
                               </p>
                               <div className="flex flex-wrap items-center gap-1.5 text-stone-500 text-[10px] mt-0.5">
-                                <span>Qty: {item.quantity} • {item.size || 'Unstitched'}</span>
-                                <CartItemColor color={item.color} />
+                                <span>Qty: {item.quantity}</span>
+                                {item.variant_options && Object.keys(item.variant_options).length > 0 ? (
+                                  Object.entries(item.variant_options).map(([k, v]) => (
+                                    <span
+                                      key={k}
+                                      className="inline-flex items-center px-1.5 py-0.2 rounded bg-stone-100 text-stone-700 text-[9px] font-medium border border-stone-200"
+                                    >
+                                      {k}: {v}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <>
+                                    <span>• {item.size || 'Unstitched'}</span>
+                                    <CartItemColor color={item.color} />
+                                  </>
+                                )}
                               </div>
                             </div>
                             <span className="font-bold text-stone-900 text-right shrink-0 text-xs">

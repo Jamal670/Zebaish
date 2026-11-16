@@ -1,0 +1,1 @@
+Provides the storefront shell, public pages, reseller dashboard, and user auth flows while sharing global React contexts for authentication, cart/wishlist state, and app-wide UI controls.

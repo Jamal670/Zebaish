@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: shared_components/storefront_shell_and_pages
+title: Storefront Shell, Pages & Reseller Dashboard UI
+scope:
+    - components/
+source_files: []
+depends_on: []
+related_to:
+    - path: storefront_pages/app_root_layout

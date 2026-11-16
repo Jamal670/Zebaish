@@ -17,8 +17,8 @@ function AddCollectionContent() {
     router.push('/dashboard/collections');
   };
 
-  const paramId = searchParams.get('id');
-  const paramMode = (searchParams.get('mode') as 'create' | 'edit' | 'restock') || formMode;
+  const paramId = searchParams.get('productId') || searchParams.get('id');
+  const paramMode = (searchParams.get('mode') as 'create' | 'edit' | 'restock') || (paramId ? 'edit' : formMode);
 
   return (
     <NewListingForm

@@ -7,6 +7,18 @@ export const PAYMENT_METHOD_DB = {
   DC: 'Advanced_DC',
 } as const;
 
+/**
+ * Generates a collision-resistant order number (format: ZB-YYMMDD-XXXXXX, length: ~16, fits varchar(50)).
+ */
+export function generateOrderNumber(): string {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `ZB-${yy}${mm}${dd}-${randomSuffix}`;
+}
+
 export interface CheckoutCustomerInfo {
   fullName: string;
   email: string;
@@ -41,6 +53,9 @@ export interface PlaceOrderResult {
     product_id: string;
     size: string | null;
     color: string | null;
+    variant_id?: string | null;
+    variant_sku_snapshot?: string | null;
+    variant_options_snapshot?: Record<string, string>;
   }[];
 }
 
@@ -411,70 +426,120 @@ export async function placeOrder({
   }
 
   // Fallback postal code if empty to prevent NOT NULL constraint violations in DB
-  const cleanPostalCode = customerInfo.postalCode?.trim() || '00000';
+  const cleanPostalCode = (customerInfo.postalCode?.trim() || '00000').slice(0, 20);
 
   // Extract items with valid DB UUIDs vs mock items
   const dbItems = cartItems.filter((i) => isValidUUID(i.product.id));
 
-  // Generate unique order number
-  const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-  // If there are valid DB product UUIDs, attempt DB order creation via RPC or fallback
+  // If there are valid DB product UUIDs, attempt DB order creation
   if (dbItems.length > 0) {
     // Client-side transaction with safety rollback
     try {
       const productIds = dbItems.map((i) => i.product.id);
 
-      // Re-fetch latest product stock, variants, colors & original_retail_price directly from DB
+      // Verify product existence and fetch authoritative seller_id, title, brand, status, inventory_mode, selling_price & quantity
       const { data: dbProducts, error: prodErr } = await supabase
         .from('products')
-        .select(`
-          id,
-          seller_id,
-          suit_title,
-          brand,
-          original_retail_price,
-          surplus_selling_price,
-          status,
-          category,
-          product_variants (
-            id,
-            product_id,
-            size,
-            color_id,
-            quantity
-          ),
-          product_colors (
-            id,
-            product_id,
-            color_name,
-            color_code
-          )
-        `)
+        .select('id, seller_id, title, brand, status, inventory_mode, selling_price, quantity')
         .in('id', productIds);
 
       if (prodErr || !dbProducts) {
         console.error('Error fetching dbProducts in orderService:', prodErr);
         return {
           success: false,
-          error: prodErr?.message ? `Failed to verify product stock: ${prodErr.message}` : 'Failed to verify current product stock. Please try again.',
+          error: prodErr?.message ? `Failed to verify product status: ${prodErr.message}` : 'Failed to verify current product status. Please try again.',
         };
       }
 
       const prodMap = new Map<string, any>();
       dbProducts.forEach((p) => prodMap.set(p.id, p));
 
-      // Step 1: Stock verification against variant stock or product stock
-      const stockErrors: string[] = [];
-      const variantQtyTracker = new Map<string, number>();
+      // Fetch dynamic variant details & option snapshots for all variants-mode products
+      const variantProductIds = Array.from(
+        new Set(
+          dbItems
+            .filter((i) => prodMap.get(i.product.id)?.inventory_mode === 'variants')
+            .map((i) => i.product.id)
+        )
+      );
 
-      dbProducts.forEach((p) => {
-        if (Array.isArray(p.product_variants)) {
-          p.product_variants.forEach((v: any) => {
-            variantQtyTracker.set(v.id, Number(v.quantity) || 0);
-          });
+      let dbVariants: any[] = [];
+      const variantOptionsSnapshotMap = new Map<string, Record<string, string>>();
+
+      if (variantProductIds.length > 0) {
+        // 1. Batch fetch active variants for all variant products
+        const { data: pvData, error: pvErr } = await supabase
+          .from('product_variants')
+          .select('id, product_id, sku, combination_key, selling_price, compare_at_price, quantity, is_active')
+          .in('product_id', variantProductIds);
+
+        if (!pvErr && Array.isArray(pvData)) {
+          dbVariants = pvData;
         }
-      });
+
+        // 2. Batch fetch dynamic options, values, and variant links for canonical snapshot building
+        try {
+          const [optionsRes, optionValuesRes, vovRes] = await Promise.all([
+            supabase
+              .from('product_options')
+              .select('id, product_id, name')
+              .in('product_id', variantProductIds),
+            supabase
+              .from('product_option_values')
+              .select('id, product_id, option_id, value')
+              .in('product_id', variantProductIds),
+            supabase
+              .from('variant_option_values')
+              .select('variant_id, product_id, option_id, product_option_value_id')
+              .in('product_id', variantProductIds),
+          ]);
+
+          let vovRows = vovRes.data;
+          // Fallback to product_variant_option_values if variant_option_values returned error
+          if ((!vovRows || vovRows.length === 0) && vovRes.error) {
+            const fallbackVov = await supabase
+              .from('product_variant_option_values')
+              .select('variant_id, product_id, option_id, product_option_value_id')
+              .in('product_id', variantProductIds);
+            if (fallbackVov.data) {
+              vovRows = fallbackVov.data;
+            }
+          }
+
+          const optionNameMap = new Map<string, string>();
+          (optionsRes.data || []).forEach((opt) => {
+            if (opt.id && opt.name) optionNameMap.set(opt.id, opt.name);
+          });
+
+          const optionValueMap = new Map<string, string>();
+          (optionValuesRes.data || []).forEach((val) => {
+            if (val.id && val.value) optionValueMap.set(val.id, val.value);
+          });
+
+          (vovRows || []).forEach((row: any) => {
+            const optName = optionNameMap.get(row.option_id);
+            const optVal = optionValueMap.get(row.product_option_value_id);
+            if (optName && optVal && row.variant_id) {
+              const existing = variantOptionsSnapshotMap.get(row.variant_id) || {};
+              existing[optName] = optVal;
+              variantOptionsSnapshotMap.set(row.variant_id, existing);
+            }
+          });
+        } catch (dynErr) {
+          console.warn('Could not batch load dynamic variant option values:', dynErr);
+        }
+      }
+
+      const parseFiniteAmount = (val: unknown, fallback = 0): number => {
+        const num = typeof val === 'string' ? Number(val.replace(/,/g, '')) : Number(val);
+        return Number.isFinite(num) && num >= 0 ? Math.round(num * 100) / 100 : fallback;
+      };
+
+      // Step 1: Stock, variant availability, and price verification
+      const stockErrors: string[] = [];
+      const sellerSubtotals = new Map<string, number>();
+      let itemsSubtotalSum = 0;
+      const preparedOrderItems: any[] = [];
 
       for (const item of dbItems) {
         const dbProd = prodMap.get(item.product.id);
@@ -483,33 +548,200 @@ export async function placeOrder({
           continue;
         }
 
-        if (dbProd.status && dbProd.status !== 'Active') {
-          stockErrors.push(`Product "${dbProd.suit_title || item.product.title}" is currently unavailable (${dbProd.status}).`);
+        if (!dbProd.seller_id || !isValidUUID(dbProd.seller_id)) {
+          stockErrors.push(`Product "${dbProd.title || item.product.title}" is missing a valid seller.`);
           continue;
         }
 
-        const variantsList = Array.isArray(dbProd.product_variants) ? dbProd.product_variants : [];
+        if (dbProd.status && dbProd.status.toLowerCase() !== 'active') {
+          stockErrors.push(`Product "${dbProd.title || item.product.title}" is currently unavailable (${dbProd.status}).`);
+          continue;
+        }
 
-        if (variantsList.length > 0) {
-          const { size: resolvedSize, matchedVariant } = resolveOrderItemVariantAndColor(item, dbProd);
-          let availableStock = 0;
+        const isVariantsMode = dbProd.inventory_mode === 'variants';
+        const actualQty = Math.max(1, Math.floor(Number(item.quantity) || 1));
 
-          if (matchedVariant) {
-            const currentStock = variantQtyTracker.get(matchedVariant.id) ?? Number(matchedVariant.quantity) ?? 0;
-            availableStock = currentStock;
+        if (isVariantsMode) {
+          // B. Variant inventory products: identify exact selected variant
+          const explicitVariantId =
+            item.variant_id ||
+            item.variantId ||
+            (item.product as any)?.variantId ||
+            (item.product as any)?.variant_id ||
+            null;
 
-            if (availableStock < item.quantity) {
-              stockErrors.push(
-                `Only ${availableStock} left for "${dbProd.suit_title}" (${resolvedSize || 'item'}), but you requested ${item.quantity}.`
-              );
-            } else {
-              variantQtyTracker.set(matchedVariant.id, currentStock - item.quantity);
+          let matchedVariant = explicitVariantId
+            ? dbVariants.find((v) => v.id === explicitVariantId && v.product_id === dbProd.id)
+            : null;
+
+          // Fallback matching by selected options or size/color
+          if (!matchedVariant && dbVariants.length > 0) {
+            const prodVariants = dbVariants.filter((v) => v.product_id === dbProd.id);
+
+            // Match by variant_options dictionary
+            const itemOptions =
+              item.variant_options ||
+              (item.product as any)?.variantOptions ||
+              (item.product as any)?.selectedOptions;
+            if (itemOptions && Object.keys(itemOptions).length > 0) {
+              matchedVariant =
+                prodVariants.find((v) => {
+                  const snap = variantOptionsSnapshotMap.get(v.id);
+                  if (!snap) return false;
+                  return Object.entries(itemOptions).every(
+                    ([k, val]) => snap[k]?.trim().toLowerCase() === String(val).trim().toLowerCase()
+                  );
+                }) || null;
             }
-          } else {
-            stockErrors.push(
-              `Requested option for "${dbProd.suit_title}" is no longer available.`
-            );
+
+            // Match by size / color
+            if (!matchedVariant && (item.size || item.color)) {
+              const rawColorName = typeof item.color === 'object' ? item.color?.name : item.color;
+              matchedVariant =
+                prodVariants.find((v) => {
+                  const snap = variantOptionsSnapshotMap.get(v.id);
+                  if (!snap) return false;
+                  let matchSize = true;
+                  let matchColor = true;
+                  if (item.size) {
+                    matchSize = Object.entries(snap).some(
+                      ([k, val]) => k.toLowerCase() === 'size' && val.toLowerCase() === item.size!.toLowerCase()
+                    );
+                  }
+                  if (rawColorName) {
+                    matchColor = Object.entries(snap).some(
+                      ([k, val]) =>
+                        k.toLowerCase() === 'color' &&
+                        val.toLowerCase() === String(rawColorName).toLowerCase()
+                    );
+                  }
+                  return matchSize && matchColor;
+                }) || null;
+            }
           }
+
+          // Section 4.C Validation:
+          if (!matchedVariant) {
+            stockErrors.push(`Please select an available variant for "${dbProd.title || item.product.title}".`);
+            continue;
+          }
+
+          if (matchedVariant.product_id !== dbProd.id) {
+            stockErrors.push(`Selected variant does not belong to product "${dbProd.title}".`);
+            continue;
+          }
+
+          if (!matchedVariant.is_active) {
+            stockErrors.push(`The selected variant for "${dbProd.title}" is currently inactive/unavailable.`);
+            continue;
+          }
+
+          const vStock = Math.max(0, Number(matchedVariant.quantity) || 0);
+          if (vStock < actualQty) {
+            stockErrors.push(`Insufficient stock for "${dbProd.title}" (only ${vStock} remaining).`);
+            continue;
+          }
+
+          // Authoritative variant selling price (do NOT trust client-provided price)
+          const actualPrice = parseFiniteAmount(
+            matchedVariant.selling_price ?? dbProd.selling_price ?? item.product.price,
+            0
+          );
+          if (actualPrice <= 0) {
+            stockErrors.push(`Price is not properly configured for "${dbProd.title}".`);
+            continue;
+          }
+
+          const subtotal = Math.round(actualPrice * actualQty * 100) / 100;
+          itemsSubtotalSum = Math.round((itemsSubtotalSum + subtotal) * 100) / 100;
+
+          const sId = dbProd.seller_id;
+          const currSellerTotal = sellerSubtotals.get(sId) || 0;
+          sellerSubtotals.set(sId, Math.round((currSellerTotal + subtotal) * 100) / 100);
+
+          // Get DB dynamic options snapshot
+          const dbOptionsSnapshot =
+            variantOptionsSnapshotMap.get(matchedVariant.id) ||
+            item.variant_options ||
+            (item.product as any)?.variantOptions ||
+            {};
+
+          // Preserve backward-compatible size and color fields
+          let resolvedSize: string | null = item.size?.trim() || null;
+          let resolvedColor: string | null =
+            (typeof item.color === 'object' ? item.color?.name : item.color)?.trim() || null;
+
+          for (const [k, val] of Object.entries(dbOptionsSnapshot)) {
+            if (k.trim().toLowerCase() === 'size' && val) resolvedSize = String(val).trim().slice(0, 50);
+            if (k.trim().toLowerCase() === 'color' && val) resolvedColor = String(val).trim().slice(0, 100);
+          }
+
+          preparedOrderItems.push({
+            product_id: dbProd.id,
+            seller_id: sId,
+            product_title: (dbProd.title?.trim() || item.product.title?.trim() || 'Product').slice(0, 255),
+            brand: (dbProd.brand?.trim() || item.product.brand?.trim() || 'Brand').slice(0, 255),
+            size: resolvedSize,
+            color: resolvedColor,
+            quantity: actualQty,
+            price: actualPrice,
+            subtotal: subtotal,
+            variant_id: matchedVariant.id,
+            variant_sku_snapshot: matchedVariant.sku ? String(matchedVariant.sku).trim().slice(0, 100) : null,
+            variant_options_snapshot: dbOptionsSnapshot,
+          });
+
+        } else {
+          // A. Simple inventory products: variant_id=NULL, variant_sku=NULL, snapshot={}
+          if (dbProd.quantity !== null && Number(dbProd.quantity) < actualQty) {
+            stockErrors.push(`Insufficient stock for "${dbProd.title}" (only ${dbProd.quantity} remaining).`);
+            continue;
+          }
+
+          const actualPrice = parseFiniteAmount(
+            dbProd.selling_price ?? item.product.price,
+            0
+          );
+          if (actualPrice <= 0) {
+            stockErrors.push(`Price is not properly configured for "${dbProd.title}".`);
+            continue;
+          }
+
+          const subtotal = Math.round(actualPrice * actualQty * 100) / 100;
+          itemsSubtotalSum = Math.round((itemsSubtotalSum + subtotal) * 100) / 100;
+
+          const sId = dbProd.seller_id;
+          const currSellerTotal = sellerSubtotals.get(sId) || 0;
+          sellerSubtotals.set(sId, Math.round((currSellerTotal + subtotal) * 100) / 100);
+
+          const rawSize =
+            typeof item.size === 'string' && item.size.trim().length > 0
+              ? item.size.trim().slice(0, 50)
+              : null;
+
+          let rawColor: string | null = null;
+          if (item.color) {
+            if (typeof item.color === 'object' && item.color?.name) {
+              rawColor = String(item.color.name).trim().slice(0, 100);
+            } else if (typeof (item.color as any) === 'string') {
+              rawColor = String(item.color).trim().slice(0, 100);
+            }
+          }
+
+          preparedOrderItems.push({
+            product_id: dbProd.id,
+            seller_id: sId,
+            product_title: (dbProd.title?.trim() || item.product.title?.trim() || 'Product').slice(0, 255),
+            brand: (dbProd.brand?.trim() || item.product.brand?.trim() || 'Brand').slice(0, 255),
+            size: rawSize,
+            color: rawColor,
+            quantity: actualQty,
+            price: actualPrice,
+            subtotal: subtotal,
+            variant_id: null,
+            variant_sku_snapshot: null,
+            variant_options_snapshot: {},
+          });
         }
       }
 
@@ -520,75 +752,62 @@ export async function placeOrder({
         };
       }
 
-      // Step 2: Calculate pricing using original_retail_price as THE primary price
-      const sellerSubtotals = new Map<string, number>();
-      let itemsSubtotalSum = 0;
+      // Calculate total shipping amount across all sellers
+      const totalShippingAmount = Math.round(
+        Array.from(sellerSubtotals.keys()).reduce((sum, sId) => {
+          const pData = sellerPayments?.[sId];
+          return sum + parseFiniteAmount(pData?.shippingFee, 150);
+        }, 0) * 100
+      ) / 100;
 
-      const preparedOrderItems: any[] = [];
+      const grandTotalAmount = Math.round((itemsSubtotalSum + totalShippingAmount) * 100) / 100;
 
-      for (const item of dbItems) {
-        const dbProd = prodMap.get(item.product.id)!;
-        const actualPrice = Number(dbProd.original_retail_price || dbProd.surplus_selling_price) || item.product.price;
-        const subtotal = actualPrice * item.quantity;
-        itemsSubtotalSum += subtotal;
+      // Step 3: Insert Main Order Record with retry on order_number unique constraint violation (code 23505)
+      let orderId = '';
+      let finalOrderNumber = '';
+      let orderErr: any = null;
 
-        const sId = dbProd.seller_id;
-        const currSellerTotal = sellerSubtotals.get(sId) || 0;
-        sellerSubtotals.set(sId, currSellerTotal + subtotal);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        finalOrderNumber = generateOrderNumber();
+        const { data: orderData, error } = await supabase
+          .from('orders')
+          .insert({
+            order_number: finalOrderNumber,
+            user_id: userId && isValidUUID(userId) ? userId : null,
+            customer_name: customerInfo.fullName.trim().slice(0, 255),
+            customer_email: customerInfo.email.trim().slice(0, 255),
+            customer_phone: customerInfo.phone.trim().slice(0, 50),
+            shipping_address: customerInfo.address.trim(),
+            city: customerInfo.city.trim().slice(0, 100),
+            postal_code: cleanPostalCode,
+            shipping_amount: totalShippingAmount,
+            total_amount: grandTotalAmount,
+            payment_status: 'Pending',
+            order_status: 'Pending',
+          })
+          .select('id')
+          .single();
 
-        const { size: resolvedSize, color: resolvedColor } =
-          resolveOrderItemVariantAndColor(item, dbProd);
+        if (!error && orderData?.id) {
+          orderId = orderData.id;
+          orderErr = null;
+          break;
+        }
 
-        preparedOrderItems.push({
-          product_id: dbProd.id,
-          seller_id: sId,
-          product_title: dbProd.suit_title || item.product.title,
-          brand: dbProd.brand || item.product.brand || 'Brand',
-          size: resolvedSize,
-          color: resolvedColor,
-          quantity: item.quantity,
-          price: actualPrice,
-          subtotal: subtotal,
-        });
+        orderErr = error;
+        if (error?.code === '23505') {
+          continue;
+        }
+        break;
       }
 
-      // Calculate total shipping amount across all sellers
-      const totalShippingAmount = Array.from(sellerSubtotals.keys()).reduce((sum, sId) => {
-        const pData = sellerPayments?.[sId];
-        return sum + (pData?.shippingFee ?? 150);
-      }, 0);
-
-      const grandTotalAmount = itemsSubtotalSum + totalShippingAmount;
-
-      // Insert Main Order Record (orders.payment_method is NOT inserted)
-      const { data: orderData, error: orderErr } = await supabase
-        .from('orders')
-        .insert({
-          order_number: orderNumber,
-          user_id: userId && isValidUUID(userId) ? userId : null,
-          customer_name: customerInfo.fullName.trim(),
-          customer_email: customerInfo.email.trim(),
-          customer_phone: customerInfo.phone.trim(),
-          shipping_address: customerInfo.address.trim(),
-          city: customerInfo.city.trim(),
-          postal_code: cleanPostalCode,
-          shipping_amount: totalShippingAmount,
-          total_amount: grandTotalAmount,
-          payment_status: 'Pending',
-          order_status: 'Pending',
-        })
-        .select('id')
-        .single();
-
-      if (orderErr || !orderData) {
+      if (orderErr || !orderId) {
         console.error('Error inserting into orders:', orderErr?.message || orderErr?.details || orderErr);
         return {
           success: false,
           error: orderErr?.message || 'Failed to create order record.',
         };
       }
-
-      const orderId = orderData.id;
 
       // Rollback helper in case subsequent operations fail
       const rollbackOrder = async () => {
@@ -601,7 +820,7 @@ export async function placeOrder({
         }
       };
 
-      // Step 2: Insert Order Items (Matching public.order_items schema)
+      // Step 4: Insert Order Items (Matching public.order_items schema)
       const orderItemsToInsert = preparedOrderItems.map((oi) => ({
         order_id: orderId,
         product_id: oi.product_id,
@@ -613,14 +832,37 @@ export async function placeOrder({
         subtotal: oi.subtotal,
         size: oi.size ?? null,
         color: oi.color ?? null,
+        variant_id: oi.variant_id ?? null,
+        variant_sku_snapshot: oi.variant_sku_snapshot ?? null,
+        variant_options_snapshot: oi.variant_options_snapshot ?? {},
       }));
 
-      const { error: itemsErr } = await supabase
+      let { error: itemsErr } = await supabase
         .from('order_items')
         .insert(orderItemsToInsert);
 
+      // Graceful fallback if migration 20261113_add_variant_to_order_items.sql is not yet executed in Supabase
+      if (
+        itemsErr &&
+        (itemsErr.message?.includes('variant_id') ||
+          itemsErr.message?.includes('variant_sku_snapshot') ||
+          itemsErr.message?.includes('variant_options_snapshot') ||
+          (itemsErr as any).code === '42703')
+      ) {
+        console.warn(
+          'Notice: order_items table does not yet have variant columns (variant_id, variant_sku_snapshot, variant_options_snapshot). ' +
+            'Falling back to insert without them.',
+          itemsErr.message
+        );
+        const fallbackItems = orderItemsToInsert.map(
+          ({ variant_id, variant_sku_snapshot, variant_options_snapshot, ...rest }: any) => rest
+        );
+        const fallbackRes = await supabase.from('order_items').insert(fallbackItems);
+        itemsErr = fallbackRes.error;
+      }
+
       if (itemsErr) {
-        const errMsg = itemsErr.message || itemsErr.details || JSON.stringify(itemsErr);
+        const errMsg = itemsErr.message || (itemsErr as any).details || JSON.stringify(itemsErr);
         console.error('Error inserting order items:', errMsg);
         await rollbackOrder();
         return {
@@ -629,7 +871,7 @@ export async function placeOrder({
         };
       }
 
-      // Step 3: Insert Seller Orders with per-seller payment fields
+      // Step 5: Insert Seller Orders (Exactly ONE row per distinct seller)
       const sellerOrdersToInsert = Array.from(sellerSubtotals.entries()).map(([sId, sTotal]) => {
         const pData = sellerPayments?.[sId];
         const rawMethod = pData?.paymentMethod || 'COD';
@@ -642,14 +884,14 @@ export async function placeOrder({
               : PAYMENT_METHOD_DB.DC;
 
         const isAdvance = rawMethod === 'FULL' || rawMethod === 'DC';
-        const sellerShipping = pData?.shippingFee ?? 150;
+        const sellerShipping = parseFiniteAmount(pData?.shippingFee, 150);
         const proofUrl = isAdvance ? (pData?.paymentProofUrl || null) : null;
         const shippingPaymentStatus = isAdvance ? 'Pending' : null;
 
         return {
           order_id: orderId,
           seller_id: sId,
-          seller_total: sTotal,
+          seller_total: Math.round(sTotal * 100) / 100,
           shipping_amount: sellerShipping,
           payment_method: dbMethod,
           payment_proof_url: proofUrl,
@@ -672,46 +914,7 @@ export async function placeOrder({
         };
       }
 
-      // Step 4: Deduct Variant Quantities & Update Product Status
-      for (const [vId, newQty] of variantQtyTracker.entries()) {
-        const prodVariantOrig = dbProducts
-          .flatMap((p) => p.product_variants || [])
-          .find((v: any) => v.id === vId);
-
-        if (prodVariantOrig && Number(prodVariantOrig.quantity) !== newQty) {
-          await supabase
-            .from('product_variants')
-            .update({ quantity: Math.max(0, newQty), updated_at: new Date().toISOString() })
-            .eq('id', vId);
-        }
-      }
-
-      // Check remaining stock across variants to update product status if sold out
-      for (const prodId of productIds) {
-        const { data: remainingVariants } = await supabase
-          .from('product_variants')
-          .select('quantity')
-          .eq('product_id', prodId);
-
-        if (remainingVariants && remainingVariants.length > 0) {
-          const totalRemaining = remainingVariants.reduce(
-            (sum: number, v: any) => sum + (Number(v.quantity) || 0),
-            0
-          );
-
-          if (totalRemaining === 0) {
-            await supabase
-              .from('products')
-              .update({
-                status: 'Sold Out',
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', prodId);
-          }
-        }
-      }
-
-      // Step 5: Clear DB Cart items for authenticated user
+      // Step 6: Clear DB Cart items for authenticated user
       if (userId && isValidUUID(userId)) {
         try {
           const { data: cart } = await supabase
@@ -735,11 +938,14 @@ export async function placeOrder({
       return {
         success: true,
         orderId,
-        orderNumber,
+        orderNumber: finalOrderNumber,
         orderItems: preparedOrderItems.map((oi) => ({
           product_id: oi.product_id,
           size: oi.size ?? null,
           color: oi.color ?? null,
+          variant_id: oi.variant_id ?? null,
+          variant_sku_snapshot: oi.variant_sku_snapshot ?? null,
+          variant_options_snapshot: oi.variant_options_snapshot ?? {},
         })),
       };
     } catch (err: any) {
@@ -752,10 +958,11 @@ export async function placeOrder({
   }
 
   // Fallback for mock items mode
+  const fallbackOrderNumber = generateOrderNumber();
   return {
     success: true,
-    orderId: orderNumber,
-    orderNumber: orderNumber,
+    orderId: fallbackOrderNumber,
+    orderNumber: fallbackOrderNumber,
   };
 }
 
@@ -781,6 +988,9 @@ export interface FetchedOrderSummary {
     brand: string;
     size?: string | null;
     color?: string | null;
+    variantId?: string | null;
+    variantSku?: string | null;
+    variantOptions?: Record<string, string> | null;
     quantity: number;
     price: number;
     subtotal: number;
@@ -844,6 +1054,9 @@ export async function fetchOrderByIdOrNumber(orderIdOrNumber: string): Promise<F
         brand: item.brand || 'Zebaish',
         size: item.size ?? null,
         color: item.color ?? null,
+        variantId: item.variant_id ?? null,
+        variantSku: item.variant_sku_snapshot ?? null,
+        variantOptions: item.variant_options_snapshot ?? {},
         quantity: Number(item.quantity) || 1,
         price: Number(item.price) || 0,
         subtotal: Number(item.subtotal) || 0,
@@ -962,9 +1175,9 @@ export async function trackOrderByNumber(orderNumberInput: string): Promise<{ da
           subtotal,
           products (
             id,
-            suit_title,
+            title,
             brand,
-            category,
+            category_id,
             product_images ( image_url, is_thumbnail )
           )
         )
@@ -999,7 +1212,7 @@ export async function trackOrderByNumber(orderNumberInput: string): Promise<{ da
 
       return {
         productId: item.product_id || '',
-        title: item.product_title || (prod && prod.suit_title) || 'Designer Suit Item',
+        title: item.product_title || (prod && (prod.title || prod.suit_title)) || 'Product',
         brand: item.brand || (prod && prod.brand) || 'Zebaish',
         quantity: Number(item.quantity) || 1,
         price: Number(item.price) || 0,

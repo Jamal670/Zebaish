@@ -1,0 +1,1 @@
+Next.js 16 marketplace application wiring public storefront pages, shared React contexts/components, and Supabase-backed seller/order RPCs into a single app with a shared TypeScript contract.

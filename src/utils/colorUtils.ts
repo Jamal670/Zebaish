@@ -106,20 +106,39 @@ export interface CartLineKeyParams {
   productId?: string;
   size?: string | null;
   color?: { id?: string } | null;
+  variant_id?: string | null;
+  variantId?: string | null;
 }
 
 /**
  * Generates a stable unique line-key for cart items:
- * `${productId}:${size ?? ''}:${color?.id ?? ''}`
- * Distinguishes different colors and sizes of the same product.
+ * If a variant is selected: `${productId}:variant:${variantId}`
+ * Otherwise: `${productId}:${size ?? ''}:${color?.id ?? ''}`
+ * Distinguishes different variants, colors and sizes of the same product.
  */
 export function getCartLineKey(
-  item: CartLineKeyParams | { product?: { id?: string }; size?: string | null; color?: { id?: string } | null }
+  item:
+    | CartLineKeyParams
+    | {
+        product?: { id?: string; variantId?: string };
+        size?: string | null;
+        color?: { id?: string } | null;
+        variant_id?: string | null;
+        variantId?: string | null;
+      }
 ): string {
   const pId =
     'product' in item && item.product?.id
       ? item.product.id
       : (item as CartLineKeyParams).productId ?? '';
+  const vId =
+    (item as any).variant_id ||
+    (item as any).variantId ||
+    ('product' in item && (item.product as any)?.variantId) ||
+    '';
+  if (vId) {
+    return `${pId}:variant:${vId}`;
+  }
   const size = (item.size && item.size.trim()) || 'Unstitched';
   const colorId = item.color?.id ?? '';
   return `${pId}:${size}:${colorId}`;

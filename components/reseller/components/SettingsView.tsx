@@ -160,7 +160,7 @@ export function PersonalBusinessInfoForm({
       let finalUploadedUrl: string | undefined = undefined;
 
       if (avatarFile) {
-        finalUploadedUrl = await uploadSellerAvatar(sellerId, avatarFile);
+        finalUploadedUrl = await uploadSellerAvatar(sellerId, avatarFile, form.shop_name || seller?.shop_name);
       }
 
       // SECTION B: Exclude shop_name, cnic, email, phone from updatePayload!
@@ -1132,7 +1132,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
 
     try {
       // Execute auto-upload and save directly to sellers table
-      const res = await autoUploadAndSaveSellerAvatar(sellerId, file, previousPreview);
+      const res = await autoUploadAndSaveSellerAvatar(sellerId, file, previousPreview, seller?.shop_name);
 
       if (!res.success || !res.newUrl) {
         throw new Error(res.error || 'Failed to upload profile image.');
@@ -1234,22 +1234,67 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
     e.preventDefault();
     if (!validatePasswordForm()) return;
 
+    const effectiveSellerId = sellerId || user?.id || resellerProfile?.id;
+    if (!effectiveSellerId) {
+      showToast('Unable to determine seller ID. Please reload the page.', 'error');
+      return;
+    }
+
     setUpdatingPassword(true);
 
     try {
-      const res = await updateSellerPassword(passData.currentPassword, passData.newPassword);
+      // 1. Verify current password if applicable
+      // If seller already has plain-text password stored, verify against it; otherwise verify via Supabase Auth
+      if (seller?.password && seller.password.trim() !== '') {
+        if (seller.password !== passData.currentPassword) {
+          setPassErrors({ currentPassword: 'Current password verification failed. Please check your current password.' });
+          showToast('Current password verification failed. Please check your current password.', 'error');
+          setUpdatingPassword(false);
+          return;
+        }
+        // Keep Supabase Auth in sync in background if user is authenticated
+        if (user?.email) {
+          supabase.auth.updateUser({ password: passData.newPassword }).catch((err) => {
+            console.warn('Supabase Auth password sync notice:', err);
+          });
+        }
+      } else {
+        // Fallback to Supabase Auth verification
+        const res = await updateSellerPassword(passData.currentPassword, passData.newPassword);
+        if (!res.success) {
+          setPassErrors({ currentPassword: res.error || 'Password update failed.' });
+          showToast(res.error || 'Failed to update password.', 'error');
+          setUpdatingPassword(false);
+          return;
+        }
+      }
 
-      if (!res.success) {
-        setPassErrors({ currentPassword: res.error || 'Password update failed.' });
-        showToast(res.error || 'Failed to update password.', 'error');
+      // 2. Direct save of new password to sellers collection as plain text
+      // TODO: TEMPORARY - plain text save (developer requirement). Hash before production.
+      const { error: sellerUpdateError } = await supabase
+        .from('sellers')
+        .update({
+          password: passData.newPassword,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', effectiveSellerId);
+
+      if (sellerUpdateError) {
+        console.error('Error updating password in sellers table:', sellerUpdateError);
+        showToast(sellerUpdateError.message || 'Failed to save password in sellers table.', 'error');
         setUpdatingPassword(false);
         return;
       }
 
+      // 3. Invalidate TanStack Query caches to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ['seller', effectiveSellerId] });
+      queryClient.invalidateQueries({ queryKey: ['sellerFullProfile', effectiveSellerId] });
+      refetch();
+
       setUpdatingPassword(false);
       setPassData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setPassErrors({});
-      showToast('Security Password updated successfully!');
+      showToast('Password updated successfully!');
     } catch (err: any) {
       console.error('Password update error:', err);
       showToast(err?.message || 'Failed to update password.', 'error');
@@ -1479,7 +1524,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   required
                   placeholder="Enter current password"
                   value={passData.currentPassword}
-                  onChange={(e) => setPassData({ ...passData, currentPassword: e.target.value })}
+                  onChange={(e) => {
+                    setPassData((prev) => ({ ...prev, currentPassword: e.target.value }));
+                    if (passErrors.currentPassword) setPassErrors((prev) => ({ ...prev, currentPassword: '' }));
+                  }}
                   className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${passErrors.currentPassword
                       ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
@@ -1508,7 +1556,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   required
                   placeholder="Minimum 6 characters"
                   value={passData.newPassword}
-                  onChange={(e) => setPassData({ ...passData, newPassword: e.target.value })}
+                  onChange={(e) => {
+                    setPassData((prev) => ({ ...prev, newPassword: e.target.value }));
+                    if (passErrors.newPassword) setPassErrors((prev) => ({ ...prev, newPassword: '' }));
+                  }}
                   className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${passErrors.newPassword
                       ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
@@ -1537,7 +1588,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   required
                   placeholder="Re-enter new password"
                   value={passData.confirmPassword}
-                  onChange={(e) => setPassData({ ...passData, confirmPassword: e.target.value })}
+                  onChange={(e) => {
+                    setPassData((prev) => ({ ...prev, confirmPassword: e.target.value }));
+                    if (passErrors.confirmPassword) setPassErrors((prev) => ({ ...prev, confirmPassword: '' }));
+                  }}
                   className={`w-full p-3 pr-10 border rounded-lg focus:outline-none focus:ring-1 transition-all min-h-[42px] ${passErrors.confirmPassword
                       ? 'border-red-400 focus:border-red-600 focus:ring-red-600 bg-red-50/20'
                       : 'border-stone-300 focus:border-stone-900 focus:ring-stone-900 bg-white'
@@ -1572,8 +1626,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ setStoreSettings }) 
                   </>
                 ) : (
                   <>
-                    <Save className="w-4 h-4 text-amber-400" />
-                    <span>Save Changes</span>
+                    <KeyRound className="w-4 h-4 text-amber-400" />
+                    <span>Update Password</span>
                   </>
                 )}
               </button>

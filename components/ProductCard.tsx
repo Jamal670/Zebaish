@@ -13,6 +13,11 @@ interface ProductCardProps {
   onSelectProduct?: (product: Product) => void;
   onSelectReseller?: (resellerId: string) => void;
   priority?: boolean;
+  /**
+   * `brand` renders the title with the brand line's typography (small, bold, uppercase).
+   * Used by the storefront, whose products have no brand to show.
+   */
+  titleVariant?: 'default' | 'brand';
 }
 
 export const ProductCard: React.FC<ProductCardProps> = React.memo(({
@@ -24,6 +29,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
   onSelectProduct,
   onSelectReseller,
   priority = false,
+  titleVariant = 'default',
 }) => {
   const router = useRouter();
 
@@ -51,6 +57,9 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
     (product.discountPercentage && product.discountPercentage > 0) ||
     (retailPrice > surplusPrice)
   );
+
+  // A product without a resolvable price renders "—" instead of "PKR 0"
+  const hasPrice = Number.isFinite(surplusPrice) && surplusPrice > 0;
 
   // Compute clean single badge logic to prevent cluttered overlapping badges
   const getCleanBadge = () => {
@@ -213,7 +222,11 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
 
           <h3
             onClick={handleClick}
-            className="text-xs sm:text-sm font-normal text-stone-800 line-clamp-1 sm:line-clamp-2 hover:text-black cursor-pointer transition-colors leading-snug"
+            className={
+              titleVariant === 'brand'
+                ? 'text-[10px] sm:text-[11px] font-bold tracking-widest text-stone-900 uppercase truncate hover:text-black cursor-pointer transition-colors'
+                : 'text-xs sm:text-sm font-normal text-stone-800 line-clamp-1 sm:line-clamp-2 hover:text-black cursor-pointer transition-colors leading-snug'
+            }
           >
             {product.title}
           </h3>
@@ -223,9 +236,9 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({
         <div className="mt-2 pt-2 border-t border-stone-100 flex flex-col space-y-1">
           <div className="flex items-baseline space-x-1.5">
             <p className="text-xs sm:text-sm font-bold text-stone-900 tracking-tight">
-              {product.currency} {surplusPrice.toLocaleString()}
+              {hasPrice ? `${product.currency} ${surplusPrice.toLocaleString()}` : '—'}
             </p>
-            {hasDiscount && (
+            {hasPrice && hasDiscount && (
               <p className="text-[10px] sm:text-[11px] text-stone-400 font-normal line-through">
                 {product.currency} {retailPrice.toLocaleString()}
               </p>

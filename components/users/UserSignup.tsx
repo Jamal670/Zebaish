@@ -69,13 +69,6 @@ export const UserSignup: React.FC<UserSignupProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (user) {
-      onSignupSuccess();
-    }
-  }, [user, onSignupSuccess]);
-
   const handleGoogleSignup = async () => {
     setErrorMessage(null);
     setGoogleLoading(true);
@@ -218,6 +211,14 @@ export const UserSignup: React.FC<UserSignupProps> = ({
       }
 
       const createdUser = authData?.user;
+
+      // Handle obfuscated duplicate user from Supabase Auth
+      if (createdUser && createdUser.identities && createdUser.identities.length === 0) {
+        setErrorMessage('An account with this email address is already registered. Please log in instead.');
+        setErrors((prev) => ({ ...prev, email: 'Email address is already registered.' }));
+        setLoading(false);
+        return;
+      }
 
       if (createdUser) {
         // 2. Insert into public.users table

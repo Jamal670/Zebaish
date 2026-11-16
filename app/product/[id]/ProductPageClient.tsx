@@ -10,13 +10,16 @@ import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { formatStoreSlug } from '@/src/api/sellerService';
 
+const EMPTY_REVIEWS: any[] = [];
+
 interface ProductPageClientProps {
   productId: string;
 }
 
 export function ProductPageClient({ productId }: ProductPageClientProps) {
   const router = useRouter();
-  const { data, isLoading, isError } = useProductQuery(productId);
+  const { data, isLoading, isError, refetch } = useProductQuery(productId);
+  const queryData: any = data;
 
   const {
     handleAddToCart,
@@ -24,21 +27,31 @@ export function ProductPageClient({ productId }: ProductPageClientProps) {
     wishlistIds,
   } = useApp();
 
-  if (isLoading) {
+  if (isLoading && !queryData?.product) {
+    return <ProductDetailPage productId={productId} isLoading={true} onAddToCart={() => {}} onToggleWishlist={() => {}} isWishlisted={false} onSelectProduct={() => {}} onNavigateHome={() => router.push('/')} onNavigateCollection={() => router.push('/shop')} />;
+  }
+
+  const product = queryData?.product;
+  const reviews = queryData?.reviews || EMPTY_REVIEWS;
+
+  if (isError || (queryData?.error && !product)) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6 space-y-3">
-        <Loader2 className="w-8 h-8 animate-spin text-stone-800" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-stone-600">
-          Loading Product Details...
+      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6 space-y-4">
+        <h2 className="text-2xl font-bold text-stone-900">Failed to Load Product</h2>
+        <p className="text-stone-500 max-w-md">
+          {queryData?.error || 'An error occurred while fetching product details. Please try again.'}
         </p>
+        <button
+          onClick={() => refetch()}
+          className="px-6 py-2.5 bg-stone-900 text-white rounded-md text-sm font-semibold uppercase tracking-wider hover:bg-black transition-colors cursor-pointer"
+        >
+          Retry
+        </button>
       </div>
     );
   }
 
-  const product = data?.product;
-  const reviews = data?.reviews || [];
-
-  if (isError || !product) {
+  if (queryData?.notFound || !product) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-6">
         <h2 className="text-2xl font-bold mb-2">Product Not Found</h2>

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { SellerOrderDetail, SellerOrderStatus } from '@/types';
+import React, { useEffect, useState, useMemo } from 'react';
+import { SellerOrderDetail, SellerOrderItemDetail, SellerOrderStatus } from '@/types';
 import { fetchSellerOrderDetail } from '@/src/api/sellerOrdersService';
 import { StatusDropdown } from './StatusDropdown';
 import { formatPaymentMethod } from './OrdersTable';
@@ -59,6 +59,69 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
       isMounted = false;
     };
   }, [isOpen, orderId, sellerId]);
+
+  // Group items by product_id so each unique product has its own dynamic headers
+  const productGroups = useMemo(() => {
+    if (!detail?.items || detail.items.length === 0) return [];
+
+    const map = new Map<
+      string,
+      {
+        productId: string;
+        productTitle: string;
+        items: SellerOrderItemDetail[];
+        optionKeys: string[];
+      }
+    >();
+
+    detail.items.forEach((item) => {
+      const pId = item.product_id || item.id;
+      if (!map.has(pId)) {
+        map.set(pId, {
+          productId: pId,
+          productTitle: item.product_title || 'Product',
+          items: [],
+          optionKeys: [],
+        });
+      }
+      map.get(pId)!.items.push(item);
+    });
+
+    map.forEach((group) => {
+      const keysSet = new Set<string>();
+      group.items.forEach((item) => {
+        let snap = item.variant_options_snapshot;
+        if (typeof snap === 'string') {
+          try {
+            snap = JSON.parse(snap);
+          } catch {
+            snap = null;
+          }
+        }
+        if (snap && typeof snap === 'object') {
+          Object.keys(snap).forEach((k) => {
+            if (k && k.trim()) keysSet.add(k.trim());
+          });
+        }
+      });
+
+      // If no dynamic options snapshot exists, check legacy size/color
+      if (keysSet.size === 0) {
+        const hasLegacySize = group.items.some(
+          (it) => it.size && it.size.trim() && it.size.toLowerCase() !== 'unstitched' && it.size !== '—'
+        );
+        const hasLegacyColor = group.items.some(
+          (it) => it.color && it.color.trim() && it.color !== '—'
+        );
+        if (hasLegacySize) keysSet.add('Size');
+        if (hasLegacyColor) keysSet.add('Color');
+      }
+
+      group.optionKeys = Array.from(keysSet);
+    });
+
+    return Array.from(map.values());
+  }, [detail?.items]);
 
   if (!isOpen) return null;
 
@@ -236,7 +299,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </div>
               </div>
 
-              {/* SECTION 4: ITEMS ORDERED */}
+              {/* SECTION 4: ITEMS PURCHASED */}
               <div className="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-2xs">
                 <div className="bg-stone-50 px-3.5 py-2.5 sm:px-4 sm:py-3 border-b border-stone-200 flex items-center justify-between">
                   <h3 className="text-xs sm:text-sm font-bold text-stone-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -250,50 +313,127 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                   </span>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs sm:text-sm min-w-[650px]">
-                    <thead className="bg-stone-100/70 border-b border-stone-200 text-stone-600 font-bold uppercase tracking-wider text-2xs sm:text-xs whitespace-nowrap">
-                      <tr>
-                        <th className="py-2.5 px-3 sm:py-3 sm:px-4">Product Title</th>
-                        <th className="py-2.5 px-3 sm:py-3 sm:px-4">Brand</th>
-                        <th className="py-2.5 px-3 sm:py-3 sm:px-4">Size</th>
-                        <th className="py-2.5 px-3 sm:py-3 sm:px-4">Color</th>
-                        <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-center">Qty</th>
-                        <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-right">Unit Price</th>
-                        <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-right">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-stone-100 text-xs sm:text-sm lg:text-base">
-                      {detail.items.map((item) => {
-                        const isUnstitched =
-                          (item.category || '').trim().toLowerCase() === 'unstitched' ||
-                          (item.size || '').trim().toLowerCase() === 'unstitched';
-                        const displaySize = isUnstitched ? '—' : (item.size?.trim() || '—');
+                <div className="overflow-x-auto divide-y divide-stone-200">
+                  {productGroups.map((group, groupIdx) => {
+                    const isMultipleProducts = productGroups.length > 1;
 
-                        return (
-                          <tr key={item.id} className="hover:bg-stone-50/50">
-                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 font-semibold text-stone-900">{item.product_title}</td>
-                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-500">{item.brand}</td>
-                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-600 whitespace-nowrap">{displaySize}</td>
-                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-600 whitespace-nowrap">{item.color?.trim() || '—'}</td>
-                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-center font-mono font-bold text-stone-800">{item.quantity}</td>
-                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono text-stone-700 whitespace-nowrap">Rs. {item.price.toLocaleString()}</td>
-                            <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">Rs. {item.subtotal.toLocaleString()}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot className="bg-stone-50 border-t border-stone-200 font-bold text-xs sm:text-sm">
-                      <tr>
-                        <td colSpan={6} className="py-2.5 px-3 sm:py-3 sm:px-4 text-right uppercase tracking-wider text-stone-600">
-                          Seller Share Subtotal:
-                        </td>
-                        <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono text-xs sm:text-sm lg:text-base text-stone-900 whitespace-nowrap">
-                          Rs. {detail.seller_total.toLocaleString()}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                    return (
+                      <div key={group.productId || groupIdx} className="w-full">
+                        {isMultipleProducts && (
+                          <div className="bg-stone-50/90 px-3.5 py-2 sm:px-4 sm:py-2.5 border-b border-stone-200 flex items-center justify-between text-2xs sm:text-xs">
+                            <span className="font-bold text-stone-800">
+                              Product: <span className="font-semibold text-stone-700">{group.productTitle}</span>
+                            </span>
+                            <span className="text-stone-500 font-mono">
+                              {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
+                            </span>
+                          </div>
+                        )}
+
+                        <table className="w-full text-left text-xs sm:text-sm min-w-[550px]">
+                          <thead className="bg-stone-100/70 border-b border-stone-200 text-stone-600 font-bold uppercase tracking-wider text-2xs sm:text-xs whitespace-nowrap">
+                            <tr>
+                              <th className="py-2.5 px-3 sm:py-3 sm:px-4">Product Title</th>
+                              {/* Dynamic Headers from variant_options_snapshot keys (e.g. Color, Size, Storage, RAM) */}
+                              {group.optionKeys.map((key) => (
+                                <th key={key} className="py-2.5 px-3 sm:py-3 sm:px-4">{key}</th>
+                              ))}
+                              <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-center">Qty</th>
+                              <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-right">Unit Price</th>
+                              <th className="py-2.5 px-3 sm:py-3 sm:px-4 text-right">Subtotal</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-stone-100 text-xs sm:text-sm lg:text-base">
+                            {group.items.map((item) => {
+                              let snap: Record<string, string> = {};
+                              if (typeof item.variant_options_snapshot === 'string') {
+                                try {
+                                  snap = JSON.parse(item.variant_options_snapshot);
+                                } catch {
+                                  snap = {};
+                                }
+                              } else if (item.variant_options_snapshot && typeof item.variant_options_snapshot === 'object') {
+                                snap = item.variant_options_snapshot;
+                              }
+
+                              const resolvedUnitPrice =
+                                item.variant_price !== undefined && item.variant_price !== null && item.variant_price > 0
+                                  ? item.variant_price
+                                  : item.price;
+                              const lineSubtotal = resolvedUnitPrice * item.quantity;
+
+                              return (
+                                <tr key={item.id} className="hover:bg-stone-50/50">
+                                  {/* Product Title & SKU */}
+                                  <td className="py-2.5 px-3 sm:py-3 sm:px-4 font-semibold text-stone-900">
+                                    <div>{item.product_title}</div>
+                                    {item.variant_sku_snapshot && (
+                                      <div className="text-[10px] text-stone-500 font-mono mt-0.5">
+                                        SKU: {item.variant_sku_snapshot}
+                                      </div>
+                                    )}
+                                  </td>
+
+                                  {/* Dynamic Variant Option Values */}
+                                  {group.optionKeys.map((key) => {
+                                    let displayVal = snap[key];
+                                    if (!displayVal) {
+                                      const matchingKey = Object.keys(snap).find(
+                                        (k) => k.toLowerCase() === key.toLowerCase()
+                                      );
+                                      if (matchingKey) displayVal = snap[matchingKey];
+                                    }
+                                    if (!displayVal) {
+                                      if (key.toLowerCase() === 'size') {
+                                        const isUnstitched =
+                                          (item.category || '').trim().toLowerCase() === 'unstitched' ||
+                                          (item.size || '').trim().toLowerCase() === 'unstitched';
+                                        displayVal = isUnstitched ? '—' : (item.size?.trim() || '—');
+                                      } else if (key.toLowerCase() === 'color') {
+                                        displayVal = item.color?.trim() || '—';
+                                      }
+                                    }
+
+                                    return (
+                                      <td
+                                        key={key}
+                                        className="py-2.5 px-3 sm:py-3 sm:px-4 text-stone-700 font-medium whitespace-nowrap"
+                                      >
+                                        {displayVal || '—'}
+                                      </td>
+                                    );
+                                  })}
+
+                                  {/* QTY from order_items */}
+                                  <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-center font-mono font-bold text-stone-800">
+                                    {item.quantity}
+                                  </td>
+
+                                  {/* Price from product_variants (or item.price fallback) */}
+                                  <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono text-stone-700 whitespace-nowrap">
+                                    Rs. {resolvedUnitPrice.toLocaleString()}
+                                  </td>
+
+                                  {/* Subtotal */}
+                                  <td className="py-2.5 px-3 sm:py-3 sm:px-4 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
+                                    Rs. {lineSubtotal.toLocaleString()}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Subtotal Footer */}
+                <div className="bg-stone-50 border-t border-stone-200 px-3.5 py-2.5 sm:px-4 sm:py-3 flex justify-between items-center text-xs sm:text-sm font-bold">
+                  <span className="uppercase tracking-wider text-stone-600">Seller Share Subtotal:</span>
+                  <span className="font-mono text-stone-900 text-xs sm:text-sm lg:text-base">
+                    Rs. {detail.seller_total.toLocaleString()}
+                  </span>
                 </div>
               </div>
 

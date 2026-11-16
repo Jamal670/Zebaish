@@ -2,46 +2,51 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Star, Calendar, CheckCircle2, ChevronRight, AlertCircle, Filter, X, Loader2 } from 'lucide-react';
 import { ProductCard } from './ProductCard';
-import { Product, Reseller } from '@/types';
-import { formatStoreSlug, isValidUUID } from '@/src/api/sellerService';
-import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import supabase from '@/src/api/client';
-import { MOCK_RESELLERS, ALL_PRODUCTS } from '@/data/mockData';
+import { Product } from '@/types';
+import { formatStoreSlug } from '@/src/api/sellerService';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import {
+  STOREFRONT_GC_TIME,
+  STOREFRONT_PAGE_SIZE,
+  STOREFRONT_PLACEHOLDER_IMAGE,
+  STOREFRONT_STALE_TIME,
+  StorefrontProduct,
+  StorefrontSort,
+  collectPendingVariantIds,
+  fetchSeller,
+  fetchSellerCategories,
+  fetchSellerProducts,
+  fetchVariantPrices,
+  groupCategoriesByName,
+  isActiveSellerStatus,
+  normalizeShopIdentifier,
+  pickThumbnailUrl,
+  resolveProductPrice,
+  summarizeRatings,
+} from '@/src/api/storefrontService';
 
-// Constants as specified in architecture requirements
-export const PAGE_SIZE = 8;
-export const CATEGORY_COLUMN = 'category';
+/** Department filtering is part of the drawer UI but stays disabled (no server-side column). */
 export const DEPARTMENT_FILTER_ENABLED = false;
-export const PUBLIC_SELLER_COLUMNS = 'id, shop_name, full_name, store_image_url, city, status, created_at';
 
-// Shared TanStack Query options: 5-minute cache, 10-minute gcTime, no window focus refetch, quick retry (1)
-export const STOREFRONT_QUERY_OPTIONS = {
-  staleTime: 5 * 60 * 1000, // 5 minutes
-  gcTime: 10 * 60 * 1000, // keep unused cache longer than staleTime
+/** Static header artwork: the schema has no banner or description column for sellers. */
+const STOREFRONT_BANNER_IMAGE =
+  'https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=1600&auto=format&fit=crop';
+const STOREFRONT_STORE_LOGO =
+  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
+const STOREFRONT_DESCRIPTION =
+  '';
+
+/** Shared TanStack Query options: 5-minute cache, 10-minute gcTime, quick retry (1). */
+const STOREFRONT_QUERY_OPTIONS = {
+  staleTime: STOREFRONT_STALE_TIME,
+  gcTime: STOREFRONT_GC_TIME,
   refetchOnWindowFocus: false,
   retry: 1,
 } as const;
 
-export interface CategoryFilterOption {
-  value: string;
-  label: string;
-}
-
-export const CATEGORY_FILTER_OPTIONS: CategoryFilterOption[] = [];
-
 export interface ResellerStorefrontFilterState {
-  sort: 'low-to-high' | 'high-to-low' | '';
+  sort: StorefrontSort;
   department: string;
-  subcategory: string;
-  /** @deprecated Kept for backwards compatibility */
-  category?: string;
-}
-
-export interface StorefrontSummaryRow {
-  category: string | null;
-  subcategory: string | null;
-  average_rating: number | null;
-  review_count: number | null;
 }
 
 interface ResellerStorefrontProps {
@@ -52,27 +57,6 @@ interface ResellerStorefrontProps {
   wishlistIds: string[];
   onSelectProduct: (product: Product) => void;
   onNavigateHome: () => void;
-  categoryOptions?: CategoryFilterOption[];
-}
-
-/**
- * Checks whether two product query keys share identical filter criteria (ignoring page).
- * Preserved for backwards compatibility.
- */
-export function sameFilters(prevKey: readonly unknown[], nextKey: readonly unknown[]): boolean {
-  if (!Array.isArray(prevKey) || !Array.isArray(nextKey)) return false;
-  if (prevKey[0] !== nextKey[0] || prevKey[1] !== nextKey[1] || prevKey[2] !== nextKey[2]) {
-    return false;
-  }
-  const prevFilters = prevKey[3] as { category?: string; subcategory?: string; sort?: string } | undefined;
-  const nextFilters = nextKey[3] as { category?: string; subcategory?: string; sort?: string } | undefined;
-  if (!prevFilters || !nextFilters) return false;
-
-  return (
-    prevFilters.category === nextFilters.category &&
-    prevFilters.subcategory === nextFilters.subcategory &&
-    prevFilters.sort === nextFilters.sort
-  );
 }
 
 /**
@@ -82,323 +66,103 @@ export function formatStoreDate(dateStr?: string | null): string {
   if (!dateStr) return 'Recently';
   try {
     const d = new Date(dateStr);
+    if (Number.isNaN(d.getTime())) return 'Recently';
     return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   } catch {
-    return String(dateStr);
+    return 'Recently';
   }
 }
 
 /**
- * Maps raw public seller record to the Reseller type using ONLY public display fields.
- * Private columns (email, cnic, phone, address, bank info) are never selected or exposed.
+ * Header rating copy. Null-safe: a seller with no approved reviews or no cached
+ * rating never renders `NaN` or `0.0`.
  */
-function mapPublicSeller(raw: any): Reseller {
-  const shop = raw.shop_name || raw.full_name || 'Seller';
-  return {
-    id: raw.id,
-    shopName: shop,
-    name: raw.full_name || shop,
-    store_image_url: raw.store_image_url || null,
-    logo: raw.store_image_url || 'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png',
-    banner: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=1600&auto=format&fit=crop',
-    city: raw.city || '',
-    joinedDate: formatStoreDate(raw.created_at),
-    status: raw.status || 'Active',
-    description: 'Authentic 100% original designer leftover suits directly sourced from factory overstocks.',
-    totalSales: 0,
-    rating: 0,
-    reviewCount: 0,
-  } as Reseller;
+function formatSellerRating(rating: number | null, reviewCount: number | null): string {
+  const count = typeof reviewCount === 'number' && Number.isFinite(reviewCount) && reviewCount > 0
+    ? Math.floor(reviewCount)
+    : 0;
+
+  if (rating === null || !Number.isFinite(rating) || count === 0) {
+    return 'No reviews yet';
+  }
+
+  const clamped = Math.min(Math.max(rating, 0), 5);
+  return `${clamped.toFixed(1)} / 5.0 (${count} ${count === 1 ? 'Review' : 'Reviews'})`;
 }
 
 /**
- * Request A: Fetch seller profile once selecting public display fields only.
- * Resolves by UUID or shop name / slug, with fallback for mock sellers.
+ * Maps one storefront row to the existing card model. Everything the card shows
+ * (thumbnail, title, price, rating) arrives in the same response, so a card is
+ * never blocked by a missing field.
  */
-export async function fetchPublicSeller(identifier: string): Promise<Reseller | null> {
-  if (!identifier) return null;
-  const decoded = decodeURIComponent(identifier).trim();
-  const normalized = formatStoreSlug(decoded);
-
-  // 1. If valid UUID, search sellers table by id selecting ONLY public display fields
-  if (isValidUUID(decoded)) {
-    const { data, error } = await supabase
-      .from('sellers')
-      .select(PUBLIC_SELLER_COLUMNS)
-      .eq('id', decoded)
-      .maybeSingle();
-
-    if (!error && data) {
-      return mapPublicSeller(data);
-    }
-  }
-
-  // 2. Case-insensitive exact match on shop_name selecting ONLY public display fields
-  const { data: byShopName, error: shopNameErr } = await supabase
-    .from('sellers')
-    .select(PUBLIC_SELLER_COLUMNS)
-    .ilike('shop_name', decoded)
-    .maybeSingle();
-
-  if (!shopNameErr && byShopName) {
-    return mapPublicSeller(byShopName);
-  }
-
-  // 3. Match normalized slug with spaces removed
-  const { data: allSellers } = await supabase
-    .from('sellers')
-    .select(PUBLIC_SELLER_COLUMNS);
-
-  if (allSellers && allSellers.length > 0) {
-    const matched = allSellers.find(
-      (s: any) => formatStoreSlug(s.shop_name) === normalized
-    );
-    if (matched) return mapPublicSeller(matched);
-  }
-
-  // 4. Try replacing hyphens or underscores with spaces
-  if (decoded.includes('-') || decoded.includes('_')) {
-    const spaceVariant = decoded.replace(/[-_]/g, ' ');
-    const { data: bySpace } = await supabase
-      .from('sellers')
-      .select(PUBLIC_SELLER_COLUMNS)
-      .ilike('shop_name', spaceVariant)
-      .maybeSingle();
-
-    if (bySpace) return mapPublicSeller(bySpace);
-  }
-
-  // 5. Fallback for demo mock resellers (reseller-1, reseller-2)
-  const mock = MOCK_RESELLERS.find(
-    (r) =>
-      formatStoreSlug(r.id) === normalized ||
-      formatStoreSlug(r.shopName) === normalized
-  );
-  if (mock) return mock;
-
-  return null;
-}
-
-/**
- * Request B: Fetch category summary once per seller.
- * Narrow select: category, subcategory, average_rating, review_count with status = 'Active'.
- */
-export async function fetchStorefrontSummary(sellerId: string): Promise<StorefrontSummaryRow[]> {
-  if (!sellerId) return [];
-
-  const isMock = MOCK_RESELLERS.some((r) => r.id === sellerId);
-  if (isMock || !isValidUUID(sellerId)) {
-    const mockProds = ALL_PRODUCTS.filter(
-      (p) => p.resellerId === sellerId || (!p.resellerId && sellerId === 'reseller-1')
-    );
-    if (mockProds.length > 0) {
-      return mockProds.map((p) => ({
-        category: p.category || null,
-        subcategory: (p as any).subcategory || null,
-        average_rating: Number(p.average_rating ?? p.averageRating ?? 0),
-        review_count: Number(p.review_count ?? p.reviewCount ?? 0),
-      }));
-    }
-  }
-
-  const { data, error } = await supabase
-    .from('products')
-    .select(`${CATEGORY_COLUMN}, subcategory, average_rating, review_count`)
-    .eq('seller_id', sellerId)
-    .eq('status', 'Active');
-
-  if (error) {
-    console.warn('Error fetching storefront summary:', error);
-    return [];
-  }
-
-  return (data || []) as StorefrontSummaryRow[];
-}
-
-/**
- * Request C: Products page query (8 rows per page).
- * Includes count: 'exact', server-side sorting, category/subcategory filters,
- * and thumbnail image limit 1 ordered by is_thumbnail descending.
- */
-export async function fetchStorefrontProductsPage(
-  sellerId: string,
-  options: {
-    category?: string;
-    subcategory?: string;
-    department?: string;
-    sort?: 'low-to-high' | 'high-to-low' | '';
-    page: number;
-  }
-): Promise<{ products: Product[]; count: number; outOfRange: boolean }> {
-  if (!sellerId) {
-    return { products: [], count: 0, outOfRange: false };
-  }
-
-  const isMock = MOCK_RESELLERS.some((r) => r.id === sellerId);
-  if (isMock || !isValidUUID(sellerId)) {
-    let list = ALL_PRODUCTS.filter(
-      (p) => p.resellerId === sellerId || (!p.resellerId && sellerId === 'reseller-1')
-    );
-
-    if (options.category && options.category.toLowerCase() !== 'all') {
-      list = list.filter((p) => p.category?.toLowerCase() === options.category!.toLowerCase());
-    }
-
-    if (options.subcategory) {
-      list = list.filter(
-        (p) =>
-          ((p as any).subcategory || '').toLowerCase() === options.subcategory!.toLowerCase()
-      );
-    }
-
-    if (options.sort === 'low-to-high') {
-      list = [...list].sort((a, b) => Number(a.price) - Number(b.price));
-    } else if (options.sort === 'high-to-low') {
-      list = [...list].sort((a, b) => Number(b.price) - Number(a.price));
-    }
-
-    const count = list.length;
-    const from = (options.page - 1) * PAGE_SIZE;
-    const paged = list.slice(from, from + PAGE_SIZE);
-
-    return {
-      products: paged.map((p) => ({
-        ...p,
-        surplus_selling_price: p.price,
-        original_retail_price: p.originalPrice || p.price,
-        stitchingStatus: p.category || undefined,
-      })),
-      count,
-      outOfRange: from >= count && count > 0,
-    };
-  }
-
-  const from = (options.page - 1) * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
-
-  let q = supabase
-    .from('products')
-    .select(
-      `id, suit_title, brand, ${CATEGORY_COLUMN}, subcategory, surplus_selling_price, original_retail_price, average_rating, review_count, created_at,
-       product_images(image_url, is_thumbnail)`,
-      { count: 'exact' }
-    )
-    .eq('seller_id', sellerId)
-    .eq('status', 'Active')
-    .order('is_thumbnail', { referencedTable: 'product_images', ascending: false })
-    .limit(1, { referencedTable: 'product_images' })
-    .range(from, to);
-
-  if (options.category && options.category.toLowerCase() !== 'all') {
-    q = q.eq(CATEGORY_COLUMN, options.category);
-  }
-
-  if (options.subcategory) {
-    q = q.eq('subcategory', options.subcategory);
-  }
-
-  if (DEPARTMENT_FILTER_ENABLED && options.department) {
-    q = q.eq('department', options.department);
-  }
-
-  if (options.sort === 'low-to-high') {
-    q = q.order('surplus_selling_price', { ascending: true }).order('id', { ascending: true });
-  } else if (options.sort === 'high-to-low') {
-    q = q.order('surplus_selling_price', { ascending: false }).order('id', { ascending: false });
-  } else {
-    q = q.order('created_at', { ascending: false }).order('id', { ascending: false });
-  }
-
-  const { data, count, error } = await q;
-
-  if (error) {
-    // Handle out-of-range pagination errors (HTTP 416 / PGRST103) safely
-    if (
-      error.code === 'PGRST103' ||
-      String(error.message).includes('416') ||
-      String(error.message).includes('range')
-    ) {
-      return { products: [], count: count ?? 0, outOfRange: true };
-    }
-    throw error;
-  }
-
-  const mappedProducts: Product[] = (data || []).map((row: any) => {
-    const rawThumbnail =
-      Array.isArray(row.product_images) && row.product_images.length > 0
-        ? row.product_images[0]?.image_url
-        : '';
-    const surplus = Number(row.surplus_selling_price) || 0;
-    const retail = Number(row.original_retail_price) || surplus;
-
-    return {
-      id: row.id,
-      title: row.suit_title || 'Untitled Listing',
-      brand: row.brand || '',
-      category: row.category || '',
-      subcategory: row.subcategory || '',
-      stitchingStatus: row.category || undefined,
-      price: surplus,
-      surplus_selling_price: surplus,
-      original_retail_price: retail,
-      originalPrice: retail,
-      currency: 'PKR',
-      image:
-        rawThumbnail ||
-        'https://images.unsplash.com/photo-1583391733956-6c78276477e2?q=80&w=800&auto=format&fit=crop',
-      average_rating: row.average_rating,
-      review_count: row.review_count,
-      resellerId: sellerId,
-    } as Product;
-  });
-
-  return { products: mappedProducts, count: count ?? 0, outOfRange: false };
-}
-
-/**
- * Computes pagination page numbers with ellipsis when total pages > 7.
- * Preserved for backwards compatibility.
- */
-export function getPaginationPages(currentPage: number, totalPages: number): (number | '...')[] {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
-  }
-
-  if (currentPage <= 4) {
-    return [1, 2, 3, 4, 5, '...', totalPages];
-  }
-
-  if (currentPage >= totalPages - 3) {
-    return [1, '...', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
-  }
-
-  return [1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages];
-}
-
-/**
- * Derives distinct category chip values from the loaded products array.
- * Preserved for backwards compatibility.
- */
-export function deriveCategoryChips(products: Product[]): string[] {
-  if (!Array.isArray(products) || products.length === 0) {
-    return ['All'];
-  }
-
-  const seen = new Set<string>();
-  const categories: string[] = [];
-
-  for (const product of products) {
-    const raw = typeof product.category === 'string' ? product.category.trim() : '';
-    if (raw) {
-      const lower = raw.toLowerCase();
-      if (!seen.has(lower)) {
-        seen.add(lower);
-        categories.push(raw);
+function mapProductToCard(
+  product: StorefrontProduct,
+  variantPrices?: Record<string, { min: number; max: number }>
+): Product {
+  // Fill a broken variant cache with the fallback prices, when they exist.
+  const fallback = variantPrices?.[product.id];
+  const priced: StorefrontProduct = fallback
+    ? {
+        ...product,
+        cached_min_variant_price: fallback.min,
+        cached_max_variant_price: fallback.max,
       }
+    : product;
+
+  const price = resolveProductPrice(priced);
+  const rating = summarizeRatings(product.reviews);
+  const image = pickThumbnailUrl(product.product_images) || STOREFRONT_PLACEHOLDER_IMAGE;
+
+  const card: Product = {
+    id: product.id,
+    title: (product.title || '').trim() || 'Untitled Listing',
+    brand: '',
+    category: '',
+    currency: 'PKR',
+    // 0 is rendered as "—" by the card; it also covers `pending` variant prices.
+    price: 0,
+    image,
+  };
+
+  if (price.kind === 'single') {
+    card.price = price.price;
+    card.surplus_selling_price = price.price;
+    card.original_retail_price = price.price;
+    card.originalPrice = price.price;
+  } else if (price.kind === 'sale') {
+    card.price = price.price;
+    card.surplus_selling_price = price.price;
+    card.original_retail_price = price.original;
+    card.originalPrice = price.original;
+    if (price.original > 0) {
+      card.discountPercentage = Math.round(((price.original - price.price) / price.original) * 100);
     }
+  } else if (price.kind === 'range') {
+    // The card has a single price slot, so a range shows its minimum without a
+    // misleading "was" price or discount badge.
+    card.price = price.min;
+    card.surplus_selling_price = price.min;
+    card.original_retail_price = price.min;
+    card.originalPrice = price.min;
   }
 
-  return ['All', ...categories];
+  // Approved reviews win; otherwise fall back to the cached rating columns that the
+  // cards used before, so the footer star is never blank on the storefront.
+  const approvedRating = rating.average !== null && rating.count > 0 ? rating.average : null;
+  const storedRating =
+    product.average_rating === null || product.average_rating === undefined
+      ? null
+      : Number(product.average_rating);
+  const storedCount =
+    product.review_count === null || product.review_count === undefined ? 0 : Number(product.review_count);
+
+  const cardRating = approvedRating ?? (storedRating !== null && Number.isFinite(storedRating) ? storedRating : null);
+  if (cardRating !== null) {
+    card.average_rating = cardRating;
+    card.review_count = Number.isFinite(storedCount) ? Math.max(0, Math.floor(storedCount)) : 0;
+  }
+
+  return card;
 }
 
 /**
@@ -496,6 +260,15 @@ export const ProductCardSkeleton: React.FC = () => (
   </div>
 );
 
+/** Grid of card skeletons sized exactly like real cards (no layout shift). */
+const ProductGridSkeleton: React.FC<{ count?: number }> = ({ count = STOREFRONT_PAGE_SIZE }) => (
+  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6" aria-busy="true">
+    {Array.from({ length: count }).map((_, idx) => (
+      <ProductCardSkeleton key={idx} />
+    ))}
+  </div>
+);
+
 export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   resellerId,
   onQuickView,
@@ -504,86 +277,100 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   wishlistIds,
   onSelectProduct,
   onNavigateHome,
-  categoryOptions = CATEGORY_FILTER_OPTIONS,
 }) => {
-  // 1. Request A: Public Seller Display Fields Only (cached for 5 minutes)
+  // Decoded and normalized once; every query key below carries it.
+  const shop = normalizeShopIdentifier(resellerId);
+
+  // -------- Request A: seller (drives the header only) --------
   const sellerQuery = useQuery({
     ...STOREFRONT_QUERY_OPTIONS,
-    queryKey: ['storefront', 'seller', resellerId],
-    queryFn: () => fetchPublicSeller(resellerId),
-    enabled: Boolean(resellerId),
+    queryKey: ['storefront', shop, 'seller'],
+    queryFn: () => fetchSeller(shop),
+    enabled: Boolean(shop),
   });
 
   const seller = sellerQuery.data ?? null;
-  const sellerId = seller?.id || resellerId;
+  const sellerId = seller?.id ?? null;
+  // A seller that is pending/suspended/inactive has no public storefront.
+  const sellerIsAvailable = seller !== null && isActiveSellerStatus(seller.status);
 
-  // 2. Request B: Storefront Category Summary (cached per seller, never refetched on scroll/category changes)
-  const summaryQuery = useQuery({
+  // -------- Request C: category chips (drives the chips bar only) --------
+  const categoriesQuery = useQuery({
     ...STOREFRONT_QUERY_OPTIONS,
-    queryKey: ['storefront', 'summary', sellerId],
-    queryFn: () => fetchStorefrontSummary(sellerId),
-    enabled: Boolean(sellerId),
+    queryKey: ['storefront', shop, 'categories'],
+    queryFn: () => fetchSellerCategories(sellerId as string),
+    enabled: Boolean(shop) && sellerIsAvailable,
   });
 
-  // State: Category chip selection, Applied filters, and Draft filters
+  // Chip selection + applied (committed) filters + draft (drawer) filters
   const [typeChip, setTypeChip] = useState<string>('All');
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
-
-  // Applied filter state (drives Infinite Query)
   const [appliedFilters, setAppliedFilters] = useState<ResellerStorefrontFilterState>({
     sort: '',
     department: '',
-    subcategory: '',
   });
-
-  // Draft filter state (edited inside drawer; applied only upon pressing Apply)
   const [draftFilters, setDraftFilters] = useState<ResellerStorefrontFilterState>({
     sort: '',
     department: '',
-    subcategory: '',
   });
 
-  // 3. Request C: Infinite Products Query (8 products per page, automatic loading on scroll down)
-  const productsInfiniteQuery = useInfiniteQuery({
+  // Chips are per name; each chip filters by every category id sharing that name.
+  const categoryGroups = useMemo(() => groupCategoriesByName(categoriesQuery.data), [categoriesQuery.data]);
+
+  const selectedCategoryIds = useMemo(() => {
+    if (typeChip.trim().toLowerCase() === 'all') return null;
+    const group = categoryGroups.find((item) => item.name.toLowerCase() === typeChip.toLowerCase());
+    return group ? group.ids : [];
+  }, [typeChip, categoryGroups]);
+
+  // Part of the query key so the cache never serves another chip's page.
+  const selectedCategoryKey = selectedCategoryIds ? selectedCategoryIds.join(',') : 'all';
+
+  // -------- Request B: products page (drives the grid only) --------
+  const productsQuery = useInfiniteQuery({
     ...STOREFRONT_QUERY_OPTIONS,
-    queryKey: [
-      'storefront',
-      'products-infinite',
-      sellerId,
-      {
-        category: typeChip,
-        subcategory: appliedFilters.subcategory,
+    queryKey: ['storefront', shop, 'products', typeChip, appliedFilters.sort, selectedCategoryKey],
+    queryFn: ({ pageParam }) =>
+      fetchSellerProducts({
+        sellerId: sellerId as string,
+        page: Number(pageParam) || 1,
         sort: appliedFilters.sort,
-      },
-    ],
-    queryFn: ({ pageParam = 1 }) =>
-      fetchStorefrontProductsPage(sellerId, {
-        category: typeChip,
-        subcategory: appliedFilters.subcategory,
-        department: appliedFilters.department,
-        sort: appliedFilters.sort,
-        page: pageParam as number,
+        categoryIds: selectedCategoryIds,
       }),
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
-      const totalCount = lastPage.count ?? 0;
-      const loadedCount = allPages.length * PAGE_SIZE;
-      if (loadedCount < totalCount && lastPage.products.length === PAGE_SIZE) {
+      const loadedCount = allPages.length * STOREFRONT_PAGE_SIZE;
+      if (loadedCount < lastPage.count && lastPage.products.length === STOREFRONT_PAGE_SIZE) {
         return allPages.length + 1;
       }
       return undefined;
     },
-    enabled: Boolean(sellerId),
+    enabled: Boolean(shop) && sellerIsAvailable,
   });
 
-  // Flattened products across all loaded pages
-  const products = useMemo(() => {
-    return productsInfiniteQuery.data?.pages.flatMap((page) => page.products) ?? [];
-  }, [productsInfiniteQuery.data]);
+  const products = useMemo(
+    () => productsQuery.data?.pages.flatMap((page) => page.products) ?? [],
+    [productsQuery.data]
+  );
+
+  // Rare fallback: only variant products whose cached min/max are null are re-priced.
+  const pendingVariantIds = useMemo(() => collectPendingVariantIds(products), [products]);
+
+  const variantPricesQuery = useQuery({
+    ...STOREFRONT_QUERY_OPTIONS,
+    queryKey: ['storefront', shop, 'variant-prices', pendingVariantIds],
+    queryFn: () => fetchVariantPrices(pendingVariantIds),
+    enabled: pendingVariantIds.length > 0,
+  });
+
+  const cards = useMemo(
+    () => products.map((product) => mapProductToCard(product, variantPricesQuery.data)),
+    [products, variantPricesQuery.data]
+  );
 
   // Sentinel ref for infinite scroll
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const { hasNextPage, isFetchingNextPage, isPending, fetchNextPage } = productsInfiniteQuery;
+  const { hasNextPage, isFetchingNextPage, isLoading: isProductsLoading, fetchNextPage } = productsQuery;
 
   // Infinite Scroll IntersectionObserver: triggers fetchNextPage() automatically on scroll down
   useEffect(() => {
@@ -592,7 +379,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage && !isPending) {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage && !isProductsLoading) {
           fetchNextPage();
         }
       },
@@ -604,71 +391,17 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
     return () => {
       observer.unobserve(target);
     };
-  }, [hasNextPage, isFetchingNextPage, isPending, fetchNextPage]);
+  }, [hasNextPage, isFetchingNextPage, isProductsLoading, fetchNextPage]);
 
-  // Derivations from Request B (in-memory grouping, distinct chips, subcategory map, seller rating)
-  const summaryDerivations = useMemo(() => {
-    const rows = summaryQuery.data || [];
-    const hasProducts = rows.length > 0;
+  const chipNames = useMemo(
+    () => ['All', ...categoryGroups.map((group) => group.name)],
+    [categoryGroups]
+  );
 
-    const seen = new Set<string>();
-    const chips: string[] = ['All'];
-    const subcatMap = new Map<string, Set<string>>();
-
-    let totalReviews = 0;
-    let weightedRatingSum = 0;
-
-    for (const row of rows) {
-      const cat = typeof row.category === 'string' ? row.category.trim() : '';
-      const subcat = typeof row.subcategory === 'string' ? row.subcategory.trim() : '';
-
-      if (cat) {
-        const lower = cat.toLowerCase();
-        if (!seen.has(lower)) {
-          seen.add(lower);
-          chips.push(cat);
-        }
-
-        if (subcat) {
-          if (!subcatMap.has(lower)) {
-            subcatMap.set(lower, new Set<string>());
-          }
-          subcatMap.get(lower)!.add(subcat);
-        }
-      }
-
-      const rc = Number(row.review_count ?? 0);
-      const ar = Number(row.average_rating ?? 0);
-      if (rc > 0 && Number.isFinite(rc) && Number.isFinite(ar)) {
-        totalReviews += rc;
-        weightedRatingSum += ar * rc;
-      }
-    }
-
-    const sellerRating = totalReviews > 0 ? weightedRatingSum / totalReviews : 0;
-
-    return {
-      hasProducts,
-      categoryChips: chips,
-      subcategoriesMap: subcatMap,
-      sellerRating,
-      sellerReviewCount: totalReviews,
-    };
-  }, [summaryQuery.data]);
-
-  // Derive subcategory options for the active category chip
-  const activeSubcategories = useMemo(() => {
-    if (typeChip.toLowerCase() === 'all') return [];
-    const set = summaryDerivations.subcategoriesMap.get(typeChip.toLowerCase());
-    return set ? Array.from(set).sort() : [];
-  }, [typeChip, summaryDerivations.subcategoriesMap]);
-
-  // Handle Category Chip Click (resets infinite scroll query to page 1)
+  // Handle Category Chip Click (resets the products query back to page 1)
   const handleSelectCategory = (chip: string) => {
     if (chip.toLowerCase() === typeChip.toLowerCase()) return;
     setTypeChip(chip);
-    setAppliedFilters((prev) => ({ ...prev, subcategory: '' }));
-    setDraftFilters((prev) => ({ ...prev, subcategory: '' }));
   };
 
   // Filter Drawer Open & Apply Handlers
@@ -682,12 +415,18 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
   };
 
   const handleResetDraftFilters = () => {
-    setDraftFilters({ sort: '', department: '', subcategory: '' });
+    setDraftFilters({ sort: '', department: '' });
   };
 
   const handleApplyFilters = () => {
     setAppliedFilters(draftFilters);
     setIsFilterOpen(false);
+  };
+
+  const handleClearAllFilters = () => {
+    setTypeChip('All');
+    setAppliedFilters({ sort: '', department: '' });
+    setDraftFilters({ sort: '', department: '' });
   };
 
   // SSR portal mount guard
@@ -718,7 +457,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
           e.preventDefault();
-          handleCloseFilterWithoutApply();
+          setIsFilterOpen(false);
           return;
         }
 
@@ -764,8 +503,8 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
 
   // Clean URL slug normalization
   useEffect(() => {
-    if (typeof window !== 'undefined' && seller?.shopName) {
-      const cleanSlug = formatStoreSlug(seller.shopName);
+    if (typeof window !== 'undefined' && seller?.shop_name) {
+      const cleanSlug = formatStoreSlug(seller.shop_name);
       if (cleanSlug) {
         const currentPath = window.location.pathname;
         if (!currentPath.startsWith('/store/')) {
@@ -780,7 +519,11 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
     }
   }, [seller]);
 
-  if (!sellerQuery.isPending && (sellerQuery.isError || !seller)) {
+  const isResolvingSeller = sellerQuery.isLoading;
+  const sellerIsUnavailable = !isResolvingSeller && (sellerQuery.isError || !sellerIsAvailable);
+
+  // Store unavailable / not found: one neutral page, no reason leaked.
+  if (sellerIsUnavailable) {
     return (
       <div className="bg-stone-50 min-h-screen text-stone-900 pb-20 animate-fade-in">
         <div className="bg-white border-b border-stone-200 py-3 px-4 md:px-8">
@@ -795,9 +538,9 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
 
         <div className="max-w-md mx-auto my-16 p-8 bg-white rounded-lg border border-stone-200 text-center space-y-4 shadow-sm">
           <AlertCircle className="w-12 h-12 text-amber-500 mx-auto" />
-          <h3 className="text-lg font-bold text-stone-900">Storefront Error</h3>
+          <h3 className="text-lg font-bold text-stone-900">Store unavailable</h3>
           <p className="text-xs text-stone-600 leading-relaxed">
-            Unable to fetch store details. Please verify the URL or try again.
+            This store is not available right now. Please check the URL or try again later.
           </p>
           <button
             onClick={() => sellerQuery.refetch()}
@@ -810,27 +553,29 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
     );
   }
 
-  // Seller rating derived across ALL products from Request B
-  const sellerRating = Math.min(Math.max(summaryDerivations.sellerRating, 0), 5);
-  const sellerReviewCount = Math.floor(summaryDerivations.sellerReviewCount);
-  const formattedRatingText = `${sellerRating.toFixed(1)} / 5.0 (${sellerReviewCount} ${
-    sellerReviewCount === 1 ? 'Review' : 'Reviews'
-  })`;
+  // Header values (all null-safe)
+  const sellerShopName = seller?.shop_name?.trim() || 'Seller';
+  const sellerStoreImage = seller?.store_image_url || STOREFRONT_STORE_LOGO;
+  const sellerJoinedDate = formatStoreDate(seller?.created_at);
+  const sellerRatingText = formatSellerRating(seller?.average_rating ?? null, seller?.review_count ?? null);
+
+  const hasActiveFilters = typeChip.trim().toLowerCase() !== 'all' || appliedFilters.sort !== '';
+  const firstPageCount = productsQuery.data?.pages?.[0]?.count ?? 0;
+  // Seller has nothing on sale at all (drives the "No products yet" state)
+  const sellerHasNoProducts =
+    sellerIsAvailable && !hasActiveFilters && !productsQuery.isLoading && !productsQuery.isError && firstPageCount === 0;
+  const showChipsRow = sellerIsAvailable && !sellerHasNoProducts;
 
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20">
-      {/* Profile Header Hero Block (Renders from Request A; rating waits for Request B) */}
-      {sellerQuery.isPending || !seller ? (
+      {/* Profile Header Hero Block — renders as soon as Request A resolves */}
+      {isResolvingSeller || !seller ? (
         <SellerHeaderSkeleton />
       ) : (
         <div className="relative bg-stone-900 text-white overflow-hidden">
           {/* Banner Image */}
           <div className="absolute inset-0 opacity-40 mix-blend-overlay">
-            <img
-              src={seller.banner}
-              alt={seller.shopName}
-              className="w-full h-full object-cover"
-            />
+            <img src={STOREFRONT_BANNER_IMAGE} alt={sellerShopName} className="w-full h-full object-cover" />
           </div>
 
           <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-16">
@@ -840,16 +585,11 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                 {/* Logo */}
                 <div className="relative w-20 h-20 rounded-full border-2 border-white overflow-hidden bg-stone-800 shrink-0 shadow-xl">
                   <img
-                    src={
-                      seller.store_image_url ||
-                      seller.logo ||
-                      'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png'
-                    }
-                    alt={seller.shopName || seller.name}
+                    src={sellerStoreImage}
+                    alt={sellerShopName}
                     className="w-full h-full object-cover"
                     onError={(e) => {
-                      (e.target as HTMLImageElement).src =
-                        'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
+                      (e.target as HTMLImageElement).src = STOREFRONT_STORE_LOGO;
                     }}
                   />
                 </div>
@@ -861,40 +601,33 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                   </span>
 
                   <h1 className="text-xl sm:text-2xl font-brand-serif font-normal tracking-wide truncate max-w-full">
-                    {seller.shopName}
+                    {sellerShopName}
                   </h1>
                 </div>
               </div>
 
               {/* Description */}
-              <p className="mt-3 text-xs text-stone-300 leading-relaxed">
-                {seller.description ||
-                  'Authentic 100% original designer leftover suits directly sourced from factory overstocks.'}
-              </p>
+              <p className="mt-3 text-xs text-stone-300 leading-relaxed">{STOREFRONT_DESCRIPTION}</p>
 
-              {/* Mobile Stats — Rating waits for Request B */}
+              {/* Mobile Stats */}
               <div className="mt-4 -mx-4 px-4 overflow-x-auto scrollbar-hide">
                 <div className="flex items-center gap-5 w-max whitespace-nowrap text-[10px]">
                   {/* Rating */}
-                  {summaryQuery.isPending ? (
-                    <div className="h-4 w-28 bg-stone-700/80 rounded animate-pulse" />
-                  ) : (
-                    <div className="flex items-center gap-1 text-amber-400 font-bold shrink-0">
-                      <Star className="w-3.5 h-3.5 fill-amber-400 shrink-0" />
-                      <span>{formattedRatingText}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1 text-amber-400 font-bold shrink-0">
+                    <Star className="w-3.5 h-3.5 fill-amber-400 shrink-0" />
+                    <span>{sellerRatingText}</span>
+                  </div>
 
                   {/* Member Since */}
                   <div className="flex items-center gap-1 text-stone-300 shrink-0">
                     <Calendar className="w-3 h-3 text-stone-400 shrink-0" />
-                    <span>Member Since: {seller.joinedDate || 'N/A'}</span>
+                    <span>Member Since: {sellerJoinedDate}</span>
                   </div>
 
                   {/* Total Sales */}
                   <div className="flex items-center gap-1 text-stone-300 font-semibold shrink-0">
                     <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                    <span>{seller.totalSales || 0}+ Suits Sold</span>
+                    <span>0+ Suits Sold</span>
                   </div>
                 </div>
               </div>
@@ -904,16 +637,11 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
             <div className="hidden md:flex flex-row items-center gap-6">
               <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-white overflow-hidden bg-stone-800 shrink-0 shadow-xl">
                 <img
-                  src={
-                    seller.store_image_url ||
-                    seller.logo ||
-                    'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png'
-                  }
-                  alt={seller.shopName || seller.name}
+                  src={sellerStoreImage}
+                  alt={sellerShopName}
                   className="w-full h-full object-cover"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src =
-                      'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/4017743.png';
+                    (e.target as HTMLImageElement).src = STOREFRONT_STORE_LOGO;
                   }}
                 />
               </div>
@@ -926,32 +654,28 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                 </div>
 
                 <h1 className="text-2xl sm:text-3xl lg:text-4xl font-brand-serif font-normal tracking-wide">
-                  {seller.shopName}
+                  {sellerShopName}
                 </h1>
 
                 <p className="text-xs sm:text-sm text-stone-300 max-w-2xl leading-relaxed">
-                  {seller.description}
+                  {STOREFRONT_DESCRIPTION}
                 </p>
 
-                {/* Badges Row — Rating waits for Request B */}
+                {/* Badges Row */}
                 <div className="pt-2 flex flex-wrap items-center gap-4 text-xs sm:text-sm">
-                  {summaryQuery.isPending ? (
-                    <div className="h-4 w-32 bg-stone-700/80 rounded animate-pulse" />
-                  ) : (
-                    <div className="flex items-center space-x-1 text-amber-400 font-bold">
-                      <Star className="w-4 h-4 fill-amber-400" />
-                      <span>{formattedRatingText}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center space-x-1 text-amber-400 font-bold">
+                    <Star className="w-4 h-4 fill-amber-400" />
+                    <span>{sellerRatingText}</span>
+                  </div>
 
                   <div className="flex items-center space-x-1 text-stone-300">
                     <Calendar className="w-3.5 h-3.5 text-stone-400" />
-                    <span>Member Since: {seller.joinedDate}</span>
+                    <span>Member Since: {sellerJoinedDate}</span>
                   </div>
 
                   <div className="flex items-center space-x-1 text-stone-300 font-semibold">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{seller.totalSales || 0}+ Suits Sold</span>
+                    <span>0+ Suits Sold</span>
                   </div>
                 </div>
               </div>
@@ -961,158 +685,152 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
       )}
 
       {/* Main Content Area */}
-      <div
-        className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8"
-        aria-busy={summaryQuery.isPending || productsInfiniteQuery.isPending}
-      >
-        {summaryQuery.isPending ? (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" aria-busy={isProductsLoading}>
+        {/* Categories bar — independent of the grid */}
+        {!sellerIsAvailable ? (
+          <ChipRowSkeleton />
+        ) : showChipsRow ? (
+          categoriesQuery.isLoading ? (
+            <ChipRowSkeleton />
+          ) : (
+              <div className="flex items-center gap-2 mb-6">
+                <div className="flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+                  <div className="flex w-max gap-2 py-1">
+                    {categoriesQuery.isError && (
+                      <button
+                        type="button"
+                        onClick={() => categoriesQuery.refetch()}
+                        className="h-10 px-3 rounded-[10px] border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold shrink-0 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Categories unavailable</span>
+                        <span className="underline">Retry</span>
+                      </button>
+                    )}
+
+                    {chipNames.map((chip) => {
+                      const isSelected = typeChip.toLowerCase() === chip.toLowerCase();
+                      return (
+                        <button
+                          key={chip}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => handleSelectCategory(chip)}
+                          className={`h-10 px-4 rounded-[10px] text-xs sm:text-sm font-semibold shrink-0 transition-colors border cursor-pointer ${
+                            isSelected
+                              ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
+                              : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400 hover:text-stone-900'
+                          }`}
+                        >
+                          {chip}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* <button
+                  type="button"
+                  ref={filterButtonRef}
+                  onClick={handleOpenFilter}
+                  className="shrink-0 h-10 w-10 rounded-[10px] border border-stone-200 bg-white text-stone-700 hover:text-stone-900 hover:border-stone-400 flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
+                  aria-label="Open filters"
+                  aria-haspopup="dialog"
+                  aria-expanded={isFilterOpen}
+                >
+                  <Filter className="w-4 h-4" />
+                </button> */}
+              </div>
+          )
+        ) : null}
+
+        {/* Product grid — independent of the header and the chips */}
+        {!sellerIsAvailable ? (
           <>
             <span className="sr-only" role="status">
               Loading products
             </span>
-            <ChipRowSkeleton />
-            <div
-              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
-              aria-busy="true"
-            >
-              {Array.from({ length: 8 }).map((_, idx) => (
-                <ProductCardSkeleton key={idx} />
-              ))}
-            </div>
+            <ProductGridSkeleton />
           </>
-        ) : !summaryDerivations.hasProducts ? (
-          /* Empty State: NO chip row and NO filter button when seller has zero products overall */
+        ) : sellerHasNoProducts ? (
           <div className="py-16 text-center bg-white rounded-lg border border-stone-200 p-8 max-w-md mx-auto space-y-2">
             <p className="text-sm font-bold text-stone-800">No products yet</p>
             <p className="text-xs text-stone-500">This reseller currently has no active surplus listings available.</p>
           </div>
-        ) : (
-          /* Ready State: Chip row + Filter button + Products Area */
+        ) : isProductsLoading ? (
+          /* 1. Skeletons only on the first load of a query key (never on refetch) */
           <>
-            {/* Category Chip Row + Filter Button */}
-            <div className="flex items-center gap-2 mb-6">
-              <div className="flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-                <div className="flex w-max gap-2 py-1">
-                  {summaryDerivations.categoryChips.map((chip) => {
-                    const isSelected = typeChip.toLowerCase() === chip.toLowerCase();
-                    return (
-                      <button
-                        key={chip}
-                        type="button"
-                        aria-pressed={isSelected}
-                        onClick={() => handleSelectCategory(chip)}
-                        className={`h-10 px-4 rounded-[10px] text-xs sm:text-sm font-semibold shrink-0 transition-colors border cursor-pointer ${
-                          isSelected
-                            ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
-                            : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400 hover:text-stone-900'
-                        }`}
-                      >
-                        {chip}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <button
-                type="button"
-                ref={filterButtonRef}
-                onClick={handleOpenFilter}
-                className="shrink-0 h-10 w-10 rounded-[10px] border border-stone-200 bg-white text-stone-700 hover:text-stone-900 hover:border-stone-400 flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
-                aria-label="Open filters"
-                aria-haspopup="dialog"
-                aria-expanded={isFilterOpen}
-              >
-                <Filter className="w-4 h-4" />
-              </button>
+            <span className="sr-only" role="status">
+              Loading products
+            </span>
+            <ProductGridSkeleton />
+          </>
+        ) : productsQuery.isError ? (
+          /* 2. Grid error with Retry; header and chips stay visible */
+          <div className="py-16 text-center bg-white rounded-lg border border-stone-200 p-8 max-w-md mx-auto space-y-4">
+            <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+            <p className="text-sm font-bold text-stone-800">Failed to load products</p>
+            <p className="text-xs text-stone-500">Please check your internet connection and try again.</p>
+            <button
+              type="button"
+              onClick={() => productsQuery.refetch()}
+              className="px-4 py-2 bg-stone-900 text-white text-xs font-bold uppercase tracking-wider rounded-xs hover:bg-stone-800 transition-colors cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        ) : cards.length === 0 ? (
+          /* 3. Empty state: only when the query succeeded and returned 0 products */
+          <div className="py-16 text-center bg-white rounded-lg border border-stone-200 p-8 max-w-md mx-auto space-y-4">
+            <p className="text-sm font-bold text-stone-800">No products match your filters</p>
+            <p className="text-xs text-stone-500">Try adjusting your filters or category selection.</p>
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="px-4 py-2 bg-stone-900 text-white text-xs font-bold uppercase tracking-wider rounded-xs hover:bg-stone-800 transition-colors cursor-pointer"
+            >
+              Clear all filters
+            </button>
+          </div>
+        ) : (
+          /* 4. Product grid with smooth infinite scroll */
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+              {cards.map((product, index) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  priority={index < 4}
+                  titleVariant="brand"
+                  onQuickView={onQuickView}
+                  onAddToCart={onAddToCart}
+                  onToggleWishlist={onToggleWishlist}
+                  isWishlisted={wishlistIds.includes(product.id)}
+                  onSelectProduct={onSelectProduct}
+                />
+              ))}
             </div>
 
-            {/* Products Area: Strict Precedence: isPending -> isError -> empty -> grid with infinite scroll */}
-            {productsInfiniteQuery.isPending ? (
-              /* 1. Skeletons while pending (initial load or category switch) */
-              <div
-                className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
-                aria-busy="true"
-              >
-                {Array.from({ length: 8 }).map((_, idx) => (
-                  <ProductCardSkeleton key={idx} />
-                ))}
-              </div>
-            ) : productsInfiniteQuery.isError ? (
-              /* 2. Error state with quick Retry */
-              <div className="py-16 text-center bg-white rounded-lg border border-stone-200 p-8 max-w-md mx-auto space-y-4">
-                <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
-                <p className="text-sm font-bold text-stone-800">Failed to load products</p>
-                <p className="text-xs text-stone-500">Please check your internet connection and try again.</p>
-                <button
-                  type="button"
-                  onClick={() => productsInfiniteQuery.refetch()}
-                  className="px-4 py-2 bg-stone-900 text-white text-xs font-bold uppercase tracking-wider rounded-xs hover:bg-stone-800 transition-colors cursor-pointer"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : products.length === 0 ? (
-              /* 3. Empty state: only when query succeeded and returned 0 products */
-              <div className="py-16 text-center bg-white rounded-lg border border-stone-200 p-8 max-w-md mx-auto space-y-4">
-                <p className="text-sm font-bold text-stone-800">No products match your filters</p>
-                <p className="text-xs text-stone-500">Try adjusting your filters or category selection.</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTypeChip('All');
-                    setAppliedFilters({ sort: '', department: '', subcategory: '' });
-                    setDraftFilters({ sort: '', department: '', subcategory: '' });
-                  }}
-                  className="px-4 py-2 bg-stone-900 text-white text-xs font-bold uppercase tracking-wider rounded-xs hover:bg-stone-800 transition-colors cursor-pointer"
-                >
-                  Clear all filters
-                </button>
-              </div>
-            ) : (
-              /* 4. Product grid with smooth infinite scroll */
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-                  {products.map((product, index) => (
-                    <ProductCard
-                      key={product.id}
-                      product={product}
-                      priority={index < 4}
-                      onQuickView={onQuickView}
-                      onAddToCart={onAddToCart}
-                      onToggleWishlist={onToggleWishlist}
-                      isWishlisted={wishlistIds.includes(product.id)}
-                      onSelectProduct={onSelectProduct}
-                    />
-                  ))}
+            {/* Sentinel observed by IntersectionObserver for scroll-down loading */}
+            <div ref={loadMoreRef} className="h-8 w-full" aria-hidden="true" />
+
+            {/* Loading indicator when scrolling down loads next page of products */}
+            {isFetchingNextPage && (
+              <div className="mt-4 space-y-4">
+                <ProductGridSkeleton count={4} />
+                <div className="flex items-center justify-center gap-2 py-4 text-xs font-semibold text-stone-600">
+                  <Loader2 className="w-4 h-4 animate-spin text-stone-900" />
+                  <span>Loading more suits...</span>
                 </div>
+              </div>
+            )}
 
-                {/* Sentinel observed by IntersectionObserver for scroll-down loading */}
-                <div ref={loadMoreRef} className="h-8 w-full" aria-hidden="true" />
-
-                {/* Loading indicator when scrolling down loads next page of products */}
-                {isFetchingNextPage && (
-                  <div className="mt-4 space-y-4">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-                      {Array.from({ length: 4 }).map((_, idx) => (
-                        <ProductCardSkeleton key={`infinite-skel-${idx}`} />
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-center gap-2 py-4 text-xs font-semibold text-stone-600">
-                      <Loader2 className="w-4 h-4 animate-spin text-stone-900" />
-                      <span>Loading more suits...</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* End of results message */}
-                {!hasNextPage && products.length > 8 && (
-                  <div className="py-10 text-center">
-                    <p className="text-xs text-stone-400 font-medium">
-                      You've reached the end • Showing all {products.length} products
-                    </p>
-                  </div>
-                )}
-              </>
+            {/* End of results message */}
+            {!hasNextPage && cards.length > STOREFRONT_PAGE_SIZE && (
+              <div className="py-10 text-center">
+                <p className="text-xs text-stone-400 font-medium">
+                  You've reached the end • Showing all {cards.length} products
+                </p>
+              </div>
             )}
           </>
         )}
@@ -1120,7 +838,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
 
       {/* Filter Sidebar (Portal to document.body with Apply pattern) */}
       {mounted &&
-        summaryDerivations.hasProducts &&
+        showChipsRow &&
         createPortal(
           <div
             className={`fixed inset-0 z-50 transition-opacity duration-300 ${
@@ -1151,7 +869,7 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                   <h2 id="filter-sidebar-title" className="text-base font-bold uppercase tracking-wider text-stone-900">
                     Filter
                   </h2>
-                  {(draftFilters.sort || draftFilters.department || draftFilters.subcategory) && (
+                  {(draftFilters.sort || draftFilters.department) && (
                     <button
                       type="button"
                       onClick={handleResetDraftFilters}
@@ -1245,37 +963,6 @@ export const ResellerStorefront: React.FC<ResellerStorefrontProps> = ({
                   </div>
                 </fieldset>
 
-                {/* Section 3: Collection Type (Subcategories of active category chip; hidden on 'All' or when empty) */}
-                {typeChip.toLowerCase() !== 'all' && activeSubcategories.length > 0 && (
-                  <fieldset className="border-b border-stone-200 pb-5">
-                    <legend className="text-xs font-bold uppercase tracking-wider text-stone-900 mb-3">
-                      Collection Type
-                    </legend>
-                    <div className="flex flex-col gap-2">
-                      {activeSubcategories.map((subcat) => (
-                        <label
-                          key={subcat}
-                          className="flex items-center gap-2.5 text-xs sm:text-sm font-medium text-stone-700 cursor-pointer py-1 px-1 hover:text-stone-900"
-                        >
-                          <input
-                            type="radio"
-                            name="filter-subcategory"
-                            value={subcat}
-                            checked={draftFilters.subcategory === subcat}
-                            onClick={() => {
-                              if (draftFilters.subcategory === subcat) {
-                                setDraftFilters((prev) => ({ ...prev, subcategory: '' }));
-                              }
-                            }}
-                            onChange={() => setDraftFilters((prev) => ({ ...prev, subcategory: subcat }))}
-                            className="w-4 h-4 text-stone-900 accent-stone-900 border-stone-300 focus:ring-stone-900 cursor-pointer"
-                          />
-                          <span>{subcat}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                )}
               </div>
 
               {/* Drawer Footer with Fixed Apply Button */}

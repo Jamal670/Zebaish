@@ -276,13 +276,6 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
     saveImageDraft();
   }, [cnicFrontFile, cnicBackFile]);
 
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (user) {
-      onSignupSuccess();
-    }
-  }, [user, onSignupSuccess]);
-
   const validateField = (name: string, value: any): string => {
     switch (name) {
       case 'email':
@@ -470,6 +463,12 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/dashboard/overview`,
+          data: {
+            role: 'seller',
+            full_name: formData.fullName.trim(),
+            shop_name: formData.shopName.trim(),
+            phone: formattedPhone,
+          },
         },
       });
 
@@ -489,6 +488,13 @@ export const ResellerSignup: React.FC<ResellerSignupProps> = ({
       const authUser = authData.user;
       if (!authUser) {
         setErrorMessage('User authentication failed. No user record was returned by Supabase.');
+        setLoading(false);
+        return;
+      }
+
+      if (authUser.identities && authUser.identities.length === 0) {
+        setErrorMessage('An account with this email address is already registered. Please log in instead.');
+        setErrors((prev) => ({ ...prev, email: 'Email address is already registered.' }));
         setLoading(false);
         return;
       }

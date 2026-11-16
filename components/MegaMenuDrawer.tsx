@@ -80,7 +80,7 @@ export const MegaMenuDrawer: React.FC<MegaMenuDrawerProps> = ({
             {/* Quick Links */}
             <div className="pb-4 mb-2 flex items-center space-x-2 overflow-x-auto no-scrollbar text-xs font-semibold uppercase tracking-wider">
               <button
-                onClick={() => handleCategoryClick('NEW ARRIVALS')}
+                // onClick={() => handleCategoryClick('NEW ARRIVALS')}
                 className="px-3 py-1.5 bg-stone-900 text-white rounded-xs shrink-0 hover:bg-stone-800 transition-colors flex items-center space-x-1"
               >
                 <Sparkles className="w-3 h-3 text-amber-300" />
@@ -92,12 +92,12 @@ export const MegaMenuDrawer: React.FC<MegaMenuDrawerProps> = ({
               >
                 PROJECT MASTANI
               </button> */}
-              <button
+              {/* <button
                 onClick={() => handleCategoryClick('SALE')}
                 className="px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 font-bold rounded-xs shrink-0 transition-colors"
               >
                 SALE
-              </button>
+              </button> */}
             </div>
 
             {/* Category Accordions */}
@@ -183,10 +183,10 @@ export const MegaMenuDrawer: React.FC<MegaMenuDrawerProps> = ({
           </div>
 
           {/* Drawer Footer */}
-          <div className="p-4 bg-stone-900 text-stone-300 text-xs border-t border-stone-800 flex items-center justify-between">
+          {/* <div className="p-4 bg-stone-900 text-stone-300 text-xs border-t border-stone-800 flex items-center justify-between">
             <span className="tracking-wider">Worldwide Express Shipping</span>
             <span className="text-stone-400 font-mono text-[10px]">Rs. / PKR</span>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

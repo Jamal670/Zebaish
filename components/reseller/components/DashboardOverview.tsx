@@ -1,12 +1,13 @@
 import React from 'react';
-import { TrendingUp, Package, Truck, Wallet, CheckCircle, Star } from 'lucide-react';
+import { TrendingUp, Package, Truck, Wallet, CheckCircle, Star, AlertCircle } from 'lucide-react';
 import { Order } from '@/types';
 import { Last7DaysSection } from './Last7DaysSection';
 import { ResponsiveTable, ColumnDef } from './common/ResponsiveTable';
 import { ScrollableStatCard } from './common/ScrollableStatCard';
 import { HorizontalScrollRow } from './common/HorizontalScrollRow';
-import { useSellerOverviewKpis, useSellerOverviewDetails } from '@/src/hooks/useSellerOverview';
-import { RecentOrderItem } from '@/src/api/sellerOverviewService';
+import { useSellerDashboard } from '@/hooks/useSellerDashboard';
+import { RecentDashboardOrder } from '@/lib/seller/dashboard-types';
+import { formatPrice } from '@/lib/home-static-data';
 
 interface DashboardOverviewProps {
   sellerId?: string;
@@ -16,32 +17,14 @@ interface DashboardOverviewProps {
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
-  sellerId,
   onViewAllOrders,
 }) => {
-  // Phase 1: Fast KPI numbers (renders immediately)
-  const {
-    kpis,
-    loading: loadingKpis,
-    error: errorKpis,
-    refetch: refetchKpis,
-  } = useSellerOverviewKpis(sellerId);
+  const { data, status, error, reload } = useSellerDashboard();
 
-  // Phase 2: Graphs & Recent Orders details (renders into skeletons)
-  const {
-    details,
-    loading: loadingDetails,
-    error: errorDetails,
-    refetch: refetchDetails,
-  } = useSellerOverviewDetails(sellerId);
+  const isLoading = status === 'loading';
+  const ov = data?.overview;
 
-  const sec1 = kpis?.section1_kpis;
-
-  const handleRefreshAll = async () => {
-    await Promise.all([refetchKpis(), refetchDetails()]);
-  };
-
-  const orderColumns: ColumnDef<RecentOrderItem>[] = [
+  const orderColumns: ColumnDef<RecentDashboardOrder>[] = [
     {
       header: 'Order Number',
       cell: (row) => (
@@ -72,7 +55,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       header: 'Amount',
       cell: (row) => (
         <span className="font-bold text-stone-900 font-mono">
-          Rs. {(row.seller_total || 0).toLocaleString()}
+          {formatPrice(row.seller_total || 0)}
         </span>
       ),
     },
@@ -81,7 +64,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       cell: (row) => {
         const isDelivered = row.status === 'Delivered';
         const isShipped = row.status === 'Shipped';
-        const isPending = row.status === 'Pending' || row.status === 'Confirmed';
+        const isPending =
+          row.status === 'Pending' || row.status === 'Confirmed' || row.status === 'Processing';
 
         let badgeStyle = 'bg-stone-100 text-stone-800';
         if (isDelivered) badgeStyle = 'bg-emerald-100 text-emerald-800';
@@ -101,6 +85,25 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   return (
     <div className="space-y-6 sm:space-y-8">
+      {status === 'error' && error && (
+        <div
+          role="alert"
+          className="p-3 bg-red-50 border border-red-200 text-red-800 rounded-lg text-xs font-semibold flex items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span className="truncate">{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={reload}
+            className="shrink-0 px-3 py-1 bg-white hover:bg-red-100 border border-red-300 text-red-800 rounded-md text-xs font-bold transition-colors cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* =========================================================
           SECTION 1 — MAIN KPI CARDS (PHASE 1 LOAD)
           Horizontally scrollable row across phone, tablet, desktop
@@ -116,69 +119,69 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           {/* STAT CARD 1: TOTAL REVENUE */}
           <ScrollableStatCard
             title="TOTAL REVENUE"
-            value={`Rs. ${(sec1?.total_revenue || 0).toLocaleString()}`}
+            value={formatPrice(ov?.totalRevenue ?? 0)}
             subtitle="Generated from platform sales"
             icon={TrendingUp}
             iconBgColor="bg-emerald-50"
             iconTextColor="text-emerald-700"
-            loading={loadingKpis}
+            loading={isLoading}
           />
 
-          {/* STAT CARD 2: AVAILABLE PAYOUT */}
+          {/* STAT CARD 2: PAYABLE COMMISSION */}
           <ScrollableStatCard
             title="PAYABLE COMMISSION"
-            value={`Rs. ${(sec1?.available_payout || 0).toLocaleString()}`}
+            value={formatPrice(ov?.payableCommission ?? 0)}
             subtitle="Pending bank transfer"
             icon={Wallet}
             iconBgColor="bg-amber-100"
             iconTextColor="text-amber-900"
-            loading={loadingKpis}
+            loading={isLoading}
           />
 
           {/* STAT CARD 3: ACTIVE LISTINGS */}
           <ScrollableStatCard
             title="ACTIVE LISTINGS"
-            value={`${sec1?.active_listings || 0} Suits`}
+            value={`${ov?.activeListings ?? 0} Suits`}
             subtitle="Currently in stock"
             icon={Package}
             iconBgColor="bg-stone-100"
             iconTextColor="text-stone-700"
-            loading={loadingKpis}
+            loading={isLoading}
           />
 
           {/* STAT CARD 4: PENDING DISPATCH */}
           <ScrollableStatCard
             title="PENDING DISPATCH"
-            value={`${sec1?.pending_dispatch || 0} Orders`}
+            value={`${ov?.pendingDispatch ?? 0} Orders`}
             subtitle="Requires courier booking"
             icon={Truck}
             iconBgColor="bg-amber-50"
             iconTextColor="text-amber-700"
             borderAccent="border-l-amber-500"
             onClick={onViewAllOrders}
-            loading={loadingKpis}
+            loading={isLoading}
           />
 
           {/* STAT CARD 5: DELIVERED ORDERS */}
           <ScrollableStatCard
             title="DELIVERED ORDERS"
-            value={`${sec1?.delivered_orders || 0} Orders`}
+            value={`${ov?.deliveredOrders ?? 0} Orders`}
             subtitle="Successfully completed"
             icon={CheckCircle}
             iconBgColor="bg-emerald-100"
             iconTextColor="text-emerald-800"
-            loading={loadingKpis}
+            loading={isLoading}
           />
 
           {/* STAT CARD 6: Review card */}
           <ScrollableStatCard
             title="AVG REVIEWS"
-            value={`${(sec1?.average_rating ?? 0).toFixed(1)} / 5`}
+            value={`${(ov?.avgRating ?? 0).toFixed(1)} / 5`}
             subtitle="Average Rating"
             icon={Star}
             iconBgColor="bg-amber-100"
             iconTextColor="text-amber-800"
-            loading={loadingKpis}
+            loading={isLoading}
           />
         </HorizontalScrollRow>
       </div>
@@ -187,12 +190,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           SECTION 2 & SECTION 3 — LAST 7 DAYS & GRAPHS
          ========================================================= */}
       <Last7DaysSection
-        dataKpi={kpis?.section2_last_7d}
-        dataDetails={details?.graphs}
-        loadingKpi={loadingKpis}
-        loadingDetails={loadingDetails}
-        error={errorKpis || errorDetails}
-        onRefresh={handleRefreshAll}
+        dataKpi={data?.last7Kpis}
+        dataDetails={data?.graphs}
+        loadingKpi={isLoading}
+        loadingDetails={isLoading}
+        onRefresh={reload}
         onViewPendingOrders={onViewAllOrders}
       />
 
@@ -219,9 +221,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
         <ResponsiveTable
           columns={orderColumns}
-          data={details?.recent_orders || []}
+          data={data?.recentOrders || []}
           keyExtractor={(r) => r.id}
-          isLoading={loadingDetails}
+          isLoading={isLoading}
           emptyTitle="No Recent Orders"
           emptySubtitle="No new customer orders have been placed yet."
           forceTableMode

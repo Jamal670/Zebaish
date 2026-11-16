@@ -1,0 +1,1 @@
+React Server Components with `'use client'` boundaries, Next.js App Router (`next/navigation`), Tailwind CSS for styling, Supabase JS client for auth and RLS queries, TanStack Query (`useQuery`, `useInfiniteQuery`) for cached storefront data, and lucide-react icons.

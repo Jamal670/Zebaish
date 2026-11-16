@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/src/hooks/useAuth';
 import { ResellerProvider } from '@/components/reseller/context/ResellerContext';
+import { ListingDraftProvider } from '@/components/reseller/context/ListingDraftContext';
 import { ResellerSidebar } from '@/components/reseller/components/ResellerSidebar';
 import { ResellerHeader } from '@/components/reseller/components/ResellerHeader';
 import { Loader2 } from 'lucide-react';
@@ -11,6 +12,8 @@ import { Loader2 } from 'lucide-react';
 function DashboardShellContent({ children }: { children: React.ReactNode }) {
   const { user, role, resellerProfile, sellerStatus, loading, logout } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const isVariationPage = pathname?.startsWith('/dashboard/productVarition');
 
   useEffect(() => {
     if (loading) return;
@@ -59,7 +62,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
         onNavigateHome={() => router.push('/')}
       />
       <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-        <ResellerHeader />
+        {!isVariationPage && <ResellerHeader />}
         {children}
       </main>
     </div>
@@ -69,7 +72,9 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <ResellerProvider>
-      <DashboardShellContent>{children}</DashboardShellContent>
+      <ListingDraftProvider>
+        <DashboardShellContent>{children}</DashboardShellContent>
+      </ListingDraftProvider>
     </ResellerProvider>
   );
 }

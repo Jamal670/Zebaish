@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, notFound } from 'next/navigation';
 import { ResellerStorefront } from '@/components/ResellerStorefront';
 import { useApp } from '@/components/context/AppContext';
 import { Product } from '@/types';

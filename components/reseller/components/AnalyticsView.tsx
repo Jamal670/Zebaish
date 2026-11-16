@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   TrendingUp,
   TrendingDown,
@@ -37,10 +37,7 @@ import {
 } from 'recharts';
 
 import useAuth from '@/src/hooks/useAuth';
-import {
-  fetchSellerAnalyticsData,
-  SellerAnalyticsResponse,
-} from '@/src/api/sellerAnalyticsService';
+import { fetchSellerAnalyticsData } from '@/src/api/sellerAnalyticsService';
 import { HorizontalScrollRow } from './common/HorizontalScrollRow';
 
 // ==========================================
@@ -179,18 +176,33 @@ export const KpiCard: React.FC<KpiCardProps> = ({
 // ==========================================
 
 import { useQuery } from '@tanstack/react-query';
+import { useSellerAnalytics } from '@/hooks/useSellerAnalytics';
+import { DateRange } from '@/lib/seller/analytics-range';
 
 export const AnalyticsView: React.FC = () => {
   const { user, resellerProfile } = useAuth();
-  const sellerId = resellerProfile?.id || user?.id || 'demo-reseller-id';
+  const sellerId = resellerProfile?.id || user?.id || '';
 
-  const [dateRange, setDateRange] = useState<'7D' | '30D' | '90D' | 'ALL'>('30D');
+  const [dateRange, setDateRange] = useState<DateRange>('30D');
   const [selectedCity, setSelectedCity] = useState<string>('All Cities');
   const [selectedBrand, setSelectedBrand] = useState<string>('All Brands');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'sales' | 'inventory' | 'reviews'>('sales');
 
-  const { data: analyticsData = null, isLoading: loading, isError, refetch: loadAnalytics } = useQuery({
+  const {
+    kpisQuery,
+    trendQuery,
+    cityQuery,
+    paymentQuery,
+    isAnyFetching,
+    prefetchRange,
+    refetchAll,
+  } = useSellerAnalytics(sellerId, dateRange);
+
+  const {
+    data: analyticsData = null,
+    refetch: refetchSecondary,
+  } = useQuery({
     queryKey: ['sellerAnalyticsData', sellerId, dateRange, selectedCity, selectedBrand],
     queryFn: () =>
       fetchSellerAnalyticsData({
@@ -199,11 +211,41 @@ export const AnalyticsView: React.FC = () => {
         selectedCity,
         selectedBrand,
       }),
-    enabled: Boolean(sellerId),
+    enabled: Boolean(sellerId) && (activeTab === 'inventory' || activeTab === 'reviews'),
     staleTime: 60 * 1000,
   });
 
-  const error = isError ? 'Unable to fetch live analytics data. Showing offline metrics.' : null;
+  const handleRefresh = () => {
+    refetchAll();
+    if (activeTab !== 'sales') {
+      refetchSecondary();
+    }
+  };
+
+  const anyError =
+    kpisQuery.isError ||
+    cityQuery.isError ||
+    trendQuery.isError ||
+    paymentQuery.isError
+      ? 'Unable to load real-time analytics data. Please check your connection or retry.'
+      : null;
+
+  const trendData = trendQuery.data || [];
+  const paymentShare = paymentQuery.data;
+  const paymentPieData = [
+    {
+      name: 'Cash on Delivery (COD)',
+      value: paymentShare?.codPct ?? 0,
+      count: paymentShare?.cod ?? 0,
+      color: '#f59e0b',
+    },
+    {
+      name: 'Online (Bank/EasyPaisa)',
+      value: paymentShare?.onlinePct ?? 0,
+      count: paymentShare?.online ?? 0,
+      color: '#10b981',
+    },
+  ];
 
   const exportToCSV = (filename: string, rows: object[]) => {
     if (!rows || rows.length === 0) return;
@@ -220,7 +262,7 @@ export const AnalyticsView: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const kpis = analyticsData?.kpis;
+  const kpis = kpisQuery.data;
 
   return (
     <div
@@ -242,14 +284,14 @@ export const AnalyticsView: React.FC = () => {
         {/* FIX #2: LEFT-SIDE ACTION BUTTONS ROW (SINGLE HORIZONTALLY SCROLLABLE ROW, NEVER WRAPS) */}
         <HorizontalScrollRow className="pb-1" showScrollButtons={false}>
           <button
-            onClick={() => loadAnalytics()}
+            onClick={handleRefresh}
             className={`p-2 sm:p-2.5 border rounded-lg transition-colors cursor-pointer shrink-0 min-h-[36px] sm:min-h-[38px] flex items-center justify-center ${isDarkMode
                 ? 'bg-stone-800 border-stone-700 text-stone-300 hover:text-white'
                 : 'bg-stone-100 border-stone-200 text-stone-700 hover:text-black'
               }`}
             title="Refresh Analytics Data"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isAnyFetching ? 'animate-spin' : ''}`} />
           </button>
 
           {/* Date Range Selector */}
@@ -261,6 +303,8 @@ export const AnalyticsView: React.FC = () => {
               <button
                 key={r}
                 onClick={() => setDateRange(r)}
+                onPointerEnter={() => prefetchRange(r)}
+                onFocus={() => prefetchRange(r)}
                 className={`px-2 py-1 text-xs sm:px-3 sm:py-1.5 sm:text-sm lg:px-4 lg:py-2 lg:text-sm font-bold rounded-md transition-all cursor-pointer shrink-0 ${dateRange === r
                     ? 'bg-amber-500 text-stone-950 shadow-xs'
                     : isDarkMode
@@ -279,38 +323,6 @@ export const AnalyticsView: React.FC = () => {
             ))}
           </div>
 
-          <select
-            value={selectedCity}
-            onChange={(e) => setSelectedCity(e.target.value)}
-            className={`px-2 py-1 text-xs sm:px-3 sm:py-1.5 sm:text-sm lg:px-4 lg:py-2 lg:text-sm font-semibold border rounded-lg focus:outline-none cursor-pointer shrink-0 min-h-[36px] sm:min-h-[38px] ${isDarkMode
-                ? 'bg-stone-950 border-stone-800 text-stone-200'
-                : 'bg-white border-stone-300 text-stone-800'
-              }`}
-          >
-            <option value="All Cities">All Cities</option>
-            {analyticsData?.availableCities.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={selectedBrand}
-            onChange={(e) => setSelectedBrand(e.target.value)}
-            className={`px-2 py-1 text-xs sm:px-3 sm:py-1.5 sm:text-sm lg:px-4 lg:py-2 lg:text-sm font-semibold border rounded-lg focus:outline-none cursor-pointer shrink-0 min-h-[36px] sm:min-h-[38px] ${isDarkMode
-                ? 'bg-stone-950 border-stone-800 text-stone-200'
-                : 'bg-white border-stone-300 text-stone-800'
-              }`}
-          >
-            <option value="All Brands">All Brands</option>
-            {analyticsData?.availableBrands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
             className={`p-2 sm:p-2.5 border rounded-lg transition-colors cursor-pointer shrink-0 min-h-[36px] sm:min-h-[38px] flex items-center justify-center ${isDarkMode
@@ -324,7 +336,7 @@ export const AnalyticsView: React.FC = () => {
 
           <button
             onClick={() =>
-              exportToCSV('Zebaish_Seller_Analytics_Report', analyticsData?.revenueTrend || [])
+              exportToCSV('Zebaish_Seller_Analytics_Report', trendData)
             }
             className="px-2.5 py-1 text-xs sm:px-3 sm:py-1.5 sm:text-sm lg:px-4 lg:py-2 lg:text-sm bg-stone-900 hover:bg-black text-white font-bold uppercase tracking-wider rounded-lg shadow-xs flex items-center space-x-1.5 cursor-pointer shrink-0 min-h-[36px] sm:min-h-[38px]"
           >
@@ -355,10 +367,18 @@ export const AnalyticsView: React.FC = () => {
         </div>
       )}
 
-      {error && (
-        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs sm:text-sm font-semibold flex items-center space-x-2">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>{error}</span>
+      {anyError && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs sm:text-sm font-semibold flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{anyError}</span>
+          </div>
+          <button
+            onClick={handleRefresh}
+            className="text-xs font-bold text-amber-900 underline hover:no-underline cursor-pointer"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -384,7 +404,7 @@ export const AnalyticsView: React.FC = () => {
               trendDirection="up"
               subtext="vs prev period"
               icon={<DollarSign className="w-4 h-4 text-emerald-600" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -397,7 +417,7 @@ export const AnalyticsView: React.FC = () => {
               trendDirection="up"
               subtext="vs prev period"
               icon={<ShoppingBag className="w-4 h-4 text-amber-500" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -410,7 +430,7 @@ export const AnalyticsView: React.FC = () => {
               trendDirection="up"
               subtext="per seller order"
               icon={<Layers className="w-4 h-4 text-indigo-500" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -422,7 +442,7 @@ export const AnalyticsView: React.FC = () => {
               format="number"
               subtext="Current inventory state"
               icon={<Package className="w-4 h-4 text-blue-500" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -438,7 +458,7 @@ export const AnalyticsView: React.FC = () => {
               accentBorder="amber"
               subtext="Requires seller restock"
               icon={<AlertTriangle className="w-4 h-4 text-amber-500" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -451,7 +471,7 @@ export const AnalyticsView: React.FC = () => {
               accentBorder="red"
               subtext="Pending seller dispatch"
               icon={<Clock className="w-4 h-4 text-rose-600" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -465,7 +485,7 @@ export const AnalyticsView: React.FC = () => {
               invertTrendColor={true}
               subtext="vs prev period"
               icon={<XCircle className="w-4 h-4 text-rose-500" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -478,7 +498,7 @@ export const AnalyticsView: React.FC = () => {
               ratingStars={5}
               subtext={`(${kpis?.approvedReviewsCount || 0} approved reviews)`}
               icon={<Star className="w-4 h-4 text-amber-400 fill-amber-400" />}
-              loading={loading}
+              loading={kpisQuery.isPending}
               isDarkMode={isDarkMode}
             />
           </div>
@@ -496,7 +516,7 @@ export const AnalyticsView: React.FC = () => {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id as 'sales' | 'inventory' | 'reviews')}
               className={`flex items-center space-x-2 py-2 px-3 border-b-2 text-xs sm:text-sm lg:text-base font-bold uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer shrink-0 ${activeTab === tab.id
                   ? 'border-amber-500 text-amber-500'
                   : 'border-transparent text-stone-500 hover:text-stone-900'
@@ -531,50 +551,72 @@ export const AnalyticsView: React.FC = () => {
             </div>
 
             <div className="h-64 sm:h-80 w-full pt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={analyticsData?.revenueTrend || []}>
-                  <defs>
-                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorCod" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#27272a' : '#f5f5f4'} />
-                  <XAxis dataKey="date" stroke="#a8a29e" fontSize={11} />
-                  <YAxis stroke="#a8a29e" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: isDarkMode ? '#18181b' : '#fff',
-                      borderColor: '#d6d3d1',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '12px' }} />
-                  <Area
-                    type="monotone"
-                    dataKey="revenue"
-                    name="Total Seller Revenue (Rs.)"
-                    stroke="#10b981"
-                    strokeWidth={3}
-                    fillOpacity={1}
-                    fill="url(#colorRevenue)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="cod"
-                    name="COD Revenue (Rs.)"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#colorCod)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {trendQuery.isPending ? (
+                <div className="h-full w-full flex flex-col items-center justify-center space-y-3 bg-stone-100/50 dark:bg-stone-800/40 rounded-xl animate-pulse">
+                  <div className="h-4 w-40 bg-stone-300 dark:bg-stone-700 rounded-xs" />
+                  <div className="h-32 w-full max-w-md bg-stone-200 dark:bg-stone-700/60 rounded-md" />
+                </div>
+              ) : trendQuery.isError ? (
+                <div className="h-full w-full flex flex-col items-center justify-center space-y-2 text-stone-500 text-xs">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  <span>Unable to load revenue trend</span>
+                  <button onClick={() => trendQuery.refetch()} className="font-bold underline text-amber-600 cursor-pointer">Retry</button>
+                </div>
+              ) : trendData.length === 0 ? (
+                <div className="h-full w-full flex flex-col items-center justify-center space-y-2 text-stone-500 text-xs sm:text-sm">
+                  <BarChart3 className="w-6 h-6 text-stone-400" />
+                  <span>No revenue data available for this date range</span>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendData}>
+                    <defs>
+                      <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="colorCod" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#27272a' : '#f5f5f4'} />
+                    <XAxis dataKey="date" stroke="#a8a29e" fontSize={11} />
+                    <YAxis stroke="#a8a29e" fontSize={11} />
+                    <Tooltip
+                      formatter={(value, name) => [
+                        `Rs. ${Number(value ?? 0).toLocaleString()}`,
+                        name ?? '',
+                      ]}
+                      contentStyle={{
+                        backgroundColor: isDarkMode ? '#18181b' : '#fff',
+                        borderColor: '#d6d3d1',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                    <Area
+                      type="monotone"
+                      dataKey="revenue"
+                      name="Total Seller Revenue (Rs.)"
+                      stroke="#10b981"
+                      strokeWidth={3}
+                      fillOpacity={1}
+                      fill="url(#colorRevenue)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="cod"
+                      name="COD Revenue (Rs.)"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#colorCod)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 
@@ -589,15 +631,28 @@ export const AnalyticsView: React.FC = () => {
                 Seller Revenue Breakdown by City (Top 6)
               </h3>
               <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={analyticsData?.revenueByCity || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#27272a' : '#f5f5f4'} />
-                    <XAxis type="number" stroke="#a8a29e" fontSize={11} />
-                    <YAxis dataKey="city" type="category" stroke="#a8a29e" fontSize={11} width={80} />
-                    <Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#18181b' : '#fff', borderRadius: '8px', fontSize: '11px' }} />
-                    <Bar dataKey="revenue" name="Revenue (Rs.)" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {cityQuery.isPending ? (
+                  <div className="h-full w-full flex flex-col items-center justify-center space-y-2 bg-stone-100/50 dark:bg-stone-800/40 rounded-xl animate-pulse">
+                    <div className="h-3 w-32 bg-stone-300 dark:bg-stone-700 rounded-xs" />
+                    <div className="h-28 w-3/4 bg-stone-200 dark:bg-stone-700/60 rounded-md" />
+                  </div>
+                ) : cityQuery.isError ? (
+                  <div className="h-full w-full flex flex-col items-center justify-center space-y-2 text-stone-500 text-xs">
+                    <AlertTriangle className="w-5 h-5 text-amber-500" />
+                    <span>Unable to load city revenue</span>
+                    <button onClick={() => cityQuery.refetch()} className="font-bold underline text-amber-600 cursor-pointer">Retry</button>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart layout="vertical" data={cityQuery.data || []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDarkMode ? '#27272a' : '#f5f5f4'} />
+                      <XAxis type="number" stroke="#a8a29e" fontSize={11} />
+                      <YAxis dataKey="city" type="category" stroke="#a8a29e" fontSize={11} width={80} />
+                      <Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#18181b' : '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                      <Bar dataKey="revenue" name="Revenue (Rs.)" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
 
@@ -610,25 +665,49 @@ export const AnalyticsView: React.FC = () => {
                 Payment Method Share (COD vs Online Unique Orders)
               </h3>
               <div className="h-64 w-full flex items-center justify-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={analyticsData?.paymentMethodSplit || []}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {(analyticsData?.paymentMethodSplit || []).map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ backgroundColor: isDarkMode ? '#18181b' : '#fff', borderRadius: '8px', fontSize: '11px' }} />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                  </PieChart>
-                </ResponsiveContainer>
+                {paymentQuery.isPending ? (
+                  <div className="h-36 w-36 rounded-full border-4 border-stone-200 dark:border-stone-800 border-t-amber-500 animate-spin" />
+                ) : paymentQuery.isError ? (
+                  <div className="h-full w-full flex flex-col items-center justify-center space-y-2 text-stone-500 text-xs">
+                    <AlertTriangle className="w-5 h-5 text-amber-500" />
+                    <span>Unable to load payment share</span>
+                    <button onClick={() => paymentQuery.refetch()} className="font-bold underline text-amber-600 cursor-pointer">Retry</button>
+                  </div>
+                ) : paymentShare?.total === 0 ? (
+                  <div className="h-full w-full flex flex-col items-center justify-center space-y-2 text-stone-500 text-xs sm:text-sm">
+                    <DollarSign className="w-6 h-6 text-stone-400" />
+                    <span>No payment data available for this date range</span>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={paymentPieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {paymentPieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value, _name, item) => {
+                          const payload = item?.payload || {};
+                          return [
+                            `${value}% • ${payload.count || 0} orders`,
+                            payload.name || 'Payment Method',
+                          ];
+                        }}
+                        contentStyle={{ backgroundColor: isDarkMode ? '#18181b' : '#fff', borderRadius: '8px', fontSize: '11px' }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </HorizontalScrollRow>
@@ -769,7 +848,7 @@ export const AnalyticsView: React.FC = () => {
                       <span className="text-stone-900">{rev.customer}</span>
                       <span className="text-amber-500">★ {rev.rating}/5</span>
                     </div>
-                    <p className="text-stone-600 italic">"{rev.comment}"</p>
+                    <p className="text-stone-600 italic">&ldquo;{rev.comment}&rdquo;</p>
                     <div className="text-[10px] sm:text-xs text-stone-400 font-semibold text-right">
                       {rev.product} • {rev.date}
                     </div>

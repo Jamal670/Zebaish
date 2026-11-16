@@ -1,0 +1,1 @@
+React Context + Supabase (`@supabase/supabase-js`) for auth/profile persistence; localStorage as guest-cart cache; all components are Next.js `'use client'` modules.

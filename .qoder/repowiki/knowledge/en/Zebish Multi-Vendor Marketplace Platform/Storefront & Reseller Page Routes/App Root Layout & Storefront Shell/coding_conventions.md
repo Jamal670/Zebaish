@@ -1,0 +1,3 @@
+- Global providers are stacked as nested JSX wrappers in `layout.tsx` rather than composed via a higher-order component, establishing a fixed provider order (Query → Auth → App → Analytics → Shell).
+- Navigation across the storefront uses imperative `router.push` from `next/navigation` instead of `<Link>` elements, with query parameters URL-encoded via `encodeURIComponent`.
+- Typography and brand fonts are centralized in `globals.css` using CSS custom properties under `@layer base` and referenced via Tailwind utility classes like `font-brand-serif`, `font-script`, and `font-urdu`.

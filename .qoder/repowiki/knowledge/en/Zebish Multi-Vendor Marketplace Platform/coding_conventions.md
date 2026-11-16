@@ -1,0 +1,3 @@
+- Frontend data shapes are declared once in the root `types.ts` and imported by both storefront pages and shared components rather than redefined per module.
+- Database access goes through Supabase RPC functions (SECURITY DEFINER plpgsql) instead of direct table queries, so page routes and shared components never touch tables directly.
+- Global state (auth, cart, wishlist) is surfaced via React contexts provided at the root layout level so any page under `app/` can consume them without prop drilling.

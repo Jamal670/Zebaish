@@ -24,7 +24,7 @@ export const UserLogin: React.FC<UserLoginProps> = ({
   onNavigateForgotPass,
 }) => {
   const router = useRouter();
-  const { user, role, sellerStatus, resellerProfile, refetchProfile, logout } = useAuth();
+  const { user, role, sellerStatus, resellerProfile, loading: authLoading, refetchProfile, logout } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,10 +36,13 @@ export const UserLogin: React.FC<UserLoginProps> = ({
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (user) {
+    if (!authLoading && user && role) {
+      if (role === 'seller' && (sellerStatus === 'Suspended' || resellerProfile?.status === 'Suspended')) {
+        return;
+      }
       onLoginSuccess();
     }
-  }, [user, onLoginSuccess]);
+  }, [user, authLoading, role, sellerStatus, resellerProfile, onLoginSuccess]);
 
   const handleGoogleLogin = async () => {
     setErrorMessage(null);

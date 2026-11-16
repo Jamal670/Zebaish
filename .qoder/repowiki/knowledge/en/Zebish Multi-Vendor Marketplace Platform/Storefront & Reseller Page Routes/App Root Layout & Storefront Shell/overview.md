@@ -1,0 +1,1 @@
+Next.js App Router root layout, homepage shell, and 404 page that wire global providers, fonts, analytics, and the MainLayoutShell around the storefront.

@@ -1,0 +1,20 @@
+schema_version: 1
+module_path: ""
+title: Zebish Multi-Vendor Marketplace Platform
+scope:
+    - README.md
+    - package.json
+    - next.config.ts
+    - tsconfig.json
+    - eslint.config.mjs
+    - postcss.config.mjs
+    - .gitignore
+    - AGENTS.md
+    - CLAUDE.md
+    - package-lock.json
+    - supabase-migration-categories.sql
+    - test-categories.mjs
+    - types.ts
+source_files: []
+depends_on: []
+related_to: []

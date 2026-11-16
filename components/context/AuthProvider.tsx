@@ -1,6 +1,7 @@
 'use client';
 import React, { createContext, useState, useEffect, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
+import { useQueryClient } from '@tanstack/react-query';
 import supabase from '@/src/api/client';
 
 export interface ResellerProfile {
@@ -23,6 +24,7 @@ export interface ResellerProfile {
   cod?: boolean;
   advance_pay_full?: boolean;
   advance_pay_dc?: boolean;
+  password?: string | null;
 }
 
 export interface UserProfile {
@@ -74,6 +76,7 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [resellerProfile, setResellerProfile] = useState<ResellerProfile | null>(null);
@@ -110,54 +113,83 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .maybeSingle();
 
       if (error) {
+        if (
+          error.code === 'PGRST205' ||
+          error.code === '42P01' ||
+          error.message?.includes('schema cache') ||
+          error.message?.includes('does not exist')
+        ) {
+          // public.users table not yet created in database schema
+          return null;
+        }
         console.warn('Error fetching user profile:', error.message);
         return null;
       }
       return data || null;
-    } catch (err) {
+    } catch (err: any) {
+      if (
+        err?.code === 'PGRST205' ||
+        err?.code === '42P01' ||
+        err?.message?.includes('schema cache') ||
+        err?.message?.includes('does not exist')
+      ) {
+        return null;
+      }
       console.warn('Unexpected error fetching user profile:', err);
       return null;
     }
   };
 
   const loadUserProfilesAndRole = async (userId: string, authUser?: User | null): Promise<ProfileResult> => {
-    let sellerRes = await fetchResellerProfile(userId);
-    let customerRes = await fetchUserProfile(userId);
+    const sellerRes = await fetchResellerProfile(userId);
+    let customerRes: UserProfile | null = null;
 
-    // Auto-create customer profile if no seller profile exists and no customer profile exists yet
-    if (!sellerRes && !customerRes && authUser) {
-      try {
-        const meta = authUser.user_metadata || {};
-        const fullName = (meta.full_name || meta.name || '').trim();
-        const nameParts = fullName ? fullName.split(/\s+/) : [];
+    // Only query or auto-create customer profile if the user is not a registered seller
+    if (!sellerRes) {
+      customerRes = await fetchUserProfile(userId);
 
-        const firstName = meta.first_name || meta.given_name || (nameParts.length > 0 ? nameParts[0] : '') || (authUser.email ? authUser.email.split('@')[0] : 'User');
-        const lastName = meta.last_name || meta.family_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
-        const email = authUser.email || meta.email || '';
-        const phoneNo = authUser.phone || meta.phone_no || meta.phone || null;
+      // Auto-create customer profile if no customer profile exists yet
+      if (!customerRes && authUser) {
+        try {
+          const meta = authUser.user_metadata || {};
+          const fullName = (meta.full_name || meta.name || '').trim();
+          const nameParts = fullName ? fullName.split(/\s+/) : [];
 
-        const { data: createdProfile, error: insertErr } = await supabase
-          .from('users')
-          .insert([
-            {
-              id: userId,
-              first_name: firstName,
-              last_name: lastName,
-              email: email,
-              phone_no: phoneNo,
-            },
-          ])
-          .select('*')
-          .maybeSingle();
+          const firstName = meta.first_name || meta.given_name || (nameParts.length > 0 ? nameParts[0] : '') || (authUser.email ? authUser.email.split('@')[0] : 'User');
+          const lastName = meta.last_name || meta.family_name || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+          const email = authUser.email || meta.email || '';
+          const phoneNo = authUser.phone || meta.phone_no || meta.phone || null;
 
-        if (!insertErr && createdProfile) {
-          customerRes = createdProfile;
-        } else {
-          customerRes = await fetchUserProfile(userId);
+          const { data: createdProfile, error: insertErr } = await supabase
+            .from('users')
+            .insert([
+              {
+                id: userId,
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                phone_no: phoneNo,
+              },
+            ])
+            .select('*')
+            .maybeSingle();
+
+          if (!insertErr && createdProfile) {
+            customerRes = createdProfile;
+          } else if (
+            insertErr &&
+            (insertErr.code === 'PGRST205' ||
+              insertErr.code === '42P01' ||
+              insertErr.message?.includes('schema cache') ||
+              insertErr.message?.includes('does not exist'))
+          ) {
+            customerRes = null;
+          } else {
+            customerRes = await fetchUserProfile(userId);
+          }
+        } catch (err) {
+          customerRes = null;
         }
-      } catch (err) {
-        console.warn('Auto-create customer profile error:', err);
-        customerRes = await fetchUserProfile(userId);
       }
     }
 
@@ -206,6 +238,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       console.error('Error signing out:', err);
     } finally {
+      queryClient.clear();
       setUser(null);
       setSession(null);
       setResellerProfile(null);

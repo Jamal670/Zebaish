@@ -1,0 +1,6 @@
+- Client-only components are opt-in via the `'use client'` directive at the top of each file that uses browser APIs or hooks.
+- Global UI state (cart, wishlist, drawer toggles, toast) is exposed through the `useApp()` hook from `context/AppContext.tsx` rather than prop drilling.
+- Authentication and role resolution go through `context/AuthProvider.tsx`, which derives a `role` of `'seller' | 'customer' | null` and lazy-fetches the matching profile table.
+- Data fetching in page-level components uses TanStack Query with explicit `queryKey` arrays and shared `STOREFRONT_QUERY_OPTIONS` (5 min staleTime, 10 min gcTime, no focus refetch).
+- Supabase queries select only the columns they need (e.g. `PUBLIC_SELLER_COLUMNS`) and map raw rows into typed domain models (`Reseller`, `Product`) before rendering.
+- Skeleton loading states are provided as dedicated exported components (`SellerHeaderSkeleton`, `ChipRowSkeleton`, `ProductCardSkeleton`) rendered while queries are pending.

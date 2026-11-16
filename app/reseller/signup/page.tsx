@@ -7,13 +7,13 @@ import { useAuth } from '@/src/hooks/useAuth';
 
 export default function ResellerSignupRoutePage() {
   const router = useRouter();
-  const { user, resellerProfile, loading } = useAuth();
+  const { user, role, loading } = useAuth();
 
   useEffect(() => {
-    if (!loading && user && resellerProfile) {
-      router.push('/dashboard');
+    if (!loading && user && role === 'seller') {
+      router.replace('/dashboard');
     }
-  }, [user, resellerProfile, loading, router]);
+  }, [user, role, loading, router]);
 
   if (loading) {
     return (

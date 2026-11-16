@@ -1,0 +1,1 @@
+Next.js App Router page tree exposing public storefront, reseller portal, and merchant dashboard routes under app/, all rendered through the shared root layout shell.

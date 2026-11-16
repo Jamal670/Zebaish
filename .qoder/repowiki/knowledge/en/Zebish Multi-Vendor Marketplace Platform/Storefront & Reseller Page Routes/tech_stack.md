@@ -1,0 +1,1 @@
+Next.js App Router with file-system routing; client components co-located with their page (e.g. product/[id]/ProductPageClient.tsx) for server/client separation.

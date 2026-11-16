@@ -100,16 +100,48 @@ function isValidUUID(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
+function dateRangeToDays(dateRange: '7D' | '30D' | '90D' | 'ALL'): number | null {
+  if (dateRange === '7D') return 7;
+  if (dateRange === '30D') return 30;
+  if (dateRange === '90D') return 90;
+  return null;
+}
+
+function mapRpcRevenueTrend(payload: unknown): FiveDayBucket[] {
+  const rows = Array.isArray(payload) ? (payload as Record<string, unknown>[]) : [];
+  return rows.map((row) => ({
+    date: String(row.date || ''),
+    revenue: Number(row.revenue) || 0,
+    cod: Number(row.cod) || 0,
+    online: Number(row.online) || 0,
+    orders: Number(row.orders) || 0,
+  }));
+}
+
+function mapRpcPaymentSplit(payload: unknown): PaymentMethodCountItem[] {
+  const rows = Array.isArray(payload) ? (payload as Record<string, unknown>[]) : [];
+  return rows.map((row, index) => ({
+    name: String(row.name || (index === 0 ? 'Cash on Delivery (COD)' : 'Online')),
+    value: Number(row.value) || 0,
+    count: Number(row.count) || 0,
+    amount: Number(row.amount) || 0,
+    color: String(row.color || (index === 0 ? '#f59e0b' : '#10b981')),
+  }));
+}
+
 function getDateThreshold(dateRange: '7D' | '30D' | '90D' | 'ALL'): Date | null {
   const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
   if (dateRange === '7D') {
-    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return new Date(todayStart.getTime() - 6 * DAY_MS);
   }
   if (dateRange === '30D') {
-    return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return new Date(todayStart.getTime() - 29 * DAY_MS);
   }
   if (dateRange === '90D') {
-    return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return new Date(todayStart.getTime() - 89 * DAY_MS);
   }
   return null;
 }
@@ -200,6 +232,7 @@ export async function fetchSellerAnalyticsData({
 }: FetchAnalyticsParams): Promise<SellerAnalyticsResponse> {
   const isUuid = isValidUUID(sellerId);
   const startDate = getDateThreshold(dateRange);
+  const days = dateRangeToDays(dateRange);
 
   // If not valid UUID (demo mode), return calculated demo metrics
   if (!isUuid) {
@@ -224,7 +257,6 @@ export async function fetchSellerAnalyticsData({
         orders!inner (
           id,
           city,
-          payment_method,
           payment_status,
           order_status,
           created_at
@@ -245,11 +277,11 @@ export async function fetchSellerAnalyticsData({
         seller_id,
         seller_total,
         status,
+        payment_method,
         created_at,
         orders!inner (
           id,
           city,
-          payment_method,
           payment_status,
           order_status,
           created_at
@@ -289,11 +321,13 @@ export async function fetchSellerAnalyticsData({
       `)
       .eq('products.seller_id', sellerId);
 
-    const [orderItemsRes, sellerOrdersRes, productsRes, reviewsRes] = await Promise.all([
+    const [orderItemsRes, sellerOrdersRes, productsRes, reviewsRes, trendRes, paymentRes] = await Promise.all([
       orderItemsQuery,
       sellerOrdersQuery,
       productsQuery,
       reviewsQuery,
+      supabase.rpc('get_seller_revenue_trend', { p_days: days }),
+      supabase.rpc('get_seller_payment_share', { p_days: days }),
     ]);
 
     let rawOrderItems = orderItemsRes.data || [];
@@ -328,6 +362,14 @@ export async function fetchSellerAnalyticsData({
       rawSellerOrders = rawSellerOrders.filter((so: any) => matchingOrderIds.has(so.order_id));
     }
 
+    // Payment method lives on seller_orders (the orders table has no payment_method column)
+    const paymentMethodByOrderId = new Map<string, string>();
+    rawSellerOrders.forEach((so: any) => {
+      if (so.order_id) {
+        paymentMethodByOrderId.set(so.order_id, so.payment_method || 'COD');
+      }
+    });
+
     // -------------------------------------------------------------
     // CALCULATE OVERVIEW / KPI METRICS
     // -------------------------------------------------------------
@@ -339,8 +381,14 @@ export async function fetchSellerAnalyticsData({
     const totalOrdersCount = uniqueOrderIds.size;
     const averageOrderValue = totalOrdersCount > 0 ? Math.round(totalRevenue / totalOrdersCount) : 0;
 
-    const activeProductsCount = rawProducts.filter((p: any) => p.status === 'Active').length;
-    const soldOutProductsCount = rawProducts.filter((p: any) => p.status === 'Sold Out').length;
+    const activeProductsCount = rawProducts.filter(
+      (p: any) => String(p.status || '').toLowerCase() === 'active'
+    ).length;
+    const soldOutProductsCount = rawProducts.filter((p: any) => {
+      const status = String(p.status || '').toLowerCase().replace(/[_-]+/g, ' ');
+      if (status === 'sold out') return true;
+      return p.inventory_mode !== 'variants' && Number(p.quantity) === 0;
+    }).length;
 
     const pendingOrdersCount = rawSellerOrders.filter((so: any) => so.status === 'Pending').length;
     const cancelledOrdersCount = rawSellerOrders.filter((so: any) => so.status === 'Cancelled').length;
@@ -358,10 +406,19 @@ export async function fetchSellerAnalyticsData({
         ? Math.round((approvedReviews.reduce((sum: number, r: any) => sum + (r.rating || 5), 0) / approvedReviewsCount) * 10) / 10
         : 0;
 
+    const hasActiveFilters =
+      (selectedCity && selectedCity !== 'All Cities') ||
+      (selectedBrand && selectedBrand !== 'All Brands');
+
     // -------------------------------------------------------------
     // 5-DAY REVENUE BUCKETS (LAST 30 DAYS OR DATE RANGE)
+    // Prefer the security-definer RPC: direct order_items/orders queries
+    // can be empty under RLS for the authenticated seller.
     // -------------------------------------------------------------
-    const revenueTrend = buildFiveDayBuckets(rawOrderItems, dateRange);
+    const revenueTrend =
+      !hasActiveFilters && !trendRes.error && Array.isArray(trendRes.data)
+        ? mapRpcRevenueTrend(trendRes.data)
+        : buildFiveDayBuckets(rawOrderItems, dateRange, paymentMethodByOrderId);
 
     // -------------------------------------------------------------
     // REVENUE BY CITY (TOP 6 WITH DEFAULT FALLBACK CITIES)
@@ -386,7 +443,9 @@ export async function fetchSellerAnalyticsData({
     let onlineAmount = 0;
 
     rawOrderItems.forEach((item: any) => {
-      const method = item.orders?.payment_method || 'COD';
+      const method = String(
+        paymentMethodByOrderId.get(item.order_id) || item.orders?.payment_method || 'COD'
+      ).trim().toUpperCase();
       const subtotal = Number(item.subtotal) || 0;
 
       if (method === 'COD') {
@@ -402,7 +461,7 @@ export async function fetchSellerAnalyticsData({
     const onlineCount = onlineOrderIds.size;
     const totalPaymentOrders = codCount + onlineCount;
 
-    const paymentMethodSplit: PaymentMethodCountItem[] = [
+    const localPaymentMethodSplit: PaymentMethodCountItem[] = [
       {
         name: 'Cash on Delivery (COD)',
         value: totalPaymentOrders > 0 ? Math.round((codCount / totalPaymentOrders) * 100) : 0,
@@ -418,6 +477,14 @@ export async function fetchSellerAnalyticsData({
         color: '#10b981',
       },
     ];
+
+    const paymentMethodSplit =
+      !hasActiveFilters &&
+      !paymentRes.error &&
+      Array.isArray(paymentRes.data) &&
+      paymentRes.data.length > 0
+        ? mapRpcPaymentSplit(paymentRes.data)
+        : localPaymentMethodSplit;
 
     // -------------------------------------------------------------
     // TOP BRANDS BY REVENUE (MINIMUM 6 WITH DEFAULT FALLBACK BRANDS)
@@ -490,13 +557,24 @@ export async function fetchSellerAnalyticsData({
     // LOW STOCK & SOLD OUT ALERT ITEMS
     // -------------------------------------------------------------
     const lowStockItems: AlertProductItem[] = rawProducts
-      .filter((p: any) => p.status === 'Sold Out' || (p.quantity ?? 0) <= 2)
-      .map((p: any) => ({
+      .map((p: any) => {
+        const stock = p.inventory_mode === 'variants'
+          ? Number(p.cached_total_variant_quantity ?? 0)
+          : Number(p.quantity ?? 0);
+        const status = String(p.status || '').toLowerCase().replace(/[_-]+/g, ' ');
+        return {
+          product: p,
+          stock,
+          isSoldOut: status === 'sold out' || stock === 0,
+        };
+      })
+      .filter(({ stock, isSoldOut }) => isSoldOut || stock <= 2)
+      .map(({ product: p, stock, isSoldOut }) => ({
         id: p.id,
-        title: p.suit_title || 'Leftover Suit',
-        stock: p.quantity ?? 0,
-        status: p.status === 'Sold Out' || p.quantity === 0 ? 'Sold Out' : 'Low Stock',
-        brand: p.brand || 'Brand',
+        title: p.title || p.suit_title || 'Untitled Product',
+        stock,
+        status: isSoldOut ? ('Sold Out' as const) : ('Low Stock' as const),
+        brand: p.brand || 'Unbranded',
       }));
 
     // -------------------------------------------------------------
@@ -567,24 +645,50 @@ export async function fetchSellerAnalyticsData({
 }
 
 /**
- * Builds 5-day buckets across the date range (e.g. 6 buckets for 30D)
+ * Builds revenue buckets across the selected date range.
+ * - 7D: one bucket per day
+ * - 30D / 90D: 5-day buckets
+ * - ALL: 5-day buckets starting from the seller's earliest order
  */
-function buildFiveDayBuckets(orderItems: any[], dateRange: '7D' | '30D' | '90D' | 'ALL'): FiveDayBucket[] {
-  const days = dateRange === '7D' ? 7 : dateRange === '90D' ? 90 : 30;
-  const bucketCount = dateRange === '7D' ? 7 : Math.ceil(days / 5);
+function buildFiveDayBuckets(
+  orderItems: any[],
+  dateRange: '7D' | '30D' | '90D' | 'ALL',
+  paymentMethodByOrderId: Map<string, string> = new Map()
+): FiveDayBucket[] {
+  const DAY_MS = 24 * 60 * 60 * 1000;
   const now = new Date();
-  const buckets: FiveDayBucket[] = [];
-
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const intervalDays = dateRange === '7D' ? 1 : 5;
 
+  let rangeStart: Date;
+  if (dateRange === 'ALL') {
+    const earliestTimestamp = orderItems.reduce((earliest, item) => {
+      const time = new Date(item.created_at || 0).getTime();
+      return Number.isFinite(time) && time > 0 && time < earliest ? time : earliest;
+    }, todayStart.getTime());
+
+    rangeStart = new Date(earliestTimestamp);
+    rangeStart.setHours(0, 0, 0, 0);
+  } else {
+    const days = dateRange === '7D' ? 7 : dateRange === '90D' ? 90 : 30;
+    rangeStart = new Date(todayStart.getTime() - (days - 1) * DAY_MS);
+  }
+
+  const totalDays = Math.max(
+    1,
+    Math.round((todayStart.getTime() - rangeStart.getTime()) / DAY_MS) + 1
+  );
+  const bucketCount = Math.max(1, Math.ceil(totalDays / intervalDays));
+  const buckets: FiveDayBucket[] = [];
+
   for (let i = 0; i < bucketCount; i++) {
-    const endDaysAgo = days - i * intervalDays;
-    const startDaysAgo = endDaysAgo - intervalDays;
+    const startDate = new Date(rangeStart.getTime() + i * intervalDays * DAY_MS);
+    const endDate = new Date(
+      Math.min(startDate.getTime() + intervalDays * DAY_MS - 1, todayEnd.getTime())
+    );
 
-    const startDate = new Date(now.getTime() - endDaysAgo * 24 * 60 * 60 * 1000);
-    const endDate = new Date(now.getTime() - Math.max(0, startDaysAgo) * 24 * 60 * 60 * 1000);
-
-    const label = dateRange === '7D'
+    const label = intervalDays === 1
       ? formatDateLabel(startDate)
       : `${formatDateLabel(startDate)} - ${formatDateLabel(endDate)}`;
 
@@ -597,7 +701,10 @@ function buildFiveDayBuckets(orderItems: any[], dateRange: '7D' | '30D' | '90D' 
       const itemDate = new Date(item.created_at || Date.now());
       if (itemDate >= startDate && itemDate <= endDate) {
         const subtotal = Number(item.subtotal) || 0;
-        const method = item.orders?.payment_method || 'COD';
+        const method = String(
+          paymentMethodByOrderId.get(item.order_id) || item.orders?.payment_method || 'COD'
+        ).trim().toUpperCase();
+
         bucketRev += subtotal;
         if (method === 'COD') bucketCod += subtotal;
         else bucketOnline += subtotal;

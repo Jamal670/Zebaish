@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/src/hooks/useAuth';
 import { UserLogin } from '@/components/users/UserLogin';
@@ -10,7 +10,8 @@ export default function LoginPage() {
   const { user, role, resellerProfile, sellerStatus, loading } = useAuth();
   const router = useRouter();
 
-  const handlePostLoginRedirect = () => {
+  const handlePostLoginRedirect = useCallback(() => {
+    if (!role) return;
     if (role === 'seller') {
       if (sellerStatus === 'Suspended' || resellerProfile?.status === 'Suspended') {
         return;
@@ -19,13 +20,13 @@ export default function LoginPage() {
     } else {
       router.replace('/account');
     }
-  };
+  }, [role, sellerStatus, resellerProfile, router]);
 
   useEffect(() => {
-    if (!loading && user) {
+    if (!loading && user && role) {
       handlePostLoginRedirect();
     }
-  }, [user, role, sellerStatus, resellerProfile, loading]);
+  }, [user, loading, role, handlePostLoginRedirect]);
 
   if (loading) {
     return (

@@ -1,0 +1,4 @@
+- Cross-cutting state (auth, session, role, cart, wishlist, modals) is exposed via React Context providers at `components/context/` rather than per-page state.
+- Components that need global state call the typed `useAuth()` / `useApp()` hooks instead of consuming contexts directly, which throws if used outside their provider.
+- Cart and wishlist mutations are optimistic: local state updates first, then Supabase sync via `cartWishlistService`; failures revert local state and surface a toast.
+- Role-based rendering uses the `role` value (`'seller' | 'customer' | null`) resolved by `AuthProvider` rather than checking raw Supabase user metadata.

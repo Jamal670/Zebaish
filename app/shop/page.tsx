@@ -11,7 +11,7 @@ function ShopContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const category = searchParams.get('category') || 'ALL LEFTOVER SUITS';
+  const category = searchParams.get('category') || 'ALL PRODUCTS';
   const brand = searchParams.get('brand') || undefined;
 
   const {

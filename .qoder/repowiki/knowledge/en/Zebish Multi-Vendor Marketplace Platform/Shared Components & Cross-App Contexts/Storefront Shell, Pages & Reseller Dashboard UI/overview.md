@@ -1,0 +1,1 @@
+Next.js client components that compose the public storefront shell (layout, navbar, drawers, modals), product/storefront pages, and the reseller dashboard with its own isolated context.

@@ -36,8 +36,10 @@ function formatDate(dateStr?: string): string {
   }
 }
 
+export const STORE_IMAGES_BUCKET = 'storeImages';
+
 export const DEFAULT_STORE_AVATAR =
-  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/products/pngtree-store-icon-image_1128274.jpg';
+  'https://vrvjqnarbsrnynlfwblg.supabase.co/storage/v1/object/public/storeImages/pngtree-store-icon-image_1128274.jpg';
 
 /**
  * Resolves avatar URL for a seller.
@@ -57,7 +59,7 @@ export function getAvatarUrl(imageUrl?: string | null, fallbackName?: string): s
       return trimmed;
     }
     if (trimmed.length > 0) {
-      const { data } = supabase.storage.from('products').getPublicUrl(trimmed);
+      const { data } = supabase.storage.from(STORE_IMAGES_BUCKET).getPublicUrl(trimmed);
       if (data?.publicUrl) return data.publicUrl;
     }
   }
@@ -111,7 +113,7 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
     // Note: avatar_url and logo_url do not exist in sellers table; store_image_url is the canonical column.
     const { data: rawSeller, error: sellerErr } = await supabase
       .from('sellers')
-      .select('id, email, full_name, shop_name, cnic, phone, city, address, bank_name, account_title, iban, status, created_at, store_image_url, shipping_charges, cod, advance_pay_full, advance_pay_dc')
+      .select('id, email, full_name, shop_name, cnic, phone, city, address, bank_name, account_title, iban, status, created_at, store_image_url, shipping_charges, cod, advance_pay_full, advance_pay_dc, password')
       .eq('id', sellerId)
       .maybeSingle();
 
@@ -143,6 +145,7 @@ export async function fetchSellerFullProfile(sellerId: string): Promise<{
         cod: rawSeller.cod !== undefined && rawSeller.cod !== null ? Boolean(rawSeller.cod) : true,
         advance_pay_full: rawSeller.advance_pay_full !== undefined && rawSeller.advance_pay_full !== null ? Boolean(rawSeller.advance_pay_full) : false,
         advance_pay_dc: rawSeller.advance_pay_dc !== undefined && rawSeller.advance_pay_dc !== null ? Boolean(rawSeller.advance_pay_dc) : false,
+        password: rawSeller.password || null,
       };
 
       return { profile };
@@ -269,7 +272,7 @@ export function fileToDataUrl(file: File): Promise<string> {
  * Validates, uploads, and immediately saves a new seller avatar to database.
  * Order:
  * 1. Validate MIME (JPEG/PNG/WEBP only, NO SVG) & size (<=5MB)
- * 2. Upload to storage bucket ('products') under seller folder: `${sellerId}/avatar-${Date.now()}.${ext}`
+ * 2. Upload to storage bucket ('storeImages') under store name folder: `${storeName}/avatar-${Date.now()}.${ext}`
  * 3. Update ONLY store_image_url in sellers table
  * 4. On success: best-effort deletes previous avatar file from storage
  * 5. On DB failure: cleans up newly uploaded file to avoid orphans
@@ -277,7 +280,8 @@ export function fileToDataUrl(file: File): Promise<string> {
 export async function autoUploadAndSaveSellerAvatar(
   sellerId: string,
   file: File,
-  previousImageUrl?: string | null
+  previousImageUrl?: string | null,
+  storeName?: string | null
 ): Promise<{ success: boolean; newUrl?: string; error?: string }> {
   if (!sellerId) {
     return { success: false, error: 'Invalid seller ID.' };
@@ -299,8 +303,30 @@ export async function autoUploadAndSaveSellerAvatar(
     return { success: false, error: 'Image size exceeds the 5MB limit.' };
   }
 
-  const targetBucket = 'products';
-  const filePath = `${sellerId}/avatar-${Date.now()}.${ext}`;
+  // Resolve store/shop name if not provided directly
+  let resolvedStoreName = storeName;
+  if (!resolvedStoreName) {
+    try {
+      const { data: sData } = await supabase
+        .from('sellers')
+        .select('shop_name')
+        .eq('id', sellerId)
+        .maybeSingle();
+      if (sData?.shop_name) {
+        resolvedStoreName = sData.shop_name;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const storeNameStr = (resolvedStoreName || '').trim();
+  const cleanStoreName = storeNameStr
+    ? storeNameStr.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '')
+    : sellerId;
+
+  const targetBucket = STORE_IMAGES_BUCKET;
+  const filePath = `${cleanStoreName}/avatar-${Date.now()}.${ext}`;
 
   let uploadedPublicUrl: string = '';
   let uploadedPath: string = '';
@@ -358,13 +384,18 @@ export async function autoUploadAndSaveSellerAvatar(
   // 5. On success: best-effort delete previous file from storage (only if in seller's folder)
   if (previousImageUrl && typeof previousImageUrl === 'string') {
     try {
-      const pattern = `${sellerId}/avatar-`;
+      const pattern = `/avatar-`;
       if (previousImageUrl.includes(pattern)) {
         const parts = previousImageUrl.split(`/${targetBucket}/`);
         if (parts.length > 1) {
           const oldPath = decodeURIComponent(parts[1]);
-          if (oldPath.startsWith(`${sellerId}/`)) {
-            supabase.storage.from(targetBucket).remove([oldPath]).catch(() => {});
+          supabase.storage.from(targetBucket).remove([oldPath]).catch(() => {});
+        } else {
+          // Check if previously stored in 'products' bucket
+          const oldParts = previousImageUrl.split(`/products/`);
+          if (oldParts.length > 1) {
+            const oldPath = decodeURIComponent(oldParts[1]);
+            supabase.storage.from('products').remove([oldPath]).catch(() => {});
           }
         }
       }
@@ -380,8 +411,12 @@ export async function autoUploadAndSaveSellerAvatar(
 /**
  * Uploads seller avatar picture to Supabase storage bucket (backward compatible)
  */
-export async function uploadSellerAvatar(sellerId: string, file: File): Promise<string> {
-  const result = await autoUploadAndSaveSellerAvatar(sellerId, file);
+export async function uploadSellerAvatar(
+  sellerId: string,
+  file: File,
+  storeName?: string | null
+): Promise<string> {
+  const result = await autoUploadAndSaveSellerAvatar(sellerId, file, null, storeName);
   return result.newUrl || URL.createObjectURL(file);
 }
 
@@ -405,10 +440,10 @@ export async function updateSellerPassword(
     });
 
     if (signInErr) {
-      return { success: false, error: 'Current password Verification failed. Please check your current password.' };
+      return { success: false, error: 'Current password verification failed. Please check your current password.' };
     }
 
-    // 2. Update to new password
+    // 2. Update to new password in Supabase Auth
     const { error: updateErr } = await supabase.auth.updateUser({
       password: newPass,
     });

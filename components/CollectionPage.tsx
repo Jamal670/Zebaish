@@ -6,6 +6,7 @@ import { ALL_PRODUCTS, BRANDS } from '@/data/mockData';
 import { Product, FilterOptions } from '@/types';
 import { fetchCollectionProducts } from '@/src/api/collectionService';
 import { useCollectionProductsQuery } from '@/src/hooks/useQueries';
+import { parseCategoryUrlParam } from '@/lib/slugify-category';
 
 interface CollectionPageProps {
   categoryTitle?: string;
@@ -156,38 +157,57 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
     });
   };
 
-  const displayTitle = brandFilter ? `${brandFilter.toUpperCase()} LEFTOVER STOCK` : categoryTitle;
+  const parsedCategory = useMemo(() => parseCategoryUrlParam(categoryTitle), [categoryTitle]);
+
+  const displayTitle = useMemo(() => {
+    if (brandFilter) return `${brandFilter.toUpperCase()} STOCK`;
+    if (parsedCategory.isAll) return 'ALL PRODUCTS';
+    return parsedCategory.decoded;
+  }, [brandFilter, parsedCategory]);
 
   return (
     <div className="bg-stone-50 min-h-screen text-stone-900 pb-20">
       {/* Top Banner / Breadcrumb */}
       <div className="bg-white border-b border-stone-200 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
-          {/* Breadcrumb */}
-          {/* <nav className="flex items-center space-x-2 text-xs text-stone-500 mb-3 uppercase tracking-wider font-medium">
-            <button
-              onClick={onNavigateHome}
-              className="hover:text-stone-900 transition-colors"
-            >
-              Home
-            </button>
-            <ChevronRight className="w-3.5 h-3.5 text-stone-400" />
-            <span className="text-stone-900 font-bold">{brandFilter ? 'Brands' : 'Catalog'}</span>
-            {brandFilter && (
-              <>
-                <ChevronRight className="w-3.5 h-3.5 text-stone-400" />
-                <span className="text-stone-900 font-bold">{brandFilter}</span>
-              </>
-            )}
-          </nav> */}
-
           <div className="ml-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
+              {/* Dynamic Breadcrumbs */}
+              {/* <div className="flex items-center gap-1.5 text-xs text-stone-400 mb-1.5 font-medium">
+                <button
+                  type="button"
+                  onClick={onNavigateHome}
+                  className="hover:text-stone-900 transition-colors cursor-pointer"
+                >
+                  Home
+                </button>
+                <ChevronRight className="w-3 h-3 text-stone-300" />
+                <span className={parsedCategory.isAll ? 'text-stone-900 font-semibold' : 'text-stone-500'}>
+                  Shop
+                </span>
+                {!parsedCategory.isAll && (
+                  <>
+                    <ChevronRight className="w-3 h-3 text-stone-300" />
+                    <span className={parsedCategory.subCategoryName ? 'text-stone-500' : 'text-stone-900 font-semibold'}>
+                      {parsedCategory.mainCategoryName}
+                    </span>
+                  </>
+                )}
+                {parsedCategory.subCategoryName && (
+                  <>
+                    <ChevronRight className="w-3 h-3 text-stone-300" />
+                    <span className="text-stone-900 font-semibold">
+                      {parsedCategory.subCategoryName}
+                    </span>
+                  </>
+                )}
+              </div> */}
+
               <h1 className="text-2xl sm:text-3xl font-brand-serif font-semibold text-stone-900 tracking-wider uppercase">
                 {displayTitle}
               </h1>
               <p className="text-xs text-stone-500 mt-1">
-                Authentic factory surplus & end-of-season designer suits from verified resellers across Pakistan
+                Discover authentic products from verified sellers across Pakistan
               </p>
             </div>
 
@@ -437,7 +457,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
               </div>
 
               {/* Sort */}
-              <div className="flex items-center gap-1 sm:gap-1.5 lg:gap-2 shrink-0">
+              {/* <div className="flex items-center gap-1 sm:gap-1.5 lg:gap-2 shrink-0">
 
                 <ArrowUpDown
                   className="
@@ -508,7 +528,7 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
                   </option>
                 </select>
 
-              </div>
+              </div> */}
             </div>
           </div>
         </div>
@@ -625,7 +645,9 @@ export const CollectionPage: React.FC<CollectionPageProps> = ({
           <div className="bg-white border border-stone-200 rounded-lg p-12 text-center my-8">
             <Filter className="w-10 h-10 text-stone-300 mx-auto mb-3" />
             <h3 className="text-base font-bold text-stone-900 uppercase tracking-wider">
-              No products found in this category
+              {parsedCategory.isAll
+                ? 'No products found'
+                : `No products found in ${parsedCategory.subCategoryName || parsedCategory.mainCategoryName}`}
             </h3>
             <p className="text-xs text-stone-500 mt-1 max-w-md mx-auto">
               Try broadening your selection or clear brand / price filters to view all available factory leftover stock.

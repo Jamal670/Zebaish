@@ -12,7 +12,30 @@ import { fetchSellerOrders } from '@/src/api/sellerOrdersService';
 import { fetchSellerWalletKpis } from '@/src/api/sellerWalletService';
 import { fetchSellerFullProfile } from '@/src/api/sellerProfileService';
 import { fetchSellerStorefrontData } from '@/src/api/sellerService';
+import {
+  fetchTopLevelDepartments,
+  fetchCategoriesByDepartment,
+  fetchCategoryAttributeDefinitions,
+  CategoryRecord,
+  CategoryAttributeDefinition,
+} from '@/src/api/categoryService';
+import {
+  fetchProductInformation,
+  ProductInformationData,
+  fetchProductForEdit,
+  ProductEditData,
+} from '@/src/api/productService';
 import supabase from '@/src/api/client';
+
+// ==========================================
+// CACHE CONSTANTS (SELLER PRODUCTS & DETAILS)
+// ==========================================
+
+export const SELLER_PRODUCTS_STALE_TIME = 5 * 60 * 1000; // 5 minutes
+export const SELLER_PRODUCTS_GC_TIME = 10 * 60 * 1000; // 10 minutes
+
+export const PRODUCT_INFORMATION_STALE_TIME = 60 * 1000; // 1 minute
+export const PRODUCT_INFORMATION_GC_TIME = 5 * 60 * 1000; // 5 minutes
 
 // ==========================================
 // 1. PRODUCT DETAIL QUERY & MUTATION HOOKS
@@ -63,31 +86,71 @@ export function useCollectionProductsQuery(params: FetchCollectionParams) {
 // ==========================================
 
 /**
- * Fetches products listed by a seller, including the `views` column for ListingsView.
- * Default staleTime: 60 seconds (global default).
+ * Fetches products listed by an authenticated seller for ListingsView.
+ * Key: ['seller-products', sellerId]
+ * Stale time: 5 minutes, GC time: 10 minutes.
+ * Thumbnail embedded without !inner so products with no thumbnail still appear.
  */
 export function useSellerProductsQuery(sellerId?: string) {
   return useQuery({
-    queryKey: ['sellerProducts', sellerId],
+    queryKey: ['seller-products', sellerId],
     queryFn: async () => {
       if (!sellerId) return [];
       const { data, error } = await supabase
         .from('products')
         .select(`
-          *,
-          product_images (*),
-          product_variants (*)
+          id, title, status, inventory_mode, selling_price, quantity,
+          cached_min_variant_price, cached_max_variant_price, cached_total_variant_quantity,
+          views, created_at,
+          product_images ( id, storage_path, image_url, alt_text, is_thumbnail )
         `)
         .eq('seller_id', sellerId)
+        .eq('product_images.is_thumbnail', true)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
       return data || [];
     },
     enabled: Boolean(sellerId),
-    staleTime: 60 * 1000, // 60 seconds
+    staleTime: SELLER_PRODUCTS_STALE_TIME,
+    gcTime: SELLER_PRODUCTS_GC_TIME,
   });
 }
+
+/**
+ * Fetches comprehensive product details for the Product Information Modal.
+ * Runs ONLY when selectedProductId and sellerId are present (lazy on-click).
+ * Key: ['product-information', sellerId, productId]
+ * Stale time: 1 minute, GC time: 5 minutes.
+ */
+export function useProductInformationQuery(productId?: string | null, sellerId?: string) {
+  return useQuery({
+    queryKey: ['product-information', sellerId, productId],
+    queryFn: () => fetchProductInformation(productId!, sellerId!),
+    enabled: Boolean(productId && sellerId),
+    staleTime: PRODUCT_INFORMATION_STALE_TIME,
+    gcTime: PRODUCT_INFORMATION_GC_TIME,
+  });
+}
+
+/**
+ * Fetches fresh product data on mount for the edit collection screen.
+ * Key: ['product-edit', sellerId, productId]
+ * staleTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: false
+ */
+export function useProductEditQuery(productId?: string | null, sellerId?: string) {
+  return useQuery({
+    queryKey: ['product-edit', sellerId, productId],
+    queryFn: () => fetchProductForEdit(productId!, sellerId!),
+    enabled: Boolean(productId && sellerId),
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
+}
+
+export * from './useProductEditQueries';
 
 // ==========================================
 // 4. RESELLER DASHBOARD OVERVIEW & ANALYTICS
@@ -195,6 +258,7 @@ export function useNewListingMutation(sellerId?: string) {
     },
     onSuccess: () => {
       if (sellerId) {
+        queryClient.invalidateQueries({ queryKey: ['seller-products', sellerId] });
         queryClient.invalidateQueries({ queryKey: ['sellerProducts', sellerId] });
       }
     },
@@ -244,3 +308,52 @@ export function useBrandNamesQuery() {
     staleTime: 10 * 60 * 1000, // 10 minutes cache
   });
 }
+
+// ==========================================
+// 11. CATEGORY & DEPARTMENT QUERIES
+// ==========================================
+
+/**
+ * Fetches top-level categories (departments) where parent_id is null and is_active = true.
+ * Shared long cache with automatic background refetching.
+ */
+export function useDepartmentsQuery(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['categories', 'departments'],
+    queryFn: () => fetchTopLevelDepartments(),
+    enabled: options?.enabled !== undefined ? options.enabled : true,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+/**
+ * Fetches child categories for a selected department ID (parent_id = departmentId).
+ * Only fires when departmentId is truthy.
+ */
+export function useCategoriesByDepartmentQuery(
+  departmentId?: string | null,
+  options?: { enabled?: boolean }
+) {
+  const isEnabled = options?.enabled !== undefined ? Boolean(departmentId && options.enabled) : Boolean(departmentId);
+  return useQuery({
+    queryKey: ['categories', 'children', departmentId],
+    queryFn: () => fetchCategoriesByDepartment(departmentId!),
+    enabled: isEnabled,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+/**
+ * Fetches attribute definitions for a selected category ID from category_attribute_definitions table.
+ * Only fires when categoryId is truthy.
+ */
+export function useCategoryAttributeDefinitionsQuery(categoryId?: string | null) {
+  return useQuery({
+    queryKey: ['categoryAttributes', categoryId],
+    queryFn: () => fetchCategoryAttributeDefinitions(categoryId!),
+    enabled: Boolean(categoryId),
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+

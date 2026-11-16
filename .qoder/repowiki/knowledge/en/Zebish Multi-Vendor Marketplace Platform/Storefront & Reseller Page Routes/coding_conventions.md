@@ -1,0 +1,2 @@
+- Each route is a directory containing a `page.tsx`, with optional sibling `loading.tsx` for Suspense boundaries on data-heavy pages (product, shop, account).
+- Dynamic segments use Next.js bracket syntax (`[id]`, `[storeSlug]`, `[resellerId]`) rather than programmatic routing.

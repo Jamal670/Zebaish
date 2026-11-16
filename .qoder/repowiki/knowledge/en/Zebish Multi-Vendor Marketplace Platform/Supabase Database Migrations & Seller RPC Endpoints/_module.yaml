@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: supabase_migrations
+title: Supabase Database Migrations & Seller RPC Endpoints
+scope:
+    - supabase_checkout_migration.sql
+    - supabase_seller_last_7_days_rpc.sql
+    - supabase_seller_orders_rpc.sql
+    - supabase_seller_overview_rpc.sql
+    - supabase_seller_shipping_payment_migration.sql
+    - supabase_wallet_payout_rpc.sql
+source_files: []
+depends_on: []
+related_to:
+    - path: storefront_pages

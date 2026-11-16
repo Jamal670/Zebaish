@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: shared_components
+title: Shared Components & Cross-App Contexts
+scope:
+    - components/
+source_files: []
+depends_on: []
+related_to: []

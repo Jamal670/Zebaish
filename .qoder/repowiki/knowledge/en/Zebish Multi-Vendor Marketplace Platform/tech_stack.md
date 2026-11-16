@@ -1,0 +1,1 @@
+Next.js 16 + React 19 + TypeScript on top of Supabase (`@supabase/supabase-js`) for RLS-enabled PostgreSQL; Tailwind CSS v4 via PostCSS plugin; TanStack Query for data fetching; Recharts for seller analytics dashboards; Lucide icons; Vercel Analytics.
