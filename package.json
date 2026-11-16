@@ -2,6 +2,10 @@
   "name": "zebish",
   "version": "0.1.0",
   "private": true,
+  "allowScripts": {
+    "sharp": true,
+    "unrs-resolver": true
+  },
   "scripts": {
     "dev": "next dev --turbo -p 4000",
     "clean": "powershell -Command \"Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue\"",
