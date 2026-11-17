@@ -116,9 +116,9 @@ export const ProductInformationModal: React.FC<ProductInformationModalProps> = (
     };
   }, [productId, onClose]);
 
-  if (!mounted || !productId) return null;
-
   const { goToEdit } = useListingDraft();
+
+  if (!mounted || !productId) return null;
 
   // Edit action connects to the shared goToEdit helper
   const handleEditClick = () => {

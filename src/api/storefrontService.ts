@@ -193,7 +193,7 @@ function normalizeSellerRow(raw: Record<string, unknown> | null | undefined): St
 }
 
 async function querySeller(lookup: SellerLookup, columns: string) {
-  const selected = supabase.from('sellers').select(columns);
+  const selected = supabase.from('sellers').select<string, Record<string, unknown>>(columns);
   const filtered =
     lookup.kind === 'id'
       ? selected.eq('id', lookup.value)
@@ -219,10 +219,16 @@ async function lookupSellerBySlug(identifier: string): Promise<StorefrontSeller 
   const slug = toShopSlug(identifier);
   if (!slug) return null;
 
-  let result = await supabase.from('sellers').select(SELLER_COLUMNS).limit(MAX_SELLER_SCAN);
+  let result = await supabase
+    .from('sellers')
+    .select<string, Record<string, unknown>>(SELLER_COLUMNS)
+    .limit(MAX_SELLER_SCAN);
 
   if (result.error && isUnknownColumnError(result.error)) {
-    result = await supabase.from('sellers').select(SELLER_COLUMNS_FALLBACK).limit(MAX_SELLER_SCAN);
+    result = await supabase
+      .from('sellers')
+      .select<string, Record<string, unknown>>(SELLER_COLUMNS_FALLBACK)
+      .limit(MAX_SELLER_SCAN);
   }
   if (result.error) throw result.error;
 
@@ -301,7 +307,7 @@ export async function fetchSellerProducts({
   const runPageQuery = (columns: string) => {
     let pageQuery = supabase
       .from('products')
-      .select(columns, { count: 'exact' })
+      .select<string, StorefrontProduct>(columns, { count: 'exact' })
       .eq('seller_id', sellerId)
       // Without this filter drafts, inactive and archived products are public.
       .eq('status', 'active')
@@ -345,7 +351,7 @@ export async function fetchSellerProducts({
   }
 
   return {
-    products: Array.isArray(data) ? (data as StorefrontProduct[]) : [],
+    products: Array.isArray(data) ? data : [],
     count: typeof count === 'number' ? count : 0,
   };
 }

@@ -63,7 +63,7 @@ export async function fetchSectionCore(
   signal?: AbortSignal
 ): Promise<ProductEditCoreData | null> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('products')
       .select(`
         *,
@@ -75,9 +75,13 @@ export async function fetchSectionCore(
       `)
       .eq('id', productId)
       .eq('seller_id', sellerId)
-      .order('display_order', { referencedTable: 'product_images' })
-      .abortSignal(signal)
-      .maybeSingle();
+      .order('display_order', { referencedTable: 'product_images' });
+
+    if (signal) {
+      query = query.abortSignal(signal);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       if (
@@ -129,12 +133,16 @@ async function resolveCategoryParent(
     return { ...data, category: { ...cat, parent: null } };
   }
 
-  const { data: parentRow } = await supabase
+  let parentQuery = supabase
     .from('categories')
     .select('id, name')
-    .eq('id', cat.parent_id)
-    .abortSignal(signal as AbortSignal)
-    .maybeSingle();
+    .eq('id', cat.parent_id);
+
+  if (signal) {
+    parentQuery = parentQuery.abortSignal(signal);
+  }
+
+  const { data: parentRow } = await parentQuery.maybeSingle();
 
   return {
     ...data,
@@ -150,7 +158,7 @@ async function fetchSectionCoreFallback(
   sellerId: string,
   signal?: AbortSignal
 ): Promise<ProductEditCoreData | null> {
-  const { data: prod, error: prodErr } = await supabase
+  let prodQuery = supabase
     .from('products')
     .select(`
       *,
@@ -158,30 +166,42 @@ async function fetchSectionCoreFallback(
     `)
     .eq('id', productId)
     .eq('seller_id', sellerId)
-    .order('display_order', { referencedTable: 'product_images' })
-    .abortSignal(signal)
-    .maybeSingle();
+    .order('display_order', { referencedTable: 'product_images' });
+
+  if (signal) {
+    prodQuery = prodQuery.abortSignal(signal);
+  }
+
+  const { data: prod, error: prodErr } = await prodQuery.maybeSingle();
 
   if (prodErr) throw prodErr;
   if (!prod) return null;
 
   if (prod.category_id) {
-    const { data: catData } = await supabase
+    let catQuery = supabase
       .from('categories')
       .select('id, name, parent_id, is_active')
-      .eq('id', prod.category_id)
-      .abortSignal(signal)
-      .maybeSingle();
+      .eq('id', prod.category_id);
+
+    if (signal) {
+      catQuery = catQuery.abortSignal(signal);
+    }
+
+    const { data: catData } = await catQuery.maybeSingle();
 
     if (catData) {
       let parentCat: { id: string; name: string } | null = null;
       if (catData.parent_id) {
-        const { data: pData } = await supabase
+        let pQuery = supabase
           .from('categories')
           .select('id, name')
-          .eq('id', catData.parent_id)
-          .abortSignal(signal)
-          .maybeSingle();
+          .eq('id', catData.parent_id);
+
+        if (signal) {
+          pQuery = pQuery.abortSignal(signal);
+        }
+
+        const { data: pData } = await pQuery.maybeSingle();
         if (pData) parentCat = pData;
       }
       prod.category = {
@@ -204,14 +224,19 @@ export async function fetchSectionAttributes(
   const [attrValuesRes, customAttrsRes] = await Promise.all([
     (async () => {
       try {
-        const { data, error } = await supabase
+        let pavQuery = supabase
           .from('product_attribute_values')
           .select(`
             id, attribute_id, value_text, value_number, value_boolean, value_jsonb,
             category_attribute_definitions ( id, name, slug, data_type, options, is_required, is_active, sort_order )
           `)
-          .eq('product_id', productId)
-          .abortSignal(signal);
+          .eq('product_id', productId);
+
+        if (signal) {
+          pavQuery = pavQuery.abortSignal(signal);
+        }
+
+        const { data, error } = await pavQuery;
 
         if (error) {
           if (
@@ -227,22 +252,33 @@ export async function fetchSectionAttributes(
 
         const list = data || [];
         const missingIds = list
-          .filter((av: any) => av.attribute_id && (!av.category_attribute_definitions || !av.category_attribute_definitions.name))
+          .filter((av: any) => {
+            const defObj = av.category_attribute_definitions;
+            const hasName = Array.isArray(defObj) ? Boolean(defObj[0]?.name) : Boolean(defObj?.name);
+            return av.attribute_id && !hasName;
+          })
           .map((av: any) => av.attribute_id);
 
         if (missingIds.length > 0) {
-          const { data: defs } = await supabase
+          let defsQuery = supabase
             .from('category_attribute_definitions')
             .select('id, name, slug, data_type, options, is_required, is_active, sort_order')
-            .in('id', missingIds)
-            .abortSignal(signal);
+            .in('id', missingIds);
+
+          if (signal) {
+            defsQuery = defsQuery.abortSignal(signal);
+          }
+
+          const { data: defs } = await defsQuery;
 
           if (defs) {
             const defMap = new Map(defs.map((d: any) => [d.id, d]));
             for (const av of list) {
-              if (av.attribute_id && (!av.category_attribute_definitions || !av.category_attribute_definitions.name)) {
+              const defObj = (av as any).category_attribute_definitions;
+              const hasName = Array.isArray(defObj) ? Boolean(defObj[0]?.name) : Boolean(defObj?.name);
+              if (av.attribute_id && !hasName) {
                 const def = defMap.get(av.attribute_id);
-                if (def) av.category_attribute_definitions = def;
+                if (def) (av as any).category_attribute_definitions = def;
               }
             }
           }
@@ -255,12 +291,17 @@ export async function fetchSectionAttributes(
       }
     })(),
     (async () => {
-      const { data, error } = await supabase
+      let pcaQuery = supabase
         .from('product_custom_attributes')
         .select('id, name, value, display_order')
         .eq('product_id', productId)
-        .order('display_order', { ascending: true })
-        .abortSignal(signal);
+        .order('display_order', { ascending: true });
+
+      if (signal) {
+        pcaQuery = pcaQuery.abortSignal(signal);
+      }
+
+      const { data, error } = await pcaQuery;
 
       if (error) throw error;
       return data || [];
@@ -274,22 +315,32 @@ export async function fetchSectionAttributes(
 }
 
 async function fetchAttributeValuesFallback(productId: string, signal?: AbortSignal) {
-  const { data: pavList, error: pavError } = await supabase
+  let pavQuery = supabase
     .from('product_attribute_values')
     .select('id, attribute_id, value_text, value_number, value_boolean, value_jsonb')
-    .eq('product_id', productId)
-    .abortSignal(signal);
+    .eq('product_id', productId);
+
+  if (signal) {
+    pavQuery = pavQuery.abortSignal(signal);
+  }
+
+  const { data: pavList, error: pavError } = await pavQuery;
 
   if (pavError) throw pavError;
   const list = pavList || [];
   const attrIds = Array.from(new Set(list.map((av: any) => av.attribute_id).filter(Boolean)));
 
   if (attrIds.length > 0) {
-    const { data: defs, error: defsError } = await supabase
+    let defsQuery = supabase
       .from('category_attribute_definitions')
       .select('id, name, slug, data_type, options, is_required, is_active, sort_order')
-      .in('id', attrIds)
-      .abortSignal(signal);
+      .in('id', attrIds);
+
+    if (signal) {
+      defsQuery = defsQuery.abortSignal(signal);
+    }
+
+    const { data: defs, error: defsError } = await defsQuery;
 
     if (!defsError && defs) {
       const defMap = new Map(defs.map((d: any) => [d.id, d]));
@@ -312,25 +363,32 @@ export async function fetchSectionVariations(
   productId: string,
   signal?: AbortSignal
 ): Promise<ProductEditVariationsData> {
+  let optionsQuery = supabase
+    .from('product_options')
+    .select(`
+      id, name, display_order,
+      product_option_values ( id, value, normalized_value, display_order )
+    `)
+    .eq('product_id', productId)
+    .order('display_order', { ascending: true })
+    .order('display_order', { referencedTable: 'product_option_values', ascending: true });
+
+  let variantsQuery = supabase
+    .from('product_variants')
+    .select(`
+      id, sku, combination_key, selling_price, compare_at_price, quantity, is_active,
+      variant_option_values ( product_option_value_id )
+    `)
+    .eq('product_id', productId);
+
+  if (signal) {
+    optionsQuery = optionsQuery.abortSignal(signal);
+    variantsQuery = variantsQuery.abortSignal(signal);
+  }
+
   const [optionsRes, variantsRes] = await Promise.all([
-    supabase
-      .from('product_options')
-      .select(`
-        id, name, display_order,
-        product_option_values ( id, value, normalized_value, display_order )
-      `)
-      .eq('product_id', productId)
-      .order('display_order', { ascending: true })
-      .order('display_order', { referencedTable: 'product_option_values', ascending: true })
-      .abortSignal(signal),
-    supabase
-      .from('product_variants')
-      .select(`
-        id, sku, combination_key, selling_price, compare_at_price, quantity, is_active,
-        variant_option_values ( product_option_value_id )
-      `)
-      .eq('product_id', productId)
-      .abortSignal(signal),
+    optionsQuery,
+    variantsQuery,
   ]);
 
   if (optionsRes.error) throw optionsRes.error;
@@ -349,12 +407,17 @@ export async function fetchSectionOptionImages(
   productId: string,
   signal?: AbortSignal
 ): Promise<ProductOptionImageData[]> {
-  const { data, error } = await supabase
+  let query = supabase
     .from('product_option_images')
     .select('id, product_option_value_id, storage_path, image_url, created_at')
     .eq('product_id', productId)
-    .order('created_at', { ascending: true })
-    .abortSignal(signal);
+    .order('created_at', { ascending: true });
+
+  if (signal) {
+    query = query.abortSignal(signal);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return data || [];

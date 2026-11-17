@@ -17,11 +17,11 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({
   onToggleWishlist,
   isWishlisted,
 }) => {
-  if (!product) return null;
-
   const [selectedSize, setSelectedSize] = useState('Unstitched');
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
+
+  if (!product) return null;
 
   const sizes = ['Unstitched', 'Small', 'Medium', 'Large', 'Custom Stitching'];
 

@@ -1287,7 +1287,26 @@ export async function updateProduct(input: UpdateProductInput): Promise<UpdatePr
         throw new Error('Original retail price cannot be less than selling price.');
       }
     }
-    if (isNaN(simple.quantity) || simple.quantity < 0 || !Number.isInteger(simple.quantity)) {
+    if (typeof simple.quantity === 'number') {
+      if (isNaN(simple.quantity) || simple.quantity < 0 || !Number.isInteger(simple.quantity)) {
+        throw new Error('Product quantity must be an integer greater than or equal to 0.');
+      }
+    } else if (
+      typeof simple.quantity === 'object' &&
+      simple.quantity !== null &&
+      typeof simple.quantity.to === 'number'
+    ) {
+      const targetQty = simple.quantity.to;
+      const prevQty = simple.quantity.from;
+      if (
+        isNaN(targetQty) ||
+        targetQty < 0 ||
+        !Number.isInteger(targetQty) ||
+        (typeof prevQty === 'number' && (isNaN(prevQty) || prevQty < 0 || !Number.isInteger(prevQty)))
+      ) {
+        throw new Error('Product quantity must be an integer greater than or equal to 0.');
+      }
+    } else {
       throw new Error('Product quantity must be an integer greater than or equal to 0.');
     }
   }

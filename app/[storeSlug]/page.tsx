@@ -39,17 +39,17 @@ export default function DynamicRootStorePage() {
   const rawParam = (params?.storeSlug as string) || '';
   const storeSlug = decodeURIComponent(rawParam).trim();
 
-  // Guard against reserved routes or special files
-  if (!storeSlug || RESERVED_ROUTES.has(storeSlug.toLowerCase()) || storeSlug.startsWith('_') || storeSlug.includes('.')) {
-    return null;
-  }
-
   const {
     setQuickViewProduct,
     handleAddToCart,
     handleToggleWishlist,
     wishlistIds,
   } = useApp();
+
+  // Guard against reserved routes or special files
+  if (!storeSlug || RESERVED_ROUTES.has(storeSlug.toLowerCase()) || storeSlug.startsWith('_') || storeSlug.includes('.')) {
+    return null;
+  }
 
   const handleSelectProduct = (product: Product) => {
     router.push(`/product/${product.id}`);
